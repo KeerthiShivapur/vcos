@@ -1,0 +1,51 @@
+# Alert rules - align with Phase 16 events: replica.failed, health.degraded,
+# disaster.recovery.started, autoscaling.triggered.
+groups:
+  - name: vcos-availability
+    rules:
+      - alert: VCOSRegionUnhealthy
+        expr: vcos_health_status{status="critical"} > 0
+        for: 2m
+        labels: {severity: critical, vcos_event: health.degraded}
+        annotations:
+          summary: "{{ $labels.region }}/{{ $labels.service }} critical"
+          description: "Health metric is critical for 2+ minutes."
+
+      - alert: VCOSReplicaFailed
+        expr: vcos_cluster_healthy_nodes < vcos_cluster_total_nodes
+        for: 3m
+        labels: {severity: warning, vcos_event: replica.failed}
+        annotations:
+          summary: "Replica degraded in {{ $labels.cluster_type }}"
+          description: "Cluster {{ $labels.name }} has fewer healthy nodes than expected."
+
+      - alert: VCOSApiDown
+        expr: up{job="vcos-api"} < 1
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: "API pod {{ $labels.pod }} is down"
+
+      - alert: VCOSDatabaseLag
+        expr: vcos_replication_lag_seconds > 30
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "Replica lag above RPO target"
+          description: "Replication lag exceeds the 15-minute RPO guard."
+
+      - alert: VCOSAutoscalingRepeated
+        expr: rate(vcos_autoscaling_events_total[10m]) > 6
+        for: 10m
+        labels: {severity: warning, vcos_event: autoscaling.triggered}
+        annotations:
+          summary: "Autoscaling flapping"
+          description: "More than 6 scaling decisions per 10 minutes."
+
+      - alert: VCOSBackupFailed
+        expr: vcos_backup_status{status="failed"} > 0
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: "Backup failed"
+          description: "A scheduled backup did not complete."

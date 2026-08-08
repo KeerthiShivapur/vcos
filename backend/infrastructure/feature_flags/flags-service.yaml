@@ -1,0 +1,46 @@
+# Flag / entitlement evaluation service (Phase 16.11)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vcos-flags
+  namespace: vcos
+  labels: {app: vcos-flags, tier: platform}
+spec:
+  replicas: 3
+  selector: {matchLabels: {app: vcos-flags}}
+  template:
+    metadata:
+      labels: {app: vcos-flags}
+    spec:
+      containers:
+        - name: flags
+          image: vcos/flags:1.0.0
+          ports: [{containerPort: 8002}]
+          env:
+            - {name: FLAGS_DATA_DIR, value: /data}
+          volumeMounts: [{name: data, mountPath: /data}]
+          readinessProbe: {httpGet: {path: /health, port: 8002}}
+      volumes:
+        - name: data
+          configMap: {name: vcos-flags-config}
+---
+# Feature flags consumed by both Phase 15 (feature flags page) and Phase 16
+# (entitlement gates on cluster/deployment endpoints).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vcos-flags-config
+  namespace: vcos
+data:
+  flags.yaml: |
+    feature_flags:
+      - {key: "vcos.ai_inference", scope: org, default: false, rollout: 0}
+      - {key: "vcos.disaster_recovery", scope: org, default: true, rollout: 100}
+      - {key: "vcos.autoscaling", scope: org, default: true, rollout: 100}
+      - {key: "vcos.pitr_backups", scope: org, default: true, rollout: 100}
+      - {key: "vcos.recordings_export", scope: org, default: false, rollout: 25}
+    entitlements:
+      - {tier: community, max_clusters: 2, max_regions: 1, backups_days: 7}
+      - {tier: business, max_clusters: 10, max_regions: 3, backups_days: 30}
+      - {tier: enterprise, max_clusters: 50, max_regions: 10, backups_days: 365}
+    evaluation_cache_ttl: 30s

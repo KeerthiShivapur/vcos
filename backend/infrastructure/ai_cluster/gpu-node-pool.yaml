@@ -1,0 +1,63 @@
+# AI inference cluster - GPU node pool + model serving (Phase 16.15)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vcos-model-gateway
+  namespace: vcos
+  labels:
+    app: vcos-model-gateway
+    vcos.io/tier: ai
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: vcos-model-gateway}
+  template:
+    metadata:
+      labels: {app: vcos-model-gateway}
+    spec:
+      nodeSelector:
+        workload: ai
+      tolerations:
+        - {key: gpu, operator: Exists, effect: NoSchedule}
+      containers:
+        - name: gateway
+          image: vcos/model-gateway:1.0.0
+          ports: [{containerPort: 8001}]
+          resources:
+            requests: {cpu: 2, memory: 4Gi, nvidia.com/gpu: 1}
+            limits: {cpu: 4, memory: 8Gi, nvidia.com/gpu: 1}
+---
+# GPU node pool - tainted so only AI workloads land here (Phase 16.15)
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: vcos-gpu
+spec:
+  disruption:
+    consolidationPolicy: WhenUnderutilized
+    expireAfter: 720h
+  template:
+    metadata:
+      labels: {workload: ai}
+      annotations:
+        eks.amazonaws.com/nodegroup: gpu
+    spec:
+      taints:
+        - {key: gpu, value: "true", effect: NoSchedule}
+      requirements:
+        - {key: karpenter.sh/capacity-type, operator: In, values: [on-demand]}
+        - {key: node.kubernetes.io/instance-type, operator: In, values: [g5.2xlarge, g5.4xlarge]}
+        - {key: topology.kubernetes.io/zone, operator: In, values: [us-east-1a, us-east-1b, us-east-1c]}
+  limits:
+    cpu: 128
+    memory: 512Gi
+    nvidia.com/gpu: 8
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: vcos-model-gateway
+  namespace: vcos
+spec:
+  targetRef: {apiVersion: apps/v1, kind: Deployment, name: vcos-model-gateway}
+  updatePolicy: {updateMode: Off}   # recommend only; GPUs are not hot-swapped

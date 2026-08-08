@@ -1,0 +1,90 @@
+# Redis cluster - 3 masters x 2 replicas, sharded (Phase 16.13)
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: vcos
+  labels: {app: redis, tier: cache}
+spec:
+  serviceName: redis
+  replicas: 6                    # 3 masters + 3 replicas
+  selector: {matchLabels: {app: redis}}
+  template:
+    metadata:
+      labels: {app: redis, tier: cache}
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command: ["sh", "-c"]
+          args:
+            - |
+              redis-server --port 6379 --cluster-enabled yes --cluster-config-file nodes.conf \
+                --cluster-node-timeout 5000 --appendonly yes \
+                --maxmemory 4gb --maxmemory-policy allkeys-lru
+          ports: [{containerPort: 6379}]
+          volumeMounts: [{name: data, mountPath: /data}]
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: redis-data}
+  volumeClaimTemplates:
+    - metadata: {name: redis-data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: {requests: {storage: 20Gi}}
+---
+# Cluster bootstrap job - forms the ring on first deploy (Phase 16.13)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: redis-cluster-init
+  namespace: vcos
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: init
+          image: redis:7-alpine
+          command: ["sh", "-c"]
+          args:
+            - |
+              yes yes | redis-cli --cluster create \
+                redis-0.redis:6379 redis-1.redis:6379 redis-2.redis:6379 \
+                redis-3.redis:6379 redis-4.redis:6379 redis-5.redis:6379 \
+                --cluster-replicas 1
+---
+# Sentinel sidecar for clients that still need failover DNS (Phase 16.13)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-sentinel
+  namespace: vcos
+spec:
+  replicas: 3
+  selector: {matchLabels: {app: redis-sentinel}}
+  template:
+    metadata:
+      labels: {app: redis-sentinel}
+    spec:
+      containers:
+        - name: sentinel
+          image: redis:7-alpine
+          command: ["redis-sentinel", "/etc/sentinel.conf"]
+          volumeMounts: [{name: conf, mountPath: /etc}]
+      volumes:
+        - name: conf
+          configMap: {name: redis-sentinel-config}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-sentinel-config
+  namespace: vcos
+data:
+  sentinel.conf: |
+    port 26379
+    sentinel monitor vcos-master redis-0.redis 6379 2
+    sentinel down-after-milliseconds vcos-master 5000
+    sentinel failover-timeout vcos-master 10000

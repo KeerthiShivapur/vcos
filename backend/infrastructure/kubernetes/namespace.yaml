@@ -1,0 +1,22 @@
+# VCOS platform namespace (Phase 16)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vcos
+  labels:
+    app.kubernetes.io/part-of: vcos
+    vcos.io/region: na-virginia
+    vcos.io/tier: platform
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: vcos-quota
+  namespace: vcos
+spec:
+  hard:
+    requests.cpu: "40"
+    requests.memory: 96Gi
+    limits.cpu: "80"
+    limits.memory: 192Gi
+    pods: "120"

@@ -1,0 +1,68 @@
+# Nightly full backup + hourly PITR WAL shipping (Phase 16.20)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: vcos-daily-backup
+  namespace: vcos
+spec:
+  schedule: "0 2 * * *"            # 02:00 UTC
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: backup
+              image: postgres:16
+              env:
+                - {name: PGHOST, value: postgres-primary}
+                - {name: PGBACKREST_STANZA, value: "vcos"}
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  pgbackrest --stanza=vcos --type=full backup
+                  pgbackrest --stanza=vcos info
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: vcos-hourly-wal
+  namespace: vcos
+spec:
+  schedule: "0 * * * *"             # hourly WAL archive -> PITR
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: wal-archive
+              image: postgres:16
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  pgbackrest --stanza=vcos --type=incr backup
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: vcos-backup-verify
+  namespace: vcos
+spec:
+  schedule: "30 3 * * *"           # restore-and-verify nightly
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: verify
+              image: postgres:16
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  pgbackrest --stanza=vcos --type=standby --target=verify restore
+                  pgbackrest --stanza=vcos verify

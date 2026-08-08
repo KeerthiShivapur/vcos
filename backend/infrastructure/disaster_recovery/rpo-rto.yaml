@@ -1,0 +1,21 @@
+# RPO/RTO governance - read by the quarterly drill review (Phase 16.21)
+rpo_rto:
+  rpo_target_minutes: 15
+  rto_target_minutes: 30
+  evaluation: "on every completed DR run via /infrastructure/dr/rpo-rto"
+
+  violation_response:
+    rpo_breach:
+      - page SRE immediately
+      - open incident: replication lag tuning
+      - increase WAL archiving frequency
+    rto_breach:
+      - page SRE immediately
+      - open incident: restore performance
+      - add restore test to nightly verify job
+
+drills:
+  frequency: quarterly
+  scenarios: [region_outage, db_failover, replica_promotion, recovery_test, storage_fallback]
+  requirement: "at least one completed drill per quarter with actuals recorded"
+  signoff: "CEO + platform SRE"

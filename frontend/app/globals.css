@@ -1,0 +1,119 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --canvas: 249 250 251;
+  --surface: 255 255 255;
+  --elevated: 255 255 255;
+  --line: 226 232 240;
+  --ink: 15 23 42;
+  --muted: 100 116 139;
+  --faint: 148 163 184;
+  --brand: 79 70 229;
+  --brand-strong: 67 56 202;
+  --brand-soft: 238 242 255;
+  --success: 5 150 105;
+  --warning: 217 119 6;
+  --danger: 220 38 38;
+}
+
+.dark {
+  --canvas: 8 10 16;
+  --surface: 15 18 28;
+  --elevated: 20 24 36;
+  --line: 38 44 60;
+  --ink: 226 232 240;
+  --muted: 148 163 184;
+  --faint: 100 116 139;
+  --brand: 129 140 248;
+  --brand-strong: 165 180 252;
+  --brand-soft: 30 27 75;
+  --success: 52 211 153;
+  --warning: 251 191 36;
+  --danger: 248 113 113;
+}
+
+* {
+  border-color: rgb(var(--line));
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  @apply bg-canvas text-ink antialiased;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+::selection {
+  background: rgb(var(--brand) / 0.22);
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--faint) / 0.35);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--faint) / 0.6);
+  background-clip: content-box;
+  border: 2px solid transparent;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-line bg-surface shadow-card;
+  }
+
+  .input {
+    @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-faint outline-none transition-colors focus:border-brand focus:ring-2 focus:ring-brand/20;
+  }
+
+  .label {
+    @apply mb-1.5 block text-[13px] font-medium text-muted;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg text-sm font-medium transition-all outline-none disabled:opacity-50 disabled:pointer-events-none focus-visible:ring-2 focus-visible:ring-brand/40;
+  }
+
+  .btn-primary {
+    @apply btn bg-brand text-white hover:bg-brand-strong px-4 py-2;
+  }
+
+  .btn-secondary {
+    @apply btn border border-line bg-surface px-4 py-2 text-ink hover:bg-canvas;
+  }
+
+  .btn-ghost {
+    @apply btn px-3 py-2 text-muted hover:bg-surface hover:text-ink;
+  }
+
+  .btn-danger {
+    @apply btn bg-danger/10 px-4 py-2 text-danger hover:bg-danger/20;
+  }
+
+  .btn-sm {
+    @apply px-2.5 py-1.5 text-[13px];
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium;
+  }
+
+  .table-head {
+    @apply text-left text-xs font-semibold uppercase tracking-wide text-faint;
+  }
+}

@@ -1,0 +1,22 @@
+# Cache control + purge policy (Phase 16.18)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vcos-cdn-policy
+  namespace: vcos
+data:
+  cache-policy.yaml: |
+    presets:
+      immutable-hash: {ttl: 365d, stale: 31536000, swr: 86400}
+      static-asset:   {ttl: 7d, stale: 604800, swr: 0}
+      api-response:   {ttl: 0, no-store: true, vary: [Authorization]}
+      recording:      {ttl: 1h, range: true, stale: 3600}
+
+    purge:
+      trigger: cdn.purge
+      webhook: https://api.vcos.io/api/v1/infrastructure/cdn/purge
+      allowlist: [ci-deploy, sre, infra]
+
+    headers:
+      security: [Strict-Transport-Security, Content-Security-Policy, X-Content-Type-Options]
+      cache: [Cache-Control, ETag, Last-Modified]

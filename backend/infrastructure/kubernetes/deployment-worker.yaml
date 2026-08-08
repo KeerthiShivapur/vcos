@@ -1,0 +1,69 @@
+# Worker fleet - all Phase 15/16 workers run here (Phase 16)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vcos-workers
+  namespace: vcos
+  labels:
+    app: vcos-workers
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: vcos-workers}
+  template:
+    metadata:
+      labels: {app: vcos-workers}
+    spec:
+      containers:
+        - name: workers
+          image: vcos/api:1.0.0
+          command: ["python", "-m", "app.workers.runner"]
+          envFrom:
+            - secretRef: {name: vcos-secrets}
+            - configMapRef: {name: vcos-config}
+          resources:
+            requests: {cpu: "1", memory: 1Gi}
+            limits: {cpu: "4", memory: 4Gi}
+---
+# Horizontal autoscaling - Phase 16 autoscaling service drives these targets
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: vcos-api-hpa
+  namespace: vcos
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: vcos-api
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: 70}
+    - type: Resource
+      resource:
+        name: memory
+        target: {type: Utilization, averageUtilization: 80}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - {type: Percent, value: 100, periodSeconds: 60}
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - {type: Percent, value: 25, periodSeconds: 120}
+---
+# PodDisruptionBudget - zero-downtime during node drains
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: vcos-api-pdb
+  namespace: vcos
+spec:
+  minAvailable: 4
+  selector:
+    matchLabels: {app: vcos-api}

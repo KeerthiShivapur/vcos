@@ -1,0 +1,31 @@
+# Network topology per region (Phase 16.9)
+vpc:
+  cidr: 10.0.0.0/16
+  zones: [a, b, c]
+
+subnets:
+  public:  "10.0.{20,21,22}.0/24"   # NAT egress only
+  private: "10.0.{10,11,12}.0/24"   # workloads
+  data:    "10.0.{30,31,32}.0/24"   # databases, caches, search
+
+segments:
+  - name: dmz
+    cidr: 10.0.20.0/24
+    allow: [ingress_https]
+  - name: app
+    cidr: 10.0.10.0/24
+    allow: [egress_nat, dmz->app, app->data, app->cache, app->object_storage]
+  - name: data
+    cidr: 10.0.30.0/24
+    allow: [app->data(5432,6379,9200,7687), backups->data(5432)]
+
+dns:
+  records:
+    - {type: A, name: api.vcos.io, ttl: 60, target: "global-lb"}
+    - {type: A, name: app.vcos.io, ttl: 60, target: "global-lb"}
+    - {type: CNAME, name: assets.vcos.io, target: "cdn.vcos.io"}
+
+failover:
+  drain_health_path: /health
+  drain_status_code: 503
+  ttl_seconds: 60

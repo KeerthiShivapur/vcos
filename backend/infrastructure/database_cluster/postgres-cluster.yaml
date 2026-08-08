@@ -1,0 +1,63 @@
+# Postgres HA cluster - Patroni primary + replicas (Phase 16.5)
+# Mirrors ClusterStatus topology: one primary, N replicas per region.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: vcos-db
+  namespace: vcos
+spec:
+  imageName: ghcr.io/cloudnative-pg/postgresql:16
+  instances: 3                      # 1 primary + 2 replicas (read scaling)
+  primaryUpdateStrategy: unsupervised
+
+  postgresql:
+    parameters:
+      wal_level: replica
+      max_replication_slots: 10
+      max_wal_senders: 10
+      checkpoint_completion_target: "0.9"
+      synchronous_commit: "on"      # zero-loss writes within the region
+
+  bootstrap:
+    recovery:
+      backup:
+        method: objectStore
+        objectStore:
+          destination: "s3://vcos-backups-na-virginia/wal"
+
+  storage:
+    size: 200Gi
+    storageClass: gp3
+
+  affinity:
+    antiAffinityType: preferred
+    topologyKey: topology.kubernetes.io/zone
+
+  monitoring:
+    enablePodMonitor: true
+
+  backup:
+    barmanObjectStore:
+      destinationPath: "s3://vcos-backups-na-virginia/primary"
+      wal:
+        compression: gzip
+        maxParallel: 8
+      retentionPolicy: "30d"
+    scheduledBackups:
+      - {name: daily, schedule: "0 2 * * *", backupMethod: volumeSnapshot, backupType: full, retentionPolicy: "30d"}
+      - {name: hourly-wal, schedule: "0 * * * *", backupMethod: barmanObjectStore, backupType: incremental}
+---
+# Read replica tier - horizontal reads (Phase 16.5)
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: vcos-db-read
+  namespace: vcos
+spec:
+  imageName: ghcr.io/cloudnative-pg/postgresql:16
+  instances: 2
+  replica:
+    source: vcos-db
+    enabled: true
+  storage:
+    size: 200Gi

@@ -1,0 +1,56 @@
+# Helm values - defaults; per-region overrides live in regions/<name>.yaml
+# (Phase 16.3 multi-region topology mirrors these values).
+
+region: na-virginia
+role: primary            # primary | standby | failover
+
+api:
+  image: vcos/api
+  tag: "1.0.0"
+  replicas: 6
+  replicasMax: 20        # Phase 16.22 autoscaling ceiling
+  resources:
+    requests: {cpu: 500m, memory: 512Mi}
+    limits: {cpu: "2", memory: 2Gi}
+
+workers:
+  replicas: 2
+  resources:
+    requests: {cpu: 1, memory: 1Gi}
+    limits: {cpu: 4, memory: 4Gi}
+
+database:
+  enabled: true
+  primary:
+    replicas: 1
+    multiAz: true
+  replicas: 2            # read replicas (Phase 16.5)
+  pitrWindowHours: 336   # 14 days (Phase 16.20)
+
+redis:
+  enabled: true
+  clusterSize: 3
+
+opensearch:
+  enabled: true
+  nodeCount: 3
+
+neo4j:
+  enabled: true
+  coreNodes: 3
+  readReplicas: 2
+
+objectStorage:
+  enabled: true
+  endpoint: minio.vcos.svc.cluster.local
+
+ingress:
+  host: api.vcos.io
+  tlsSecret: vcos-tls
+
+monitoring:
+  enabled: true
+  prometheus: true
+  grafana: true
+  loki: true
+  tempo: true

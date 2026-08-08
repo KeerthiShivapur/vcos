@@ -1,0 +1,39 @@
+# CDN - global asset delivery with region-aware origin failover (Phase 16.18)
+distribution:
+  name: vcos-cdn
+  comment: "VCOS assets + recordings edge delivery"
+
+origins:
+  primary:
+    domain: assets-origin.na-virginia.vcos.io
+    originPath: /assets
+    connectionAttempts: 2
+    connectionTimeout: 5
+  failover:
+    domain: assets-origin.europe-frankfurt.vcos.io
+    originPath: /assets
+
+cacheBehaviors:
+  - pathPattern: "/static/*"
+    ttl: {min: 86400, max: 31536000, default: 86400}
+    compress: true
+    httpMethods: [GET, HEAD, OPTIONS]
+  - pathPattern: "/recordings/*"
+    ttl: {min: 300, max: 604800, default: 3600}
+    compress: true
+    rangeRequests: true
+  - pathPattern: "/api/*"
+    ttl: {min: 0, max: 0, default: 0}
+    forwardedHeaders: [Authorization, Origin]
+
+restrictions:
+  geoRestriction:
+    restrictionType: none          # global reach
+    items: []
+
+logging:
+  bucket: vcos-cdn-logs
+  prefix: cdn/
+
+defaultRootObject: index.html
+priceClass: PriceClass_All

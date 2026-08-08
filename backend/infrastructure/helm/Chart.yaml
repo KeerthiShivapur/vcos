@@ -1,0 +1,25 @@
+# VCOS Helm chart - one chart, per-region values (Phase 16.19)
+apiVersion: v2
+name: vcos
+description: VCOS platform - API, workers, and observability sidecars.
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+
+dependencies:
+  - name: postgresql
+    version: "15.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
+  - name: redis
+    version: "19.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: redis.enabled
+  - name: opensearch
+    version: "2.x"
+    repository: https://opensearch-project.github.io/helm-charts
+    condition: opensearch.enabled
+  - name: neo4j
+    version: "5.x"
+    repository: https://helm.neo4j.com/neo4j
+    condition: neo4j.enabled

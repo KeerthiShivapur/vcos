@@ -1,0 +1,65 @@
+# Kubernetes HPA (Phase 16.4) - autoscaling_service targets in cluster terms:
+# scale-out at 70% utilization, scale-in at 30%, MIN 1 / MAX 20.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: vcos-api
+  namespace: vcos
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: vcos-api}
+  minReplicas: 1
+  maxReplicas: 20
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - {type: Percent, value: 100, periodSeconds: 30}   # aggressive scale-out
+    scaleDown:
+      stabilizationWindowSeconds: 300                      # 5 min before scale-in
+      policies:
+        - {type: Percent, value: 25, periodSeconds: 60}
+  metrics:
+    - type: Resource
+      resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}
+    - type: Resource
+      resource: {name: memory, target: {type: Utilization, averageUtilization: 70}}
+    - type: Pods
+      pods:
+        metric: {name: vcos_request_rate}
+        target: {type: AverageValue, averageValue: "800"}
+---
+# Worker pool scales on queue depth (Phase 16.4)
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: vcos-worker
+  namespace: vcos
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: vcos-worker}
+  minReplicas: 1
+  maxReplicas: 12
+  metrics:
+    - type: External
+      external:
+        metric: {name: vcos_queue_depth}
+        target: {type: AverageValue, averageValue: "50"}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 900
+---
+# Guardrails for the platform-wide scaling policy (Phase 16.4)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vcos-autoscaling-policy
+  namespace: vcos
+data:
+  policy.yaml: |
+    limits:
+      global_max_pods: 2000
+      per_deployment_max: 20
+      per_deployment_min: 1
+    cooldown_seconds: {scale_out: 60, scale_in: 300}
+    hysteresis_percent: 5
+    protected_workloads: [vcos-db, neo4j-core, minio]      # stateful - never HPA
+    action_channels: [autoscaling.triggered events, #sre]

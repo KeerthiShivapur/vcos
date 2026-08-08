@@ -1,0 +1,60 @@
+# OpenSearch cluster - 3 data nodes + 2 master-eligible (Phase 16.12 search)
+apiVersion: opensearch.opster.io/v1
+kind: OpenSearchCluster
+metadata:
+  name: vcos-search
+  namespace: vcos
+spec:
+  general:
+    serviceName: vcos-search
+    version: 2.11.1
+    security: {tls: {transport: {generate: true}}}
+  nodePools:
+    - component: masters
+      replicas: 2
+      roles: [master, cluster_manager]
+      resources: {requests: {cpu: 1, memory: 2Gi}}
+    - component: data
+      replicas: 3
+      roles: [data]
+      resources: {requests: {cpu: 2, memory: 8Gi}}
+      persistence:
+        pvc:
+          accessModes: [ReadWriteOnce]
+          resources: {requests: {storage: 100Gi}}
+  dashboards:
+    enable: true
+    replicas: 1
+---
+# Index lifecycle: keep 90 days of search indices hot, snapshot monthly (Phase 16.12)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vcos-search-policy
+  namespace: vcos
+data:
+  ism-policy.json: |
+    {
+      "policy_id": "vcos-search-ilm",
+      "description": "90-day hot retention with monthly snapshots",
+      "default_state": "hot",
+      "states": [
+        {
+          "name": "hot",
+          "actions": [{"rollover": {"min_size": "50gb", "min_index_age": "7d"}}],
+          "transitions": [{"state_name": "warm", "conditions": {"min_index_age": "30d"}}]
+        },
+        {
+          "name": "warm",
+          "actions": [
+            {"replica_count": {"number_of_replicas": 2}},
+            {"snapshot": {"repository": "vcos-backups", "ignore_unavailable": true}}
+          ],
+          "transitions": [{"state_name": "delete", "conditions": {"min_index_age": "90d"}}]
+        },
+        {
+          "name": "delete",
+          "actions": [{"delete": {}}]
+        }
+      ]
+    }

@@ -1,0 +1,44 @@
+# Cross-region failover manifest (Phase 16.21)
+# Mirrors what /infrastructure/dr + /infrastructure/clusters/failover execute.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vcos-failover
+  namespace: vcos
+data:
+  primary_region: "na-virginia"
+  standby_region: "europe-frankfurt"
+  rpo_target_minutes: "15"
+  rto_target_minutes: "30"
+  failover_steps: |
+    detect_outage -> drain_traffic -> promote_standby -> promote_db_replica
+    -> verify_traffic -> record_actuals -> complete
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vcos-global
+  namespace: vcos
+spec:
+  selector:
+    vcos.io/region: "na-virginia"
+  ports:
+    - port: 443
+      targetPort: 8000
+---
+# External DNS health-check annotation flips this to the standby region
+# automatically when /health returns 503 (drain mode).
+apiVersion: v1
+kind: Service
+metadata:
+  name: vcos-drain
+  namespace: vcos
+  annotations:
+    external-dns.alpha.kubernetes.io/health-check-path: "/health"
+    external-dns.alpha.kubernetes.io/health-check-fail-threshold: "3"
+spec:
+  selector:
+    vcos.io/role: "failover"
+  ports:
+    - port: 443
+      targetPort: 8000

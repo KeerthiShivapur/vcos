@@ -1,0 +1,46 @@
+# Disaster recovery runbook (Phase 16.21)
+# Driven by the DisasterRecoveryService scenarios; every step is recorded in
+# disaster_recovery_logs and emits disaster.recovery.* events.
+#
+# Targets (matching /infrastructure/dr/rpo-rto):
+#   RPO <= 15 min  |  RTO <= 30 min  |  quarterly drills mandatory
+
+runbook:
+  region_outage:
+    detection:
+      - health.degraded alert on region status page
+      - DR run started (disaster.recovery.started)
+    failover:
+      - drain traffic from failed region via global LB health checks
+      - promote standby region (disaster.recovery.failover)
+      - fail over database: promote DR replica (ClusterStatus role flip)
+      - verify read/write traffic (disaster.recovery.verify)
+    recovery:
+      - record RPO/RTO actuals in the DR log
+      - reconcile data written to DR region against PITR window
+      - complete run (disaster.recovery.completed)
+
+  db_failover:
+    detection:
+      - replica.failed event or replication lag > RPO guard
+    failover:
+      - promote healthiest replica (clusters_service.failover)
+      - repoint read replicas to the new primary
+      - verify checksums + row counts against backups
+    recovery:
+      - rebuild old primary as replica
+      - complete run
+
+  replica_promotion:
+    - validate lag_seconds == 0 on candidate
+    - promote, then run query smoke tests
+    - complete run
+
+  recovery_test:
+    - restore from latest verified backup into staging
+    - run 30-minute read/write soak
+    - record rpo/rto actuals, complete run
+
+  storage_fallback:
+    - switch assets reads to CDN origin failover (object_storage -> cold bucket)
+    - complete run

@@ -1,0 +1,50 @@
+# Unified observability: metrics, traces, logs, dashboards (Phase 16.21)
+# Aggregates the three backends: Prometheus/Loki/Tempo into one view.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vcos-observability-config
+  namespace: vcos
+data:
+  aggregation.yaml: |
+    stacks:
+      metrics: {backend: prometheus, retention: 30d, scrape: 15s}
+      logs: {backend: loki, retention: 90d}
+      traces: {backend: tempo, retention: 30d}
+      uptime: {backend: external, probe_interval: 30s, regions: global}
+    views:
+      - {name: platform-health, panels: [cluster, region, service], refresh: 30s}
+      - {name: slo-burn, panels: [slo, burn_rate], refresh: 1m}
+      - {name: autoscaling, panels: [replicas, utilization], refresh: 30s}
+    alert_routing:
+      default: alertmanager
+      on_call: [sre@vcos.io]
+      severity_map: {critical: page, warning: slack, info: email}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vcos-slo-budget
+  namespace: vcos
+data:
+  slo.yaml: |
+    objectives:
+      - {name: api-availability, sli: http_success_rate, target: 99.9, window: 30d}
+      - {name: api-latency-p95, sli: latency_p95, target: 500ms, window: 30d}
+      - {name: backup-success, sli: backup_success_rate, target: 99.5, window: 90d}
+      - {name: dr-recovery, sli: dr_success_rate, target: 99.9, window: 90d}
+    error_budget:
+      alert_50pct: warn
+      alert_75pct: critical
+    burn_rate_alerts: [1h@14.4, 6h@6, 3d@1]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vcos-observability-dashboards
+  namespace: vcos
+data:
+  dashboards.yaml: |
+    - {name: "Platform Overview", source: monitoring/grafana-dashboard.json}
+    - {name: "DR Drill", source: "dr/observability"}
+    - {name: "Autoscaling", source: "autoscaling/observability"}

@@ -1,0 +1,51 @@
+# Runtime security baseline (Phase 16.16)
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: vcos-pod-hardening
+spec:
+  validationFailureAction: Enforce
+  rules:
+    - name: require-run-as-non-root
+      match: {resources: {kinds: [Pod]}}
+      validate:
+        message: "Containers must run as a non-root user."
+        pattern:
+          spec:
+            containers:
+              - securityContext:
+                  runAsNonRoot: true
+
+    - name: block-privileged
+      match: {resources: {kinds: [Pod]}}
+      validate:
+        message: "Privileged containers are forbidden."
+        pattern:
+          spec:
+            containers:
+              - securityContext:
+                  privileged: false
+
+    - name: require-readonly-fs
+      match: {resources: {kinds: [Pod]}}
+      validate:
+        message: "Root filesystem must be read-only."
+        pattern:
+          spec:
+            containers:
+              - securityContext:
+                  readOnlyRootFilesystem: true
+---
+# Image scanning gate - mirrors the Phase 15 plugin sandbox policy for images.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vcos-image-policy
+  namespace: vcos
+data:
+  policy.yaml: |
+    registry: ghcr.io/vcos
+    require: [verified, scanned, signed]
+    scan_threshold: critical
+    deny_layers: [unpinned_base]
+    admission: block

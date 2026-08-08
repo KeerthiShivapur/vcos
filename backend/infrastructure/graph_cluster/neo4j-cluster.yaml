@@ -1,0 +1,79 @@
+# Neo4j causal cluster - 3 core + 2 read replicas (Phase 16.14 org graph)
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: neo4j-core
+  namespace: vcos
+  labels: {app: neo4j, tier: graph, role: core}
+spec:
+  serviceName: neo4j-core
+  replicas: 3
+  selector: {matchLabels: {app: neo4j, role: core}}
+  template:
+    metadata:
+      labels: {app: neo4j, tier: graph, role: core}
+    spec:
+      containers:
+        - name: neo4j
+          image: neo4j:5-enterprise
+          ports:
+            - {containerPort: 7474, name: http}
+            - {containerPort: 7687, name: bolt}
+            - {containerPort: 5000, name: discovery}
+          env:
+            - {name: NEO4J_ACCEPT_LICENSE_AGREEMENT, value: "yes"}
+            - {name: NEO4J_MODE, value: CORE}
+            - {name: NEO4J_initial.dbms.default_listen_address, value: "0.0.0.0"}
+            - {name: NEO4J_server.bolt_advertised__address, value: "neo4j-core-$(POD_NAME).neo4j-core.vcos.svc.cluster.local:7687"}
+          envFrom:
+            - secretRef: {name: neo4j-secrets}
+          volumeMounts: [{name: data, mountPath: /data}]
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: neo4j-core-data}
+  volumeClaimTemplates:
+    - metadata: {name: neo4j-core-data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: {requests: {storage: 100Gi}}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: neo4j-read
+  namespace: vcos
+  labels: {app: neo4j, tier: graph, role: read}
+spec:
+  serviceName: neo4j-read
+  replicas: 2
+  selector: {matchLabels: {app: neo4j, role: read}}
+  template:
+    metadata:
+      labels: {app: neo4j, role: read}
+    spec:
+      containers:
+        - name: neo4j
+          image: neo4j:5-enterprise
+          ports: [{containerPort: 7687, name: bolt}]
+          env:
+            - {name: NEO4J_ACCEPT_LICENSE_AGREEMENT, value: "yes"}
+            - {name: NEO4J_MODE, value: READ_REPLICA}
+            - {name: NEO4J_initial.dbms.discovery.endpoints, value: "neo4j-core-0.neo4j-core:5000,neo4j-core-1.neo4j-core:5000,neo4j-core-2.neo4j-core:5000"}
+          volumeMounts: [{name: data, mountPath: /data}]
+  volumeClaimTemplates:
+    - metadata: {name: neo4j-read-data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: {requests: {storage: 50Gi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: neo4j-core
+  namespace: vcos
+spec:
+  clusterIP: None
+  selector: {app: neo4j, role: core}
+  ports:
+    - {port: 7687, name: bolt}
+    - {port: 5000, name: discovery}

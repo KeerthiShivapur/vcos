@@ -1,0 +1,49 @@
+{
+  "title": "VCOS Infrastructure (Phase 16)",
+  "uid": "vcos-infra",
+  "editable": true,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Region health (vcos_health_status)",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "vcos_health_status{status=\"critical\"}", "legendFormat": "{{service}}"}],
+      "fieldConfig": {"defaults": {"thresholds": {"steps": [{"value": 0, "color": "green"}, {"value": 1, "color": "red"}]}}}
+    },
+    {
+      "id": 2,
+      "title": "Replication lag (s)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 6, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "vcos_replication_lag_seconds", "legendFormat": "{{name}}"}]
+    },
+    {
+      "id": 3,
+      "title": "Autoscaling decisions",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "rate(vcos_autoscaling_events_total[5m])", "legendFormat": "{{resource}} {{direction}}"}]
+    },
+    {
+      "id": 4,
+      "title": "Backup status",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 16},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "vcos_backup_status", "legendFormat": "{{status}}"}]
+    },
+    {
+      "id": 5,
+      "title": "Chaos runs (reliability)",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 16},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "vcos_chaos_runs_total", "legendFormat": "{{scenario}}"}]
+    }
+  ],
+  "time": {"from": "now-6h", "to": "now"}
+}

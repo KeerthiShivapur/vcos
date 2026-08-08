@@ -1,0 +1,45 @@
+# Zero-trust network policy (Phase 16.16)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vcos-default-deny
+  namespace: vcos
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vcos-api-ingress
+  namespace: vcos
+spec:
+  podSelector:
+    matchLabels: {app: vcos-api}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: ingress-nginx}}
+        - podSelector: {matchLabels: {app: vcos-workers}}
+      ports: [{protocol: TCP, port: 8000}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vcos-data-egress
+  namespace: vcos
+spec:
+  podSelector:
+    matchExpressions:
+      - {key: app, operator: In, values: [vcos-api, vcos-workers]}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector: {matchLabels: {tier: database}}
+      ports: [{protocol: TCP, port: 5432}]
+    - to:
+        - podSelector: {matchLabels: {tier: cache}}
+      ports: [{protocol: TCP, port: 6379}]
+    - to:
+        - podSelector: {matchLabels: {tier: search}}
+      ports: [{protocol: TCP, port: 9200}]

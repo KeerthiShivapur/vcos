@@ -1,0 +1,65 @@
+# Compliance evidence collection (Phase 16.20)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vcos-compliance-scope
+  namespace: vcos
+data:
+  compliance.yaml: |
+    frameworks:
+      soc2:
+        controls: [CC7.1, CC7.2, CC7.3, A1.2, A1.3]
+        evidence:
+          - {type: backup_test, source: backups_service}
+          - {type: failover_drill, source: disaster_recovery_service}
+          - {type: audit_log, source: event_catalog}
+      iso27001:
+        controls: [A.12.4, A.17.1, A.18.1]
+        evidence:
+          - {type: patch_cycle, source: security_policy}
+          - {type: incident_response, source: dr_playbook}
+      gdpr:
+        controls: [Art.32, Art.33]
+        evidence:
+          - {type: data_residency, source: regions_service}
+          - {type: breach_notification, source: alerting, sla: 72h}
+    evidence_retention: 365d
+    evidence_signatures: required
+    quarterly_review: ["RPO/RTO attestation", "backup restore drill", "chaos drill"]
+    weekly_evidence_generation:
+      - backup_policy_runs_ok
+      - pitr_window_respected
+      - autoscaling_boundaries_enforced
+---
+# DR + backup evidence job - proves RPO/RTO monthly (Phase 16.20)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: vcos-evidence-drill
+  namespace: vcos
+spec:
+  schedule: "0 4 1 * *"             # 1st of month, 04:00 UTC
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: drill
+              image: vcos/evidence:1.0.0
+              args: ["--drill", "restore", "--rpo", "15m", "--rto", "30m"]
+              envFrom:
+                - secretRef: {name: vcos-evidence-keys}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vcos-compliance-report
+  namespace: vcos
+data:
+  report.yaml: |
+    cadence: monthly
+    sections: [backup, dr, autoscaling, access_review, patch_level]
+    distributor: [auditor@vcos.io, compliance@vcos.io]
+    format: [pdf, csv]

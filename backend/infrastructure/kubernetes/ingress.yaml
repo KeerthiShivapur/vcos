@@ -1,0 +1,39 @@
+# Multi-region ingress - routes to the nearest healthy region via Global Accelerator
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vcos-ingress
+  namespace: vcos
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/limit-rps: "500"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "2"
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "https://app.vcos.io"
+spec:
+  tls:
+    - hosts: [api.vcos.io]
+      secretName: vcos-tls
+  rules:
+    - host: api.vcos.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: vcos-api
+                port: {number: 8000}
+---
+# Region failover endpoint - returns 503 when a region is draining so the
+# global load balancer shifts traffic to a healthy region
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vcos-region-config
+  namespace: vcos
+data:
+  region: "na-virginia"
+  failover-role: "primary"
+  residency: "gdpr,soc2"

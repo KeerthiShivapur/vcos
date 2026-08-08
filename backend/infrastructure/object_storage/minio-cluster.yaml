@@ -1,0 +1,76 @@
+# MinIO distributed object storage (Phase 16.17) - S3-compatible tier
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: vcos
+spec:
+  selector: {app: minio}
+  ports:
+    - {port: 9000, name: s3}
+    - {port: 9001, name: console}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: minio
+  namespace: vcos
+  labels: {app: minio, tier: object_storage}
+spec:
+  serviceName: minio
+  replicas: 4
+  selector: {matchLabels: {app: minio}}
+  template:
+    metadata:
+      labels: {app: minio, tier: object_storage}
+    spec:
+      containers:
+        - name: minio
+          image: minio/minio:RELEASE.2024-01-16T16-07-38Z
+          args: ["server", "--console-address", ":9001", "http://minio-{0...3}.minio.vcos.svc.cluster.local/data"]
+          ports: [{containerPort: 9000}]
+          envFrom:
+            - secretRef: {name: minio-secrets}
+          volumeMounts: [{name: data, mountPath: /data}]
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: minio-data}
+  volumeClaimTemplates:
+    - metadata: {name: minio-data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: {requests: {storage: 500Gi}}
+---
+# Lifecycle: tier hot objects to cold storage after 90 days (Phase 16.17)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: minio-lifecycle
+  namespace: vcos
+data:
+  lifecycle.json: |
+    {
+      "Rules": [
+        {
+          "ID": "tier-hot-to-cold",
+          "Status": "Enabled",
+          "Filter": {"Prefix": "recordings/"},
+          "Expiration": {"Days": 365},
+          "Transitions": [
+            {"Days": 90, "StorageClass": "COLD"}
+          ]
+        }
+      ]
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: minio-buckets
+  namespace: vcos
+data:
+  buckets.yaml: |
+    buckets:
+      - {name: vcos-assets, versioning: true, lifecycle: tier-hot-to-cold}
+      - {name: vcos-backups, versioning: true, objectLock: true}
+      - {name: vcos-recordings, versioning: true}

@@ -1,0 +1,15 @@
+# VCOS region defaults (Phase 16.3)
+vcos_region: na-virginia
+vcos_failover_role: primary
+vcos_residency:
+  - gdpr
+  - soc2
+  - iso27001
+
+vcos_monitoring_enabled: true
+vcos_backup_retention_days: 30
+vcos_pitr_window_hours: 336
+vcos_rpo_target_minutes: 15
+vcos_rto_target_minutes: 30
+vcos_autoscaling_scale_out: 70
+vcos_autoscaling_scale_in: 30

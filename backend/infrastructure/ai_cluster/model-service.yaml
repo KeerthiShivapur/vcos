@@ -1,0 +1,29 @@
+# AI cluster guardrails (Phase 16.15) - matches governed AI from Phase 15
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vcos-ai-policy
+  namespace: vcos
+data:
+  ai-policy.yaml: |
+    consent: required
+    consent_default: false
+    models:
+      - name: summarize
+        vendor: openai
+        dataResidency: [eu-central-1, us-east-1]
+        maxTokens: 4096
+        humanReviewOn: [compliance, legal, finance]
+      - name: code-review
+        vendor: openai
+        dataResidency: [eu-central-1]
+        maxTokens: 8192
+    quotas:
+      per_org_per_day: 2000
+      per_user_per_hour: 120
+    observability:
+      every_inference: logged
+      retention: 90d
+    blastRadius:
+      max_parallel_inferences: 50
+      circuitBreaker: ai-gateway

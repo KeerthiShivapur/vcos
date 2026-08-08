@@ -1,0 +1,70 @@
+# Progressive delivery pipeline (Phase 16.19)
+# Matches DeploymentsService strategies: rolling (default), blue_green, canary.
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: vcos-api
+  namespace: vcos
+spec:
+  replicas: 6
+  revisionHistoryLimit: 10
+  selector: {matchLabels: {app: vcos-api}}
+  template:
+    metadata:
+      labels: {app: vcos-api, vcos.io/version: "1.0.0"}
+    spec:
+      containers:
+        - name: api
+          image: vcos/api:1.0.0
+          ports: [{containerPort: 8000}]
+          readinessProbe: {httpGet: {path: /health, port: 8000}}
+  strategy:
+    canary:                                   # canary + blue-green via promotion
+      steps:
+        - setWeight: 10                       # 10% canary (canary_percentage)
+        - pause: {duration: 10m}              # watch error rate before promoting
+        - setWeight: 50
+        - pause: {duration: 10m}
+        - setWeight: 100                      # full promotion
+      analysis:
+        templates: [{templateName: vcos-error-rate}]
+        args:
+          - name: canary-version
+            value: "1.0.0"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: vcos-error-rate
+  namespace: vcos
+spec:
+  metrics:
+    - name: success-rate
+      interval: 1m
+      failureLimit: 3
+      provider:
+        prometheus:
+          address: http://prometheus.monitoring:9090
+          query: |
+            sum(rate(http_requests_total{job="vcos-api",status=~"5.."}[5m]))
+            / sum(rate(http_requests_total{job="vcos-api"}[5m]))
+          threshold: "0.01"                   # fail rollout above 1% 5xx
+    - name: error-budget
+      provider:
+        prometheus:
+          address: http://prometheus.monitoring:9090
+          query: "vcos_slo_error_budget_remaining"
+          threshold: "0.3"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vcos-rollback-policy
+  namespace: vcos
+data:
+  rollback.yaml: |
+    triggers: [error_rate, health_check, manual]
+    max_rollbacks_per_day: 5
+    auto_rollback: true
+    strategy: "reuse previous stable rollout revision"
+    notify: "#vcos-deploy"

@@ -1,0 +1,19 @@
+# PITR configuration - matches the BackupsService contract (Phase 16.20)
+pitr:
+  enabled: true
+  window_hours: 336          # 14 days of point-in-time recovery
+  max_lag_minutes: 5         # PITR availability guard used by /backups/pitr
+  wal_archive_interval: 60s
+
+retention:
+  full_backups_days: 30
+  incremental_backups_days: 7
+  wal_days: 14
+
+verify:
+  restore_test: true         # nightly restore-and-verify (cronjob-backup.yaml)
+  checksum_validation: sha256
+
+locations:
+  primary: "s3://vcos-backups-<region>/primary"
+  cross_region: "s3://vcos-backups-<dr-region>/dr"    # Phase 16.21 DR vault
