@@ -18,6 +18,7 @@ import type {
   Availability,
   Badge,
   CalendarEvent,
+  CalendarFeedItem,
   ChatMessage,
   Community,
   CommunityAnalytics,
@@ -102,7 +103,11 @@ import type {
   Sprint,
   Successor,
   Task,
+  TaskActivityEntry,
+  TaskAttachment,
+  TaskComment,
   Team,
+  TeamLoadSummary,
   Template,
   TimelineEntry,
   TokenPair,
@@ -132,6 +137,15 @@ export class ApiError extends Error {
 let accessToken: string | null = null;
 let refreshPromise: Promise<TokenPair> | null = null;
 
+// The access token lives in memory but is also hydrated from localStorage on
+// every page load. Without this, a full page load starts with a null access
+// token, forcing a 401 -> refresh round-trip on the very first requests; under
+// React StrictMode's double-mounted effects those concurrent round-trips race
+// and one of them can wipe the session (tokenStore.clear()) mid-flight.
+if (typeof window !== "undefined") {
+  accessToken = window.localStorage.getItem(ACCESS_KEY);
+}
+
 export const tokenStore = {
   getAccess(): string | null {
     return accessToken;
@@ -143,12 +157,14 @@ export const tokenStore = {
   setTokens(access: string, refresh: string) {
     accessToken = access;
     if (typeof window !== "undefined") {
+      window.localStorage.setItem(ACCESS_KEY, access);
       window.localStorage.setItem(REFRESH_KEY, refresh);
     }
   },
   clear() {
     accessToken = null;
     if (typeof window !== "undefined") {
+      window.localStorage.removeItem(ACCESS_KEY);
       window.localStorage.removeItem(REFRESH_KEY);
       window.localStorage.removeItem(USER_KEY);
       window.localStorage.removeItem(ORG_KEY);
@@ -176,6 +192,43 @@ export const tokenStore = {
   },
 };
 
+// Requests normally complete in well under a second against the local backend,
+// but this Windows/Chromium build occasionally drops an in-flight request at
+// initiation: it never reaches the wire and the resulting fetch promise never
+// settles (or rejects with TypeError). Without a cap, callers hang on disabled
+// buttons and "Opening your company" forever. Each attempt is hard-capped, and
+// a network-level failure is retried once — dropped requests never reach the
+// server (verified via DB), so a retry cannot duplicate state.
+const ATTEMPT_TIMEOUT_MS = 2_500;
+const ATTEMPT_RETRY_DELAY_MS = 400;
+
+function isNetworkError(err: unknown): boolean {
+  return (
+    err instanceof TypeError ||
+    (err instanceof DOMException && err.name === "AbortError")
+  );
+}
+
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  allowRetry: boolean
+): Promise<Response> {
+  for (let attempt = 1; ; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ATTEMPT_TIMEOUT_MS);
+    try {
+      const response = await fetch(url, { ...init, signal: controller.signal });
+      clearTimeout(timer);
+      return response;
+    } catch (err) {
+      clearTimeout(timer);
+      if (!allowRetry || attempt >= 2 || !isNetworkError(err)) throw err;
+      await new Promise((resolve) => setTimeout(resolve, ATTEMPT_RETRY_DELAY_MS));
+    }
+  }
+}
+
 async function refreshTokens(): Promise<TokenPair> {
   if (!refreshPromise) {
     refreshPromise = (async () => {
@@ -185,6 +238,7 @@ async function refreshTokens(): Promise<TokenPair> {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refresh_token: refresh }),
+        signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS),
       });
       if (!response.ok) {
         tokenStore.clear();
@@ -232,11 +286,15 @@ export async function api<T>(
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (auth && accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
 
-  const response = await fetch(url.toString(), {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  const response = await fetchWithRetry(
+    url.toString(),
+    {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    },
+    retry
+  );
 
   if (response.status === 401 && auth && retry) {
     try {
@@ -624,6 +682,10 @@ export async function deleteProject(id: string): Promise<Message> {
   return api<Message>(`/projects/${id}`, { method: "DELETE" });
 }
 
+export async function projectLifecycle(id: string, action: string): Promise<Project> {
+  return api<Project>(`/projects/${id}/lifecycle`, { method: "POST", body: { action } });
+}
+
 export async function listProjectMembers(id: string): Promise<ProjectMember[]> {
   return api<ProjectMember[]>(`/projects/${id}/members`);
 }
@@ -662,6 +724,14 @@ export async function updateRoadmap(id: string, payload: Record<string, unknown>
   return api<Roadmap>(`/roadmaps/${id}`, { method: "PATCH", body: payload });
 }
 
+export async function deleteRoadmap(id: string): Promise<Message> {
+  return api<Message>(`/roadmaps/${id}`, { method: "DELETE" });
+}
+
+export async function roadmapLifecycle(id: string, action: string): Promise<Roadmap> {
+  return api<Roadmap>(`/roadmaps/${id}/lifecycle`, { method: "POST", body: { action } });
+}
+
 // ---------------------------------------------------------------- epics
 
 export async function listEpics(projectId?: string): Promise<Epic[]> {
@@ -674,6 +744,18 @@ export async function createEpic(payload: Record<string, unknown>): Promise<Epic
 
 export async function updateEpic(id: string, payload: Record<string, unknown>): Promise<Epic> {
   return api<Epic>(`/epics/${id}`, { method: "PATCH", body: payload });
+}
+
+export async function deleteEpic(id: string): Promise<Message> {
+  return api<Message>(`/epics/${id}`, { method: "DELETE" });
+}
+
+export async function startEpic(id: string): Promise<Epic> {
+  return api<Epic>(`/epics/${id}/start`, { method: "POST" });
+}
+
+export async function completeEpic(id: string): Promise<Epic> {
+  return api<Epic>(`/epics/${id}/complete`, { method: "POST" });
 }
 
 // ---------------------------------------------------------------- milestones
@@ -690,6 +772,10 @@ export async function updateMilestone(id: string, payload: Record<string, unknow
   return api<Milestone>(`/milestones/${id}`, { method: "PATCH", body: payload });
 }
 
+export async function deleteMilestone(id: string): Promise<Message> {
+  return api<Message>(`/milestones/${id}`, { method: "DELETE" });
+}
+
 export async function completeMilestone(id: string): Promise<Milestone> {
   return api<Milestone>(`/milestones/${id}/complete`, { method: "POST" });
 }
@@ -702,6 +788,14 @@ export async function listSprints(projectId?: string): Promise<Sprint[]> {
 
 export async function createSprint(payload: Record<string, unknown>): Promise<Sprint> {
   return api<Sprint>("/sprints", { method: "POST", body: payload });
+}
+
+export async function updateSprint(id: string, payload: Record<string, unknown>): Promise<Sprint> {
+  return api<Sprint>(`/sprints/${id}`, { method: "PATCH", body: payload });
+}
+
+export async function deleteSprint(id: string): Promise<Message> {
+  return api<Message>(`/sprints/${id}`, { method: "DELETE" });
 }
 
 export async function startSprint(id: string): Promise<Sprint> {
@@ -717,8 +811,11 @@ export async function completeSprint(id: string): Promise<Sprint> {
 export async function listTasks(query: {
   project_id?: string;
   assignee_id?: string;
+  parent_task_id?: string;
+  sprint_id?: string;
   status?: string;
   priority?: string;
+  tag?: string;
   search?: string;
   sort?: string;
 } = {}): Promise<Task[]> {
@@ -758,6 +855,41 @@ export async function addTaskDependency(taskId: string, dependsOnTaskId: string,
 
 export async function removeTaskDependency(taskId: string, dependencyId: string): Promise<Message> {
   return api<Message>(`/tasks/${taskId}/dependencies/${dependencyId}`, { method: "DELETE" });
+}
+
+// ---------------------------------------------------------------- task collaboration
+
+export type { TaskComment, TaskAttachment, TaskActivityEntry } from "@/types";
+
+export async function addTaskComment(taskId: string, body: string): Promise<TaskComment> {
+  return api<TaskComment>(`/tasks/${taskId}/comments`, { method: "POST", body: { body } });
+}
+
+export async function listTaskComments(taskId: string): Promise<TaskComment[]> {
+  return api<TaskComment[]>(`/tasks/${taskId}/comments`);
+}
+
+export async function deleteTaskComment(taskId: string, commentId: string): Promise<Message> {
+  return api<Message>(`/tasks/${taskId}/comments/${commentId}`, { method: "DELETE" });
+}
+
+export async function addTaskAttachment(
+  taskId: string,
+  payload: { filename: string; url: string; size_bytes?: number; kind?: string }
+): Promise<TaskAttachment> {
+  return api<TaskAttachment>(`/tasks/${taskId}/attachments`, { method: "POST", body: payload });
+}
+
+export async function listTaskAttachments(taskId: string): Promise<TaskAttachment[]> {
+  return api<TaskAttachment[]>(`/tasks/${taskId}/attachments`);
+}
+
+export async function deleteTaskAttachment(taskId: string, attachmentId: string): Promise<Message> {
+  return api<Message>(`/tasks/${taskId}/attachments/${attachmentId}`, { method: "DELETE" });
+}
+
+export async function getTaskActivity(taskId: string): Promise<TaskActivityEntry[]> {
+  return api<TaskActivityEntry[]>(`/tasks/${taskId}/activity`);
 }
 
 // ---------------------------------------------------------------- goals
@@ -1113,6 +1245,14 @@ export async function listCalendarEvents(query: {
   return api<CalendarEvent[]>("/calendar/events", { query });
 }
 
+export async function getCalendarFeed(query: {
+  start?: string;
+  end?: string;
+  employee_id?: string;
+} = {}): Promise<CalendarFeedItem[]> {
+  return api<CalendarFeedItem[]>("/calendar/feed", { query });
+}
+
 export async function createCalendarEvent(payload: Record<string, unknown>): Promise<CalendarEvent> {
   return api<CalendarEvent>("/calendar/events", { method: "POST", body: payload });
 }
@@ -1193,6 +1333,10 @@ export async function snapshotWorkload(): Promise<{ snapshots_created: number }>
 
 export async function getOrganizationLoad(): Promise<OrganizationLoad> {
   return api<OrganizationLoad>("/workload/organization");
+}
+
+export async function getTeamLoad(): Promise<TeamLoadSummary[]> {
+  return api<TeamLoadSummary[]>("/workload/teams");
 }
 
 export async function getMyWork(): Promise<MyWork> {

@@ -9,14 +9,18 @@ import { useNotifications } from "@/hooks/useNotifications";
 import { Spinner } from "@/components/ui/Spinner";
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
-  const { user, organization, loading, ready } = useAuth();
+  const { user, organization, loading, ready, authFailed } = useAuth();
   const { unread } = useNotifications();
   const router = useRouter();
   const pathname = usePathname();
 
   useEffect(() => {
-    if (!loading && !ready) router.replace("/login");
-  }, [loading, ready, router]);
+    // Only a genuine auth failure (401) sends the user to /login. Transient
+    // bootstrap failures (cancelled/hung requests during navigation bursts)
+    // keep the spinner and retry in the background — redirecting with a valid
+    // session used to cancel the in-flight retries and strand the app.
+    if (!loading && authFailed) router.replace("/login");
+  }, [loading, authFailed, router]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {

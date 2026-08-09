@@ -80,7 +80,7 @@ test("people & organization journey: structure, hierarchy, notifications, permis
 
   // 5. Founder creates the Engineering department.
   await founder.goto("/departments");
-  await expect(founder.getByRole("heading", { name: "Departments" })).toBeVisible();
+  await expect(founder.getByRole("heading", { name: "Departments", exact: true })).toBeVisible();
   await founder.getByRole("button", { name: "Create department" }).first().click();
   await founder.getByLabel("Name").fill("Engineering");
   await founder.getByLabel("Code").fill(`eng${t.slice(0, 4)}`);
@@ -89,7 +89,7 @@ test("people & organization journey: structure, hierarchy, notifications, permis
 
   // 6. Founder creates the Backend team inside Engineering.
   await founder.goto("/teams");
-  await expect(founder.getByRole("heading", { name: "Teams" })).toBeVisible();
+  await expect(founder.getByRole("heading", { name: "Teams", exact: true })).toBeVisible();
   await founder.getByRole("button", { name: "Create team" }).first().click();
   await founder.getByLabel("Name").fill("Backend");
   await founder.getByLabel("Code").fill(`be${t.slice(0, 4)}`);
@@ -155,7 +155,7 @@ test("people & organization journey: structure, hierarchy, notifications, permis
   await expect(bob.getByRole("heading", { name: "Departments" })).toBeVisible();
   await expect(bob.getByRole("button", { name: "Create department" })).not.toBeVisible();
   await bob.goto("/teams");
-  await expect(bob.getByRole("heading", { name: "Teams" })).toBeVisible();
+  await expect(bob.getByRole("heading", { name: "Teams", exact: true })).toBeVisible();
   await expect(bob.getByRole("button", { name: "Create team" })).not.toBeVisible();
   await bob.goto("/people");
   await expect(bob.getByRole("heading", { name: "People" })).toBeVisible();

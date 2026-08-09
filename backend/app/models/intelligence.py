@@ -30,6 +30,7 @@ class BackgroundJob(Base, TimestampMixin):
     __table_args__ = (
         Index("ix_bg_jobs_org_status", "organization_id", "status"),
         Index("ix_bg_jobs_org_created", "organization_id", "created_at"),
+        UniqueConstraint("name", "event_id", name="uq_background_jobs_name_event"),
     )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
@@ -40,10 +41,12 @@ class BackgroundJob(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(20), default="queued", nullable=False)
     attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     max_attempts: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    event_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
     payload_json: Mapped[Optional[str]] = mapped_column(Text)
     error: Mapped[Optional[str]] = mapped_column(Text)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    next_retry_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     @property
     def payload(self) -> Optional[dict]:

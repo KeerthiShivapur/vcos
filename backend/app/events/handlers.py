@@ -141,9 +141,259 @@ async def handle_task_completed(db, event, payload):
         )
 
 
+@on("task.completed")
+async def handle_task_completed_unblocks(db, event, payload):
+    """Propagate completion: blocked dependents whose blockers are all done unblock."""
+    org_id = payload.get("organization_id") or event.organization_id
+    completed_id = payload.get("task_id") or payload.get("id")
+    if not completed_id:
+        return
+    from app.models.task import Task, TaskDependency
+
+    dependents = (
+        await db.execute(
+            select(Task).join(TaskDependency, TaskDependency.task_id == Task.id).where(
+                TaskDependency.organization_id == org_id,
+                TaskDependency.depends_on_task_id == completed_id,
+                TaskDependency.kind.in_(("blocking", "finish_to_start")),
+                Task.status == "blocked",
+            )
+        )
+    ).scalars().all()
+    from app.work.dependency_service import dependency_service
+
+    for dependent in dependents:
+        remaining = await dependency_service.unsatisfied_blockers(
+            db, organization_id=org_id, task_id=dependent.id
+        )
+        if remaining:
+            continue
+        from app.core.timeutils import utcnow
+
+        dependent.status = "todo"
+        dependent.updated_at = utcnow()
+        await db.flush()
+        from app.services.event_service import event_service
+
+        await event_service.emit(
+            db, name="task.unblocked", actor_id=event.actor_id,
+            organization_id=org_id,
+            payload={"task_id": dependent.id, "title": dependent.title, "assignee_id": dependent.assignee_id},
+        )
+        from app.services.work_audit import record
+
+        await record(
+            db, organization_id=org_id, action="task.unblocked",
+            actor=None, ip_address=None,
+            resource_type="task", resource_id=dependent.id,
+            details={"title": dependent.title, "status": "todo", "trigger": "task.completed"},
+        )
+        if dependent.assignee_id:
+            from app.services.work_alerts import notify_employee
+
+            await notify_employee(
+                db, organization_id=org_id,
+                employee_id=dependent.assignee_id,
+                type="task.unblocked",
+                title=f"Task unblocked: {dependent.title}",
+                body="All blocking dependencies are now complete.",
+                actor_id=event.actor_id,
+                entity_type="task", entity_id=dependent.id,
+                link=f"/tasks/{dependent.id}",
+            )
+
+
+@on("project.started")
+async def handle_project_started(db, event, payload):
+    org_id = payload.get("organization_id") or event.organization_id
+    project_id = payload.get("project_id") or payload.get("id")
+    if not project_id:
+        return
+    from app.models.project import ProjectMember
+    from app.services.work_alerts import notify_employees
+
+    member_ids = list(
+        (await db.execute(
+            select(ProjectMember.employee_id).where(
+                ProjectMember.organization_id == org_id, ProjectMember.project_id == project_id
+            )
+        )).scalars().all()
+    )
+    if member_ids:
+        await notify_employees(
+            db, organization_id=org_id, employee_ids=member_ids,
+            type="project.started",
+            title=f"Project started: {payload.get('name', '')[:80]}",
+            body="The project is now in active execution.",
+            actor_id=event.actor_id,
+            entity_type="project", entity_id=project_id,
+            link=f"/projects/{project_id}",
+        )
+
+
+@on("project.completed")
+async def handle_project_completed(db, event, payload):
+    org_id = payload.get("organization_id") or event.organization_id
+    project_id = payload.get("project_id") or payload.get("id")
+    if not project_id:
+        return
+    from app.models.project import ProjectMember
+    from app.services.work_alerts import notify_employees
+
+    member_ids = list(
+        (await db.execute(
+            select(ProjectMember.employee_id).where(
+                ProjectMember.organization_id == org_id, ProjectMember.project_id == project_id
+            )
+        )).scalars().all()
+    )
+    if member_ids:
+        await notify_employees(
+            db, organization_id=org_id, employee_ids=member_ids,
+            type="project.completed",
+            title=f"Project completed: {payload.get('name', '')[:80]}",
+            body="The project has been completed. Well done!",
+            actor_id=event.actor_id,
+            priority="high",
+            entity_type="project", entity_id=project_id,
+            link=f"/projects/{project_id}",
+        )
+
+
+@on("project.cancelled")
+async def handle_project_cancelled(db, event, payload):
+    org_id = payload.get("organization_id") or event.organization_id
+    project_id = payload.get("project_id") or payload.get("id")
+    if not project_id:
+        return
+    from app.models.project import Project
+    from app.services.work_alerts import notify_employee
+
+    project = await db.get(Project, project_id)
+    if project is not None and project.owner_id:
+        await notify_employee(
+            db, organization_id=org_id,
+            employee_id=project.owner_id,
+            type="project.cancelled",
+            title=f"Project cancelled: {payload.get('name', '')[:80]}",
+            body="The project has been cancelled.",
+            actor_id=event.actor_id,
+            entity_type="project", entity_id=project_id,
+            link=f"/projects/{project_id}",
+        )
+
+
+@on("roadmap.started")
+async def handle_roadmap_started(db, event, payload):
+    org_id = payload.get("organization_id") or event.organization_id
+    roadmap_id = payload.get("roadmap_id") or payload.get("id")
+    if not roadmap_id:
+        return
+    from app.services.work_alerts import notify_employee
+
+    owner_id = payload.get("owner_id")
+    if owner_id:
+        await notify_employee(
+            db, organization_id=org_id, employee_id=owner_id,
+            type="roadmap.started",
+            title=f"Roadmap activated: {payload.get('name', '')[:80]}",
+            body="Your roadmap is now active.",
+            actor_id=event.actor_id,
+            entity_type="roadmap", entity_id=roadmap_id,
+            link=f"/roadmaps/{roadmap_id}",
+        )
+
+
+@on("roadmap.completed")
+async def handle_roadmap_completed(db, event, payload):
+    org_id = payload.get("organization_id") or event.organization_id
+    roadmap_id = payload.get("roadmap_id") or payload.get("id")
+    if not roadmap_id:
+        return
+    from app.services.work_alerts import notify_employee
+
+    owner_id = payload.get("owner_id")
+    if owner_id:
+        await notify_employee(
+            db, organization_id=org_id, employee_id=owner_id,
+            type="roadmap.completed",
+            title=f"Roadmap completed: {payload.get('name', '')[:80]}",
+            body="Your roadmap has been completed.",
+            actor_id=event.actor_id,
+            priority="high",
+            entity_type="roadmap", entity_id=roadmap_id,
+            link=f"/roadmaps/{roadmap_id}",
+        )
+
+
+@on("task.completed")
+async def handle_task_progress_rollup(db, event, payload):
+    """Keep project/epic/milestone/roadmap progress in sync with execution."""
+    org_id = payload.get("organization_id") or event.organization_id
+    task_id = payload.get("task_id") or payload.get("id")
+    if not task_id:
+        return
+    from app.work.progress_rollup import rollup_for_task, rollup_roadmap_of_project
+
+    await rollup_for_task(db, organization_id=org_id, task_id=task_id)
+    project_id = payload.get("project_id")
+    if project_id:
+        await rollup_roadmap_of_project(db, organization_id=org_id, project_id=project_id)
+
+
+@on("task.transitioned")
+async def handle_task_transition_progress_rollup(db, event, payload):
+    """Parent progress follows subtask status (any transition, not just completion)."""
+    org_id = payload.get("organization_id") or event.organization_id
+    task_id = payload.get("task_id") or payload.get("id")
+    if not task_id:
+        return
+    from app.work.progress_rollup import rollup_for_task
+
+    await rollup_for_task(db, organization_id=org_id, task_id=task_id)
+
+
+@on("task.created")
+async def handle_task_created_parent_rollup(db, event, payload):
+    org_id = payload.get("organization_id") or event.organization_id
+    parent_id = payload.get("parent_task_id")
+    sprint_id = payload.get("sprint_id")
+    from app.work.progress_rollup import rollup_parent, rollup_sprint
+
+    if parent_id:
+        await rollup_parent(db, organization_id=org_id, parent_id=parent_id)
+    if sprint_id:
+        await rollup_sprint(db, organization_id=org_id, sprint_id=sprint_id)
+
+
+@on("milestone.completed")
+async def handle_milestone_progress_rollup(db, event, payload):
+    org_id = payload.get("organization_id") or event.organization_id
+    from app.work.progress_rollup import rollup_project
+
+    project_id = payload.get("project_id")
+    if project_id:
+        await rollup_project(db, organization_id=org_id, project_id=project_id)
+
+
 @on("task.blocked")
 async def handle_task_blocked(db, event, payload):
     org_id = payload.get("organization_id") or event.organization_id
+    if payload.get("assignee_id"):
+        from app.services.work_alerts import notify_employee
+
+        await notify_employee(
+            db, organization_id=org_id,
+            employee_id=payload["assignee_id"],
+            type="task.blocked",
+            title=f"Task blocked: {payload.get('title', '')[:80]}",
+            body="The task is blocked by an uncompleted dependency and needs attention.",
+            actor_id=event.actor_id,
+            priority="high",
+            entity_type="task", entity_id=payload.get("task_id"),
+            link=f"/tasks/{payload.get('task_id', '')}",
+            metadata={"status": "blocked"},
+        )
     await _learning_from_event(
         db, org_id, event, payload,
         event_type="incident",
@@ -179,6 +429,196 @@ async def handle_milestone_completed(db, event, payload):
             "milestone", payload.get("milestone_id"),
             evidence=f"Milestone completed: {payload.get('title', '')[:120]}",
         )
+        from app.models.project import Project
+        from app.services.work_alerts import notify_employee
+
+        project = await db.get(Project, payload["project_id"])
+        if project is not None and project.owner_id:
+            await notify_employee(
+                db, organization_id=org_id,
+                employee_id=project.owner_id,
+                type="milestone.completed",
+                title=f"Milestone completed: {payload.get('title', payload.get('name', ''))[:80]}",
+                body=f"Milestone '{payload.get('title', payload.get('name', ''))[:80]}' in '{project.name}' was completed.",
+                actor_id=event.actor_id,
+                entity_type="milestone", entity_id=payload.get("milestone_id"),
+                link=f"/projects/{project.id}",
+            )
+
+
+@on("milestone.created")
+async def handle_milestone_created(db, event, payload):
+    org_id = payload.get("organization_id") or event.organization_id
+    if payload.get("project_id") and payload.get("milestone_id"):
+        await _graph_link(
+            db, org_id, "milestone.created", "project", payload["project_id"],
+            "milestone", payload["milestone_id"],
+            evidence=f"Milestone planned: {payload.get('name', '')[:120]}",
+        )
+
+
+@on("epic.created")
+async def handle_epic_created(db, event, payload):
+    org_id = payload.get("organization_id") or event.organization_id
+    if payload.get("project_id") and payload.get("epic_id"):
+        await _graph_link(
+            db, org_id, "epic.created", "project", payload["project_id"],
+            "epic", payload["epic_id"],
+            evidence=f"Epic planned: {payload.get('name', '')[:120]}",
+        )
+
+
+@on("roadmap.created")
+async def handle_roadmap_created(db, event, payload):
+    org_id = payload.get("organization_id") or event.organization_id
+    if payload.get("owner_id") and payload.get("roadmap_id"):
+        await _graph_link(
+            db, org_id, "roadmap.created", "employee", payload["owner_id"],
+            "roadmap", payload["roadmap_id"],
+            evidence=f"Owns roadmap: {payload.get('name', '')[:120]}",
+        )
+
+
+@on("task.deleted")
+async def handle_task_deleted(db, event, payload):
+    """Deleted tasks should not linger in the organization graph."""
+    org_id = payload.get("organization_id") or event.organization_id
+    task_id = payload.get("task_id") or payload.get("id")
+    if not task_id:
+        return
+    from app.intelligence.graph_engine import graph_engine
+    from app.models.intelligence import OrgGraphEdge
+    from sqlalchemy import or_
+
+    edges = (
+        await db.execute(
+            select(OrgGraphEdge).where(
+                OrgGraphEdge.organization_id == org_id,
+                OrgGraphEdge.active.is_(True),
+                or_(
+                    (OrgGraphEdge.source_type == "task") & (OrgGraphEdge.source_id == task_id),
+                    (OrgGraphEdge.target_type == "task") & (OrgGraphEdge.target_id == task_id),
+                ),
+            )
+        )
+    ).scalars().all()
+    for edge in edges:
+        await graph_engine.deactivate_edge(db, organization_id=org_id, edge_id=edge.id)
+
+
+@on("dependency.added")
+async def handle_dependency_added(db, event, payload):
+    org_id = payload.get("organization_id") or event.organization_id
+    await _learning_from_event(
+        db, org_id, event, payload,
+        event_type="lesson",
+        title=f"Dependency added: {payload.get('task_id', '')[:40]} → {payload.get('depends_on_task_id', '')[:40]}",
+        detail=f"A {payload.get('kind') or 'finish_to_start'} dependency was linked between tasks.",
+        lesson="Explicit dependencies make blocking patterns visible before they bite.",
+        entity_type="task", entity_id=payload.get("task_id"),
+        tags=_tokens(payload.get("kind"), "dependency"),
+    )
+
+
+@on("dependency.removed")
+async def handle_dependency_removed(db, event, payload):
+    org_id = payload.get("organization_id") or event.organization_id
+    await _learning_from_event(
+        db, org_id, event, payload,
+        event_type="lesson",
+        title=f"Dependency removed: {payload.get('task_id', '')[:40]} → {payload.get('depends_on_task_id', '')[:40]}",
+        detail="A task dependency was removed.",
+        lesson="Frequent dependency churn can signal unstable task boundaries.",
+        entity_type="task", entity_id=payload.get("task_id"),
+        tags=_tokens("dependency", "churn"),
+    )
+
+
+@on("sprint.started")
+async def handle_sprint_started(db, event, payload):
+    org_id = payload.get("organization_id") or event.organization_id
+    if payload.get("project_id"):
+        from app.models.project import Project
+        from app.services.work_alerts import notify_employee
+
+        project = await db.get(Project, payload["project_id"])
+        if project is not None and project.owner_id:
+            await notify_employee(
+                db, organization_id=org_id,
+                employee_id=project.owner_id,
+                type="sprint.started",
+                title=f"Sprint started: {payload.get('name', '')[:80]}",
+                body=f"Sprint '{payload.get('name', '')[:80]}' in '{project.name}' is now active.",
+                actor_id=event.actor_id,
+                entity_type="sprint", entity_id=payload.get("sprint_id"),
+                link=f"/projects/{project.id}",
+            )
+    await _learning_from_event(
+        db, org_id, event, payload,
+        event_type="lesson",
+        title=f"Sprint started: {payload.get('name', '')[:100]}",
+        detail="A sprint began execution.",
+        lesson="Sprints with a clear goal and sized backlog tend to complete cleaner.",
+        entity_type="sprint", entity_id=payload.get("sprint_id"),
+        tags=_tokens(payload.get("name"), "sprint"),
+    )
+
+
+@on("sprint.completed")
+async def handle_sprint_completed(db, event, payload):
+    org_id = payload.get("organization_id") or event.organization_id
+    if payload.get("project_id"):
+        from app.models.project import Project
+        from app.services.work_alerts import notify_employee
+
+        project = await db.get(Project, payload["project_id"])
+        if project is not None and project.owner_id:
+            await notify_employee(
+                db, organization_id=org_id,
+                employee_id=project.owner_id,
+                type="sprint.completed",
+                title=f"Sprint completed: {payload.get('name', '')[:80]}",
+                body=f"Sprint '{payload.get('name', '')[:80]}' in '{project.name}' was completed.",
+                actor_id=event.actor_id,
+                entity_type="sprint", entity_id=payload.get("sprint_id"),
+                link=f"/projects/{project.id}",
+            )
+    await _learning_from_event(
+        db, org_id, event, payload,
+        event_type="lesson",
+        title=f"Sprint completed: {payload.get('name', '')[:100]}",
+        detail="A sprint finished its execution cycle.",
+        lesson="Compare planned vs completed scope to tune sprint capacity estimates.",
+        entity_type="sprint", entity_id=payload.get("sprint_id"),
+        tags=_tokens(payload.get("name"), "sprint", "velocity"),
+    )
+
+
+@on("risk.closed")
+async def handle_risk_closed(db, event, payload):
+    org_id = payload.get("organization_id") or event.organization_id
+    if payload.get("owner_id"):
+        from app.services.work_alerts import notify_employee
+
+        await notify_employee(
+            db, organization_id=org_id,
+            employee_id=payload["owner_id"],
+            type="risk.closed",
+            title=f"Risk closed: {payload.get('title', '')[:80]}",
+            body="A risk assigned to you was closed.",
+            actor_id=event.actor_id,
+            entity_type="risk", entity_id=payload.get("risk_id"),
+            link="/analytics",
+        )
+    await _learning_from_event(
+        db, org_id, event, payload,
+        event_type="lesson",
+        title=f"Risk closed: {payload.get('title', '')[:100]}",
+        detail=f"A risk (score {payload.get('risk_score') or 0}) was closed.",
+        lesson="Closed risks reveal which mitigations worked — reuse them early.",
+        entity_type="risk", entity_id=payload.get("risk_id"),
+        tags=_tokens(payload.get("title"), "risk"),
+    )
 
 
 @on("meeting.ended")
@@ -284,6 +724,38 @@ async def handle_approval_approved(db, event, payload):
     if employee is not None:
         await _evolve_expertise(db, org_id, "approval.approved", employee,
                                 _tokens(payload.get("title")), event.id, points=0.5)
+    if payload.get("requester_id"):
+        from app.services.work_alerts import notify_employee
+
+        await notify_employee(
+            db, organization_id=org_id,
+            employee_id=payload["requester_id"],
+            type="approval.decided",
+            title=f"Approval granted: {payload.get('title', '')[:80]}",
+            body="Your approval request was approved.",
+            actor_id=event.actor_id,
+            entity_type="approval", entity_id=payload.get("approval_id"),
+            link="/approvals",
+        )
+
+
+@on("approval.rejected")
+async def handle_approval_rejected(db, event, payload):
+    org_id = payload.get("organization_id") or event.organization_id
+    if payload.get("requester_id"):
+        from app.services.work_alerts import notify_employee
+
+        await notify_employee(
+            db, organization_id=org_id,
+            employee_id=payload["requester_id"],
+            type="approval.decided",
+            title=f"Approval rejected: {payload.get('title', '')[:80]}",
+            body="Your approval request was rejected.",
+            actor_id=event.actor_id,
+            priority="high",
+            entity_type="approval", entity_id=payload.get("approval_id"),
+            link="/approvals",
+        )
 
 
 @on("goal.completed")
@@ -293,6 +765,19 @@ async def handle_goal_completed(db, event, payload):
     if employee is not None:
         await _evolve_expertise(db, org_id, "goal.updated", employee,
                                 _tokens(payload.get("name"), payload.get("title")), event.id, points=2.0)
+    if payload.get("owner_id"):
+        from app.services.work_alerts import notify_employee
+
+        await notify_employee(
+            db, organization_id=org_id,
+            employee_id=payload["owner_id"],
+            type="goal.completed",
+            title=f"Goal completed: {payload.get('name', '')[:80]}",
+            body="All key results are complete — the goal was achieved.",
+            actor_id=event.actor_id,
+            entity_type="goal", entity_id=payload.get("goal_id"),
+            link="/goals",
+        )
     await _learning_from_event(
         db, org_id, event, payload,
         event_type="lesson",

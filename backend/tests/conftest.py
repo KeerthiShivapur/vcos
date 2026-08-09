@@ -111,6 +111,7 @@ async def app_factory(engine):
         exec_simulations,
         exec_strategy,
         executive,
+        execution,
         expertise,
         extensions,
         finance,
@@ -201,6 +202,7 @@ async def app_factory(engine):
     test_app.include_router(workspace.router, prefix=prefix)
     test_app.include_router(audit.router, prefix=prefix)
     test_app.include_router(events.router, prefix=prefix)
+    test_app.include_router(execution.router, prefix=prefix)
     test_app.include_router(search.router, prefix=prefix)
     test_app.include_router(dashboard.router, prefix=prefix)
     test_app.include_router(employees.router, prefix=prefix)

@@ -70,6 +70,14 @@ class MeetingService:
         await db.flush()
         await self._emit(db, "meeting.created", organization_id, actor, ip_address, meeting)
         await self._alert_invites(db, organization_id, meeting, actor)
+        from app.services.work_audit import record
+
+        await record(
+            db, organization_id=organization_id, action="meeting.created",
+            actor=actor, ip_address=ip_address,
+            resource_type="meeting", resource_id=meeting.id,
+            details={"title": meeting.title, "meeting_type": meeting.meeting_type},
+        )
         return meeting
 
     async def _emit(self, db, name: str, organization_id: str, actor: Optional[Employee], ip: Optional[str], meeting: Meeting):
@@ -137,6 +145,15 @@ class MeetingService:
             stmt = stmt.where(Meeting.start_at >= from_date)
         if to_date:
             stmt = stmt.where(Meeting.start_at < to_date)
+        if employee_id:
+            stmt = stmt.where(
+                Meeting.id.in_(
+                    select(MeetingAttendee.meeting_id).where(
+                        MeetingAttendee.organization_id == organization_id,
+                        MeetingAttendee.employee_id == employee_id,
+                    )
+                )
+            )
         rows = await db.execute(stmt.order_by(Meeting.start_at.asc()).limit(limit))
         meetings = list(rows.scalars().all())
         for meeting in meetings:
@@ -144,15 +161,29 @@ class MeetingService:
             if meeting.organizer_id:
                 org = await db.get(Employee, meeting.organizer_id)
                 meeting.organizer_name = org.full_name if org else None
-        if employee_id:
-            meetings = [m for m in meetings if any(a["employee_id"] == employee_id for a in m.attendees)]
         return meetings
 
-    async def update(self, db, *, organization_id: str, meeting: Meeting, data: dict[str, Any]) -> Meeting:
-        for key, value in data.items():
-            if hasattr(meeting, key) and key not in ("id", "organization_id", "created_at"):
-                setattr(meeting, key, value)
+    async def update(
+        self, db, *, organization_id: str, meeting: Meeting, data: dict[str, Any],
+        actor: Optional[Employee] = None, ip_address: Optional[str] = None,
+    ) -> Meeting:
+        for key in ("organizer_id", "project_id", "goal_id"):
+            if data.get(key):
+                await self._validate_ref(db, organization_id, key, data[key])
+        from app.work.guards import apply_editable
+
+        apply_editable(meeting, data)
         meeting.updated_at = utcnow()
+        await db.flush()
+        await self._emit(db, "meeting.updated", organization_id, actor, ip_address, meeting)
+        from app.services.work_audit import record
+
+        await record(
+            db, organization_id=organization_id, action="meeting.updated",
+            actor=actor, ip_address=ip_address,
+            resource_type="meeting", resource_id=meeting.id,
+            details={"title": meeting.title},
+        )
         return meeting
 
     async def attendee_rows(self, db, *, organization_id: str, meeting_id: str) -> list[MeetingAttendee]:
@@ -286,6 +317,14 @@ class MeetingService:
             meeting.ai_summary = self._build_summary(meeting)
         await db.flush()
         await self._emit(db, "meeting.ended", organization_id, actor, ip_address, meeting)
+        from app.services.work_audit import record
+
+        await record(
+            db, organization_id=organization_id, action="meeting.completed",
+            actor=actor, ip_address=ip_address,
+            resource_type="meeting", resource_id=meeting.id,
+            details={"title": meeting.title},
+        )
         return meeting
 
     def _build_summary(self, meeting: Meeting) -> str:
@@ -299,7 +338,18 @@ class MeetingService:
             parts.append(f"Agenda: {'; '.join(titles)}")
         return ". ".join(parts) + "."
 
-    async def delete(self, db, *, meeting: Meeting):
+    async def delete(
+        self, db, *, organization_id: str, meeting: Meeting,
+        actor: Optional[Employee] = None, ip_address: Optional[str] = None,
+    ):
+        from app.services.work_audit import record
+
+        await record(
+            db, organization_id=organization_id, action="meeting.deleted",
+            actor=actor, ip_address=ip_address,
+            resource_type="meeting", resource_id=meeting.id,
+            details={"title": meeting.title},
+        )
         await db.delete(meeting)
 
 

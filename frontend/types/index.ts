@@ -727,6 +727,10 @@ export interface Sprint {
   start_date: string | null;
   end_date: string | null;
   status: string;
+  progress: number;
+  tasks_count: number;
+  completed_tasks: number;
+  completed_at: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -739,6 +743,9 @@ export interface Task {
   milestone_id: string | null;
   sprint_id: string | null;
   parent_task_id: string | null;
+  parent_title: string | null;
+  subtasks_count: number;
+  subtasks_completed: number;
   title: string;
   description: string | null;
   status: string;
@@ -754,9 +761,11 @@ export interface Task {
   due_date: string | null;
   completed_at: string | null;
   progress: number;
+  tags: string[] | null;
   ai_summary: string | null;
   dependencies: { id: string; depends_on_task_id: string; depends_on_title: string; kind: string }[] | null;
   blocking_tasks: { id: string; task_id: string; title: string; status: string }[] | null;
+  blocked_by: { id: string; task_id: string; title: string; status: string; kind: string }[] | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -768,6 +777,37 @@ export interface Dependency {
   depends_on_title: string | null;
   kind: string;
   created_at: string | null;
+}
+
+export interface TaskComment {
+  id: string;
+  task_id: string;
+  author_id?: string;
+  author_name?: string;
+  body: string;
+  mentions?: string[];
+  created_at?: string;
+}
+
+export interface TaskAttachment {
+  id: string;
+  task_id: string;
+  filename: string;
+  url: string;
+  size_bytes: number;
+  kind?: string;
+  uploaded_by?: string;
+  uploaded_by_name?: string;
+  created_at?: string;
+}
+
+export interface TaskActivityEntry {
+  id: string;
+  action: string;
+  actor_id?: string;
+  actor_email?: string;
+  details?: Record<string, unknown> | null;
+  created_at?: string;
 }
 
 export interface Goal {
@@ -1126,6 +1166,37 @@ export interface CalendarEvent {
   status: string;
   created_at: string | null;
   updated_at: string | null;
+}
+
+export interface CalendarFeedItem {
+  id: string;
+  source: "event" | "meeting" | "task" | "leave" | "holiday";
+  title: string;
+  start_at: string | null;
+  end_at: string | null;
+  all_day: boolean;
+  due_date: string | null;
+  status: string | null;
+  event_type: string | null;
+  scope: string | null;
+}
+
+export interface TeamLoadMember {
+  employee_id: string;
+  full_name: string;
+  utilization: number;
+  allocated_hours: number;
+  capacity_hours: number;
+  is_overloaded: boolean;
+}
+
+export interface TeamLoadSummary {
+  team_id: string;
+  team_name: string;
+  member_count: number;
+  avg_utilization: number;
+  overloaded_count: number;
+  overloaded_employees: TeamLoadMember[];
 }
 
 export interface Approval {

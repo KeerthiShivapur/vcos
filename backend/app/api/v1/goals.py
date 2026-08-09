@@ -126,6 +126,7 @@ async def update_goal(
 @router.delete("/{goal_id}", response_model=Message)
 async def delete_goal(
     goal_id: str,
+    request: Request,
     org: Organization = Depends(get_current_organization),
     user: User = Depends(require_permission("goals:manage")),
     db: AsyncSession = Depends(get_db),
@@ -133,7 +134,12 @@ async def delete_goal(
     goal = await goal_service.get(db, organization_id=org.id, goal_id=goal_id)
     if goal is None:
         raise HTTPException(404, "Goal not found")
-    await goal_service.delete(db, organization_id=org.id, goal=goal)
+    from app.people.employee_service import employee_service
+
+    actor = await employee_service.get_by_user(db, organization_id=org.id, user_id=user.id)
+    await goal_service.delete(
+        db, organization_id=org.id, goal=goal, actor=actor, ip_address=get_client_ip(request)
+    )
     await db.commit()
     return Message(message="Goal deleted")
 
@@ -157,6 +163,7 @@ async def list_key_results(
 async def add_key_result(
     goal_id: str,
     payload: KeyResultCreate,
+    request: Request,
     org: Organization = Depends(get_current_organization),
     user: User = Depends(require_permission("goals:manage")),
     db: AsyncSession = Depends(get_db),
@@ -164,9 +171,13 @@ async def add_key_result(
     goal = await goal_service.get(db, organization_id=org.id, goal_id=goal_id)
     if goal is None:
         raise HTTPException(404, "Goal not found")
+    from app.people.employee_service import employee_service
+
+    actor = await employee_service.get_by_user(db, organization_id=org.id, user_id=user.id)
     try:
         kr = await goal_service.add_key_result(
-            db, organization_id=org.id, goal_id=goal_id, data=payload.model_dump(exclude_unset=True),
+            db, organization_id=org.id, goal_id=goal_id,
+            data=payload.model_dump(exclude_unset=True), actor=actor, ip_address=get_client_ip(request),
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -205,6 +216,7 @@ async def update_key_result(
 async def delete_key_result(
     goal_id: str,
     kr_id: str,
+    request: Request,
     org: Organization = Depends(get_current_organization),
     user: User = Depends(require_permission("goals:manage")),
     db: AsyncSession = Depends(get_db),
@@ -215,6 +227,11 @@ async def delete_key_result(
     kr = await goal_service.get_kr(db, organization_id=org.id, kr_id=kr_id)
     if kr is None:
         raise HTTPException(404, "Key result not found")
-    await goal_service.delete_key_result(db, organization_id=org.id, kr=kr)
+    from app.people.employee_service import employee_service
+
+    actor = await employee_service.get_by_user(db, organization_id=org.id, user_id=user.id)
+    await goal_service.delete_key_result(
+        db, organization_id=org.id, kr=kr, actor=actor, ip_address=get_client_ip(request)
+    )
     await db.commit()
     return Message(message="Key result deleted")

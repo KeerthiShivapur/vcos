@@ -121,6 +121,7 @@ from app.api.v1 import (  # noqa: E402
     exec_simulations,
     exec_strategy,
     executive,
+    execution,
     expertise,
     extensions,
     finance,
@@ -207,6 +208,7 @@ app.include_router(workspace.router, prefix=API_PREFIX)
 app.include_router(audit.router, prefix=API_PREFIX)
 app.include_router(events.router, prefix=API_PREFIX)
 app.include_router(search.router, prefix=API_PREFIX)
+app.include_router(execution.router, prefix=API_PREFIX)
 app.include_router(dashboard.router, prefix=API_PREFIX)
 app.include_router(employees.router, prefix=API_PREFIX)
 app.include_router(departments.router, prefix=API_PREFIX)

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { ArrowLeft, ArrowRight, CheckSquare2, Columns3, Plus, Table2 } from "lucide-react";
@@ -51,8 +51,15 @@ function TasksContent() {
 
   const [status, setStatus] = useState("");
   const [priority, setPriority] = useState("");
+  const [tag, setTag] = useState(params.get("tag") ?? "");
   const [projectId, setProjectId] = useState(params.get("project_id") ?? "");
   const [assigneeId, setAssigneeId] = useState("");
+
+  const allTags = useMemo(() => {
+    const seen: string[] = [];
+    tasks.forEach((t) => (t.tags ?? []).forEach((tg) => { if (!seen.includes(tg)) seen.push(tg); }));
+    return seen.sort();
+  }, [tasks]);
 
   const [showCreate, setShowCreate] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -68,6 +75,7 @@ function TasksContent() {
           project_id: projectId || undefined,
           status: status || undefined,
           priority: priority || undefined,
+          tag: tag || undefined,
           assignee_id: assigneeId || undefined,
         }),
         listProjects(),
@@ -86,7 +94,7 @@ function TasksContent() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, priority, projectId, assigneeId]);
+  }, [status, priority, projectId, assigneeId, tag]);
 
   useEffect(() => {
     if (!projectId) {
@@ -176,6 +184,10 @@ function TasksContent() {
           value={priority} onChange={(e) => setPriority(e.target.value)} placeholder="All priorities" />
         <Select className="h-9 w-44" aria-label="Assignee" options={employees.map((e) => ({ value: e.id, label: e.full_name }))}
           value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)} placeholder="Anyone" />
+        {allTags.length > 0 && (
+          <Select className="h-9 w-36" aria-label="Label" options={allTags.map((t) => ({ value: t, label: t }))}
+            value={tag} onChange={(e) => setTag(e.target.value)} placeholder="All labels" />
+        )}
         <div className="ml-auto flex items-center rounded-lg border border-line bg-surface p-0.5">
           <button
             onClick={() => setView("list")}
@@ -220,6 +232,13 @@ function TasksContent() {
                       <Link href={`/tasks/${task.id}`} className="block">
                         <p className="text-[13px] font-medium leading-snug text-ink">{task.title}</p>
                         {task.project_name && <p className="mt-0.5 truncate text-[11px] text-faint">{task.project_name}</p>}
+                        {(task.tags ?? []).length > 0 && (
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {task.tags!.map((tg) => (
+                              <span key={tg} className="rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-medium text-brand">{tg}</span>
+                            ))}
+                          </div>
+                        )}
                       </Link>
                       <div className="mt-2 flex items-center justify-between gap-2">
                         <Badge tone={task.priority === "critical" ? "danger" : task.priority === "high" ? "warning" : task.priority === "low" ? "neutral" : "brand"}>
@@ -270,7 +289,15 @@ function TasksContent() {
               <Tr key={task.id} onClick={() => window.location.assign(`/tasks/${task.id}`)}>
                 <Td className="max-w-[260px]">
                   <p className="truncate font-medium text-ink">{task.title}</p>
+                  {task.parent_task_id && <p className="text-[11px] text-faint">subtask</p>}
                   {task.description && <p className="truncate text-[12px] text-faint">{task.description}</p>}
+                  {(task.tags ?? []).length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {task.tags!.map((tg) => (
+                        <span key={tg} className="rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-medium text-brand">{tg}</span>
+                      ))}
+                    </div>
+                  )}
                 </Td>
                 <Td>{task.project_name ?? "—"}</Td>
                 <Td><Badge tone={statusTone(task.status)}>{task.status}</Badge></Td>

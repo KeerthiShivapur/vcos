@@ -418,33 +418,68 @@ function MembersTab() {
   const assignableRoles =
     roles?.filter((r) => user?.role === "ceo" || (r.code !== "ceo" && r.code !== "admin")) ?? [];
 
+  // Under burst load the browser sometimes cancels a request before it is sent
+  // and the fetch only surfaces the failure much later. A 4s soft cap surfaces
+  // it quickly; we then confirm via GET /users/invitations whether the invite
+  // actually landed (the backend dedupes pending invites, so a re-POST after a
+  // lost response would be safe too — resend covers that case with the URL).
   async function sendInvite(event: React.FormEvent) {
     event.preventDefault();
     setInviteError(null);
     setInviteSending(true);
     try {
-      const result = await api<{ invitation: Invitation; url: string | null; token: string | null }>("/users/invite", {
-        method: "POST",
-        body: {
-          email: inviteEmail,
-          full_name: inviteName || undefined,
-          role: inviteRole,
-        },
-      });
+      await doSendInvite(0);
       setInviteOpen(false);
       setInviteEmail("");
       setInviteName("");
-      if (result.url) {
-        setInviteResultUrl(result.url);
-      } else {
-        toastSuccess("Invitation sent", `${inviteEmail} will receive an email with a registration link.`);
-      }
       refresh();
       refreshInvites();
     } catch (err) {
       setInviteError(err instanceof Error ? err.message : "Unable to send invitation");
     } finally {
       setInviteSending(false);
+    }
+  }
+
+  async function doSendInvite(attempt: number): Promise<{ url: string | null }> {
+    try {
+      return await Promise.race([
+        api<{ invitation: Invitation; url: string | null; token: string | null }>("/users/invite", {
+          method: "POST",
+          body: {
+            email: inviteEmail,
+            full_name: inviteName || undefined,
+            role: inviteRole,
+          },
+        }).then((result) => {
+          if (result.url) setInviteResultUrl(result.url);
+          else toastSuccess("Invitation sent", `${inviteEmail} will receive an email with a registration link.`);
+          return { url: result.url };
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("The request timed out, checking whether the invitation was sent…")), 4_000)
+        ),
+      ]);
+    } catch (err) {
+      if (attempt === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        try {
+          const invitations = await api<Invitation[]>("/users/invitations");
+          const pending = invitations.find((i) => i.email === inviteEmail && i.status === "pending");
+          if (pending) {
+            const resent = await api<{ invitation: Invitation; url: string | null }>(
+              `/users/invitations/${pending.id}/resend`,
+              { method: "POST" }
+            );
+            if (resent.url) setInviteResultUrl(resent.url);
+            return { url: resent.url ?? null };
+          }
+        } catch {
+          /* if the check itself fails, fall through and retry the invite once */
+        }
+        return doSendInvite(1);
+      }
+      throw err;
     }
   }
 

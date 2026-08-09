@@ -66,6 +66,7 @@ class Roadmap(Base, TimestampMixin):
     owner_id: Mapped[Optional[str]] = mapped_column(ForeignKey("employees.id", ondelete="SET NULL"))
     timeframe: Mapped[str] = mapped_column(String(30), default="quarter")  # quarter|half|year
     status: Mapped[str] = mapped_column(String(30), default="draft")  # draft|active|completed|archived
+    progress: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
@@ -125,6 +126,8 @@ class Sprint(Base, TimestampMixin):
     start_date: Mapped[Optional[date]] = mapped_column(Date)
     end_date: Mapped[Optional[date]] = mapped_column(Date)
     status: Mapped[str] = mapped_column(String(30), default="planned")  # planned|active|completed
+    progress: Mapped[int] = mapped_column(Integer, default=0)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 

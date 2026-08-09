@@ -4,6 +4,7 @@ from datetime import date, datetime
 from typing import Optional
 
 from sqlalchemy import (
+    JSON,
     Date,
     DateTime,
     Float,
@@ -52,6 +53,7 @@ class Task(Base, TimestampMixin):
     due_date: Mapped[Optional[date]] = mapped_column(Date)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     progress: Mapped[int] = mapped_column(Integer, default=0)  # 0-100
+    tags: Mapped[Optional[list[str]]] = mapped_column(JSON)
     ai_summary: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
@@ -74,3 +76,47 @@ class TaskDependency(Base):
         String(30), default="finish_to_start"
     )  # finish_to_start|start_to_start|finish_to_finish|blocking|related
     created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class TaskComment(Base):
+    """Discussion on a task — the collaborative surface of execution."""
+
+    __tablename__ = "task_comments"
+    __table_args__ = (
+        Index("ix_task_comments_org_task", "organization_id", "task_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    task_id: Mapped[str] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False)
+    author_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("employees.id", ondelete="SET NULL")
+    )
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    mentions: Mapped[Optional[list[str]]] = mapped_column(JSON)  # employee ids @-mentioned
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class TaskAttachment(Base):
+    """File metadata attached to a task (storage is external/URL-based)."""
+
+    __tablename__ = "task_attachments"
+    __table_args__ = (
+        Index("ix_task_attachments_org_task", "organization_id", "task_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    task_id: Mapped[str] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False)
+    filename: Mapped[str] = mapped_column(String(300), nullable=False)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    kind: Mapped[Optional[str]] = mapped_column(String(100))  # mime type
+    uploaded_by: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("employees.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)

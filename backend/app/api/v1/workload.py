@@ -53,6 +53,15 @@ async def snapshot_week(
     return {"snapshots_created": created}
 
 
+@router.get("/workload/teams")
+async def team_load(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("workload:read")),
+    db: AsyncSession = Depends(get_db),
+):
+    return await workload_service.team_load_summary(db, organization_id=org.id)
+
+
 @router.get("/workload/organization")
 async def organization_load(
     org: Organization = Depends(get_current_organization),

@@ -14,6 +14,14 @@ from app.schemas.common import ORMModel
 
 # --------------------------------------------------------------------------- Projects
 
+class ProjectLifecycleRequest(BaseModel):
+    action: str = Field(pattern="^(start|pause|resume|complete|cancel|archive)$")
+
+
+class RoadmapLifecycleRequest(BaseModel):
+    action: str = Field(pattern="^(activate|complete|archive)$")
+
+
 class ProjectCreate(BaseModel):
     code: Optional[str] = None
     name: str = Field(min_length=1, max_length=255)
@@ -121,6 +129,7 @@ class RoadmapOut(ORMModel):
     owner_name: Optional[str] = None
     timeframe: str
     status: str
+    progress: int = 0
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -191,6 +200,10 @@ class SprintOut(ORMModel):
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     status: str
+    progress: int = 0
+    tasks_count: int = 0
+    completed_tasks: int = 0
+    completed_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -203,6 +216,7 @@ class TaskCreate(BaseModel):
     milestone_id: Optional[str] = None
     sprint_id: Optional[str] = None
     parent_task_id: Optional[str] = None
+    goal_id: Optional[str] = None  # deprecated/no column — explicitly rejected by service
     title: str
     description: Optional[str] = None
     status: Optional[str] = Field(default="backlog", pattern="^(backlog|todo|in_progress|review|blocked|completed|archived)$")
@@ -213,12 +227,14 @@ class TaskCreate(BaseModel):
     spent_hours: Optional[float] = Field(default=0, ge=0)
     start_date: Optional[date] = None
     due_date: Optional[date] = None
+    tags: Optional[List[str]] = None
     dependencies: Optional[List[dict]] = None  # [{"depends_on_task_id": str, "kind": str}]
 
 
 class TaskUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
+    goal_id: Optional[str] = None  # deprecated/no column - explicitly rejected by service
     status: Optional[str] = Field(default=None, pattern="^(backlog|todo|in_progress|review|blocked|completed|archived)$")
     priority: Optional[str] = Field(default=None, pattern="^(low|medium|high|critical)$")
     assignee_id: Optional[str] = None
@@ -231,6 +247,15 @@ class TaskUpdate(BaseModel):
     epic_id: Optional[str] = None
     milestone_id: Optional[str] = None
     sprint_id: Optional[str] = None
+    parent_task_id: Optional[str] = None
+    tags: Optional[List[str]] = None
+
+
+class TaskTransition(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    status: str = Field(pattern="^(backlog|todo|in_progress|review|blocked|completed|archived)$")
+    force: bool = False  # bypass dependency-satisfaction guard
 
 
 class TaskOut(ORMModel):
@@ -241,6 +266,9 @@ class TaskOut(ORMModel):
     milestone_id: Optional[str] = None
     sprint_id: Optional[str] = None
     parent_task_id: Optional[str] = None
+    parent_title: Optional[str] = None
+    subtasks_count: int = 0
+    subtasks_completed: int = 0
     title: str
     description: Optional[str] = None
     status: str
@@ -256,11 +284,47 @@ class TaskOut(ORMModel):
     due_date: Optional[date] = None
     completed_at: Optional[datetime] = None
     progress: int = 0
+    tags: Optional[List[str]] = None
     ai_summary: Optional[str] = None
     dependencies: Optional[List[dict]] = None
     blocking_tasks: Optional[List[dict]] = None
+    blocked_by: Optional[List[dict]] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+
+class TaskCommentCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=4000)
+    mentions: Optional[List[str]] = None  # explicit employee ids (also parsed from @email in body)
+
+
+class TaskCommentOut(ORMModel):
+    id: str
+    task_id: str
+    author_id: Optional[str] = None
+    author_name: Optional[str] = None
+    body: str
+    mentions: Optional[List[str]] = None
+    created_at: Optional[datetime] = None
+
+
+class TaskAttachmentCreate(BaseModel):
+    filename: str = Field(min_length=1, max_length=300)
+    url: str = Field(min_length=1)
+    size_bytes: int = Field(default=0, ge=0)
+    kind: Optional[str] = None
+
+
+class TaskAttachmentOut(ORMModel):
+    id: str
+    task_id: str
+    filename: str
+    url: str
+    size_bytes: int = 0
+    kind: Optional[str] = None
+    uploaded_by: Optional[str] = None
+    uploaded_by_name: Optional[str] = None
+    created_at: Optional[datetime] = None
 
 
 class DependencyOut(ORMModel):

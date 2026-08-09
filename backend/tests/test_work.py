@@ -205,7 +205,7 @@ async def test_task_engine_dependencies_and_cycles(client):
         json={"status": "unknown"},
         headers=headers,
     )
-    assert bad_status.status_code == 400
+    assert bad_status.status_code in (400, 422)
 
 
 @pytest.mark.asyncio

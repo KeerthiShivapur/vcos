@@ -33,3 +33,6 @@ npm-debug.log*
 Thumbs.db
 .idea/
 .vscode/
+
+# stray output
+backend/regression.err

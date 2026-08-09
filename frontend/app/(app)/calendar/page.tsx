@@ -3,15 +3,15 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, ListOrdered, Plus } from "lucide-react";
 
-import { createCalendarEvent, deleteCalendarEvent, listCalendarEvents } from "@/lib/api";
+import { createCalendarEvent, deleteCalendarEvent, getCalendarFeed } from "@/lib/api";
 import { roleCan, PERMISSIONS } from "@/lib/permissions";
-import type { CalendarEvent } from "@/types";
+import type { CalendarFeedItem } from "@/types";
 import { useAuth } from "@/hooks/useAuth";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { Badge, statusTone } from "@/components/ui/Badge";
+import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -31,6 +31,16 @@ export default function CalendarPage() {
 const SCOPE_OPTIONS = ["personal", "team", "department", "project", "company"];
 const EVENT_TYPES = ["event", "meeting", "deadline", "reminder", "holiday", "milestone"];
 
+type Tone = "neutral" | "brand" | "success" | "warning" | "danger";
+
+const SOURCE_META: Record<string, { label: string; tone: Tone }> = {
+  event: { label: "Event", tone: "brand" },
+  meeting: { label: "Meeting", tone: "warning" },
+  task: { label: "Task deadline", tone: "danger" },
+  leave: { label: "Leave", tone: "success" },
+  holiday: { label: "Holiday", tone: "neutral" },
+};
+
 type CalendarView = "week" | "month" | "agenda";
 
 function startOfWeek(date: Date): Date {
@@ -46,17 +56,29 @@ function startOfMonth(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), 1);
 }
 
+function itemStart(item: CalendarFeedItem): Date | null {
+  if (item.start_at) return new Date(item.start_at);
+  if (item.due_date) return new Date(`${item.due_date}T00:00:00`);
+  return null;
+}
+
+function itemDayKey(item: CalendarFeedItem): string | null {
+  const start = itemStart(item);
+  return start ? start.toDateString() : null;
+}
+
 function CalendarContent() {
   const { user } = useAuth();
   const canManage = roleCan(user?.role, PERMISSIONS.CALENDAR_MANAGE);
 
-  const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [items, setItems] = useState<CalendarFeedItem[]>([]);
   const [weekStart, setWeekStart] = useState<Date>(() => startOfWeek(new Date()));
   const [monthStart, setMonthStart] = useState<Date>(() => startOfMonth(new Date()));
   const [view, setView] = useState<CalendarView>("week");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [scopeFilter, setScopeFilter] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("");
 
   const [showCreate, setShowCreate] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -83,12 +105,11 @@ function CalendarContent() {
     setLoading(true);
     setError(null);
     try {
-      const eventList = await listCalendarEvents({
+      const feed = await getCalendarFeed({
         start: range.start.toISOString(),
         end: range.end.toISOString(),
-        scope: scopeFilter || undefined,
       });
-      setEvents(eventList);
+      setItems(feed);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load calendar");
     } finally {
@@ -99,7 +120,7 @@ function CalendarContent() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [range, scopeFilter]);
+  }, [range]);
 
   function navigate(direction: -1 | 1) {
     if (view === "week") {
@@ -124,6 +145,14 @@ function CalendarContent() {
     setMonthStart(startOfMonth(new Date()));
   }
 
+  const visibleItems = useMemo(() => {
+    return items.filter((item) => {
+      if (sourceFilter && item.source !== sourceFilter) return false;
+      if (scopeFilter && item.scope && item.scope !== scopeFilter) return false;
+      return true;
+    });
+  }, [items, sourceFilter, scopeFilter]);
+
   const weekDays = useMemo(() => {
     return Array.from({ length: 7 }, (_, index) => {
       const date = new Date(weekStart);
@@ -144,22 +173,21 @@ function CalendarContent() {
     });
   }, [monthStart]);
 
-  const eventsByDay = useMemo(() => {
-    const map = new Map<string, CalendarEvent[]>();
-    for (const event of events) {
-      const start = event.start_at ? new Date(event.start_at) : null;
-      if (!start) continue;
-      const key = start.toDateString();
+  const itemsByDay = useMemo(() => {
+    const map = new Map<string, CalendarFeedItem[]>();
+    for (const item of visibleItems) {
+      const key = itemDayKey(item);
+      if (!key) continue;
       const list = map.get(key) ?? [];
-      list.push(event);
+      list.push(item);
       map.set(key, list);
     }
     return map;
-  }, [events]);
+  }, [visibleItems]);
 
-  const sortedEvents = useMemo(
-    () => [...events].sort((a, b) => (a.start_at ?? "").localeCompare(b.start_at ?? "")),
-    [events]
+  const sortedItems = useMemo(
+    () => [...visibleItems].sort((a, b) => (itemStart(a)?.getTime() ?? 0) - (itemStart(b)?.getTime() ?? 0)),
+    [visibleItems]
   );
 
   const label =
@@ -209,6 +237,25 @@ function CalendarContent() {
     }
   }
 
+  const renderItem = (item: CalendarFeedItem) => {
+    const meta = SOURCE_META[item.source] ?? SOURCE_META.event;
+    const start = itemStart(item);
+    return (
+      <div key={`${item.source}-${item.id}`} className="min-w-0 flex-1">
+        <p className="truncate text-[13px] font-medium text-ink">{item.title}</p>
+        <p className="text-[12px] text-faint">
+          {item.all_day || !start ? "All day" : formatDateTime(start.toISOString())}
+          {item.source === "event" && item.scope ? ` · ${item.scope}` : ""}
+        </p>
+        <div className="mt-1.5 flex gap-1.5">
+          <Badge tone={meta.tone}>{meta.label}</Badge>
+          {item.source === "event" && item.event_type ? <Badge tone="brand">{item.event_type}</Badge> : null}
+          {item.source !== "event" && item.status ? <Badge tone="neutral">{item.status}</Badge> : null}
+        </div>
+      </div>
+    );
+  };
+
   const renderView = () => {
     if (error) return <ErrorState title="Could not load calendar" message={error} />;
     if (loading) return <div className="flex justify-center py-24"><Spinner label="Loading calendar" /></div>;
@@ -220,7 +267,7 @@ function CalendarContent() {
               <div className="grid grid-cols-7 gap-1">
                 {weekDays.map((day) => {
                   const key = day.toDateString();
-                  const dayEvents = eventsByDay.get(key) ?? [];
+                  const dayItems = itemsByDay.get(key) ?? [];
                   const isToday = day.toDateString() === new Date().toDateString();
                   return (
                     <div key={key} className={classNames("flex min-h-32 flex-col rounded-lg border p-1.5", isToday ? "border-brand bg-brand-soft/40" : "border-line")}>
@@ -229,16 +276,23 @@ function CalendarContent() {
                         <span className={classNames("ml-1", isToday ? "text-brand" : "")}>{day.getDate()}</span>
                       </p>
                       <div className="mt-1 space-y-0.5">
-                        {dayEvents.slice(0, 4).map((event) => (
-                          <div
-                            key={event.id}
-                            className="truncate rounded bg-brand-soft px-1.5 py-0.5 text-[10px] font-medium text-brand"
-                            title={`${event.title}${event.start_at ? ` · ${formatDateTime(event.start_at)}` : ""}`}
-                          >
-                            {event.title}
-                          </div>
-                        ))}
-                        {dayEvents.length > 4 && <p className="px-1 text-[10px] text-faint">+{dayEvents.length - 4} more</p>}
+                        {dayItems.slice(0, 4).map((item) => {
+                          const meta = SOURCE_META[item.source] ?? SOURCE_META.event;
+                          return (
+                            <div
+                              key={`${item.source}-${item.id}`}
+                              className={classNames(
+                                "truncate rounded px-1.5 py-0.5 text-[10px] font-medium",
+                                item.source === "event" ? "bg-brand-soft text-brand" : "bg-surface-strong text-ink"
+                              )}
+                              title={`${item.title}${item.start_at ? ` · ${formatDateTime(item.start_at)}` : ""}`}
+                            >
+                              <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-current opacity-60" />
+                              {item.title}
+                            </div>
+                          );
+                        })}
+                        {dayItems.length > 4 && <p className="px-1 text-[10px] text-faint">+{dayItems.length - 4} more</p>}
                       </div>
                     </div>
                   );
@@ -246,26 +300,16 @@ function CalendarContent() {
               </div>
             </Card>
           </div>
-          <Card title="This week" subtitle={`${events.length} events`}>
-            {sortedEvents.length === 0 ? (
+          <Card title="This week" subtitle={`${sortedItems.length} items`}>
+            {sortedItems.length === 0 ? (
               <EmptyState icon={CalendarDays} title="Nothing scheduled" description="Create an event to get started." />
             ) : (
               <ul className="space-y-3">
-                {sortedEvents.map((event) => (
-                  <li key={event.id} className="group flex items-start gap-3 rounded-lg border border-line p-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[13px] font-medium text-ink">{event.title}</p>
-                      <p className="text-[12px] text-faint">
-                        {formatDateTime(event.start_at)}
-                        {event.location ? ` · ${event.location}` : ""}
-                      </p>
-                      <div className="mt-1.5 flex gap-1.5">
-                        <Badge tone="brand">{event.calendar_scope}</Badge>
-                        <Badge tone={statusTone(event.status)}>{event.event_type}</Badge>
-                      </div>
-                    </div>
-                    {canManage && (
-                      <button onClick={() => handleDelete(event.id)} className="hidden rounded-lg p-1 text-faint hover:bg-danger/10 hover:text-danger group-hover:block" title="Delete event">
+                {sortedItems.map((item) => (
+                  <li key={`${item.source}-${item.id}`} className="group flex items-start gap-3 rounded-lg border border-line p-3">
+                    {renderItem(item)}
+                    {canManage && item.source === "event" && (
+                      <button onClick={() => handleDelete(item.id)} className="hidden rounded-lg p-1 text-faint hover:bg-danger/10 hover:text-danger group-hover:block" title="Delete event">
                         <Plus className="h-3.5 w-3.5 rotate-45" />
                       </button>
                     )}
@@ -289,7 +333,7 @@ function CalendarContent() {
             {monthDays.map((day) => {
               const inMonth = day.getMonth() === monthStart.getMonth();
               const key = day.toDateString();
-              const dayEvents = eventsByDay.get(key) ?? [];
+              const dayItems = itemsByDay.get(key) ?? [];
               return (
                 <div
                   key={key}
@@ -303,16 +347,19 @@ function CalendarContent() {
                     {day.getDate()}
                   </p>
                   <div className="mt-1 space-y-0.5">
-                    {dayEvents.slice(0, 3).map((event) => (
+                    {dayItems.slice(0, 3).map((item) => (
                       <div
-                        key={event.id}
-                        className="truncate rounded bg-brand-soft px-1.5 py-0.5 text-[10px] font-medium text-brand"
-                        title={`${event.title}${event.start_at ? ` · ${formatDateTime(event.start_at)}` : ""}`}
+                        key={`${item.source}-${item.id}`}
+                        className={classNames(
+                          "truncate rounded px-1.5 py-0.5 text-[10px] font-medium",
+                          item.source === "event" ? "bg-brand-soft text-brand" : "bg-surface-strong text-ink"
+                        )}
+                        title={`${item.title}${item.start_at ? ` · ${formatDateTime(item.start_at)}` : ""}`}
                       >
-                        {event.title}
+                        {item.title}
                       </div>
                     ))}
-                    {dayEvents.length > 3 && <p className="px-1 text-[10px] text-faint">+{dayEvents.length - 3} more</p>}
+                    {dayItems.length > 3 && <p className="px-1 text-[10px] text-faint">+{dayItems.length - 3} more</p>}
                   </div>
                 </div>
               );
@@ -322,33 +369,27 @@ function CalendarContent() {
       );
     }
     return (
-      <Card title="Agenda" subtitle={`${events.length} events in the next 30 days`}>
-        {sortedEvents.length === 0 ? (
+      <Card title="Agenda" subtitle={`${sortedItems.length} items in the next 30 days`}>
+        {sortedItems.length === 0 ? (
           <EmptyState icon={CalendarDays} title="Nothing scheduled" description="Create an event to get started." />
         ) : (
           <div className="space-y-6">
-            {Array.from(eventsByDay.entries())
+            {Array.from(itemsByDay.entries())
               .sort(([a], [b]) => a.localeCompare(b))
-              .map(([dayKey, dayEvents]) => (
+              .map(([dayKey, dayItems]) => (
                 <div key={dayKey}>
                   <p className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-faint">
-                    {formatDate(dayKey)} · {dayEvents.length} event(s)
+                    {formatDate(dayKey)} · {dayItems.length} item(s)
                   </p>
                   <ul className="space-y-2">
-                    {dayEvents.map((event) => (
-                      <li key={event.id} className="group flex items-center gap-3 rounded-lg border border-line px-3 py-2.5">
+                    {dayItems.map((item) => (
+                      <li key={`${item.source}-${item.id}`} className="group flex items-center gap-3 rounded-lg border border-line px-3 py-2.5">
                         <span className="w-24 shrink-0 text-[12px] font-medium text-muted">
-                          {event.start_at ? formatDateTime(event.start_at) : "All day"}
+                          {item.all_day || !itemStart(item) ? "All day" : formatDateTime(item.start_at ?? "")}
                         </span>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-[13px] font-medium text-ink">{event.title}</p>
-                          <div className="mt-0.5 flex gap-1.5">
-                            <Badge tone="brand">{event.calendar_scope}</Badge>
-                            <Badge tone={statusTone(event.status)}>{event.event_type}</Badge>
-                          </div>
-                        </div>
-                        {canManage && (
-                          <button onClick={() => handleDelete(event.id)} className="hidden rounded-lg p-1 text-faint hover:bg-danger/10 hover:text-danger group-hover:block" title="Delete event">
+                        {renderItem(item)}
+                        {canManage && item.source === "event" && (
+                          <button onClick={() => handleDelete(item.id)} className="hidden rounded-lg p-1 text-faint hover:bg-danger/10 hover:text-danger group-hover:block" title="Delete event">
                             <Plus className="h-3.5 w-3.5 rotate-45" />
                           </button>
                         )}
@@ -388,13 +429,29 @@ function CalendarContent() {
           </Button>
           <span className="text-sm font-semibold text-ink">{label}</span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-1 rounded-lg border border-line bg-surface p-0.5">
+            {(["", "event", "meeting", "task", "leave", "holiday"] as const).map((source) => (
+              <button
+                key={source || "all"}
+                onClick={() => setSourceFilter(source)}
+                className={classNames(
+                  "rounded-md px-2.5 py-1.5 text-[12px] font-medium",
+                  sourceFilter === source ? "bg-brand text-white" : "text-muted hover:text-ink"
+                )}
+              >
+                {source ? SOURCE_META[source].label : "All"}
+              </button>
+            ))}
+          </div>
+          <Select className="h-9 w-40" aria-label="Scope" options={SCOPE_OPTIONS.map((s) => ({ value: s, label: s }))}
+            value={scopeFilter} onChange={(e) => setScopeFilter(e.target.value)} placeholder="All scopes" />
           <div className="flex items-center rounded-lg border border-line bg-surface p-0.5">
             {([
               ["week", "Week", CalendarDays],
               ["month", "Month", CalendarDays],
               ["agenda", "Agenda", ListOrdered],
-            ] as const).map(([value, label, Icon]) => (
+            ] as const).map(([value, viewLabel, Icon]) => (
               <button
                 key={value}
                 onClick={() => setView(value)}
@@ -403,12 +460,10 @@ function CalendarContent() {
                   view === value ? "bg-brand text-white" : "text-muted hover:text-ink"
                 )}
               >
-                <Icon className="h-3.5 w-3.5" /> {label}
+                <Icon className="h-3.5 w-3.5" /> {viewLabel}
               </button>
             ))}
           </div>
-          <Select className="h-9 w-40" aria-label="Scope" options={SCOPE_OPTIONS.map((s) => ({ value: s, label: s }))}
-            value={scopeFilter} onChange={(e) => setScopeFilter(e.target.value)} placeholder="All scopes" />
         </div>
       </div>
 

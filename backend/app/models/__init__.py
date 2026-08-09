@@ -30,6 +30,7 @@ from app.models.team import Team, TeamGoal, TeamMember  # noqa: F401
 from app.models.skill import ExpertiseScore, Skill  # noqa: F401
 from app.models.project import Epic, Milestone, Project, ProjectMember, ProjectTimeline, Roadmap, Sprint  # noqa: F401
 from app.models.task import Task, TaskDependency  # noqa: F401
+from app.models.task import TaskAttachment, TaskComment  # noqa: F401
 from app.models.goal import Goal, KeyResult  # noqa: F401
 from app.models.meeting import Meeting, MeetingActionItem, MeetingAgendaItem, MeetingAttendee  # noqa: F401
 from app.models.calendar import CalendarEvent  # noqa: F401
@@ -381,6 +382,8 @@ __all__ = [
     "ProjectTimeline",
     "Task",
     "TaskDependency",
+    "TaskComment",
+    "TaskAttachment",
     "Goal",
     "KeyResult",
     "Meeting",

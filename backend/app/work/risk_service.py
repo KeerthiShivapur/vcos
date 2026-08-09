@@ -77,6 +77,14 @@ class RiskService:
                 entity_id=risk.id,
                 link="/analytics",
             )
+        from app.services.work_audit import record
+
+        await record(
+            db, organization_id=organization_id, action="risk.created",
+            actor=actor, ip_address=ip_address,
+            resource_type="risk", resource_id=risk.id,
+            details={"title": risk.title, "risk_score": risk.risk_score},
+        )
         return risk
 
     async def _emit(self, db, name: str, organization_id: str, actor: Optional[Employee], ip: Optional[str], risk: Risk):
@@ -85,7 +93,7 @@ class RiskService:
         await event_service.emit(
             db, name=name, actor_id=actor.user_id if actor else None,
             organization_id=organization_id,
-            payload={"risk_id": risk.id, "title": risk.title, "project_id": risk.project_id, "risk_score": risk.risk_score},
+            payload={"risk_id": risk.id, "title": risk.title, "project_id": risk.project_id, "risk_score": risk.risk_score, "owner_id": risk.owner_id, "status": risk.status},
         )
 
     async def get(self, db: AsyncSession, *, organization_id: str, risk_id: str) -> Optional[Risk]:
@@ -110,26 +118,54 @@ class RiskService:
     async def list_all(
         self, db: AsyncSession, *, organization_id: str,
         project_id: Optional[str] = None, status: Optional[str] = None, severity: Optional[str] = None,
+        limit: int = 200,
     ) -> list[Risk]:
         stmt = select(Risk).where(Risk.organization_id == organization_id)
         if project_id:
             stmt = stmt.where(Risk.project_id == project_id)
         if status:
             stmt = stmt.where(Risk.status == status)
-        rows = await db.execute(stmt.order_by(desc(Risk.risk_score)))
-        risks = list(rows.scalars().all())
         if severity:
-            risks = [r for r in risks if self.severity(r.risk_score) == severity]
+            bounds = {
+                "critical": (16, 25),
+                "high": (9, 15),
+                "medium": (4, 8),
+                "low": (1, 3),
+            }.get(severity.lower())
+            if bounds:
+                stmt = stmt.where(Risk.risk_score.between(bounds[0], bounds[1]))
+            else:
+                return []
+        rows = await db.execute(stmt.order_by(desc(Risk.risk_score)).limit(limit))
+        risks = list(rows.scalars().all())
         owner_ids = {r.owner_id for r in risks if r.owner_id}
         project_ids = {r.project_id for r in risks if r.project_id}
         owners = {}
         if owner_ids:
-            owners = {e.id: e for e in (await db.execute(select(Employee).where(Employee.id.in_(owner_ids)))).scalars().all()}
+            owners = {
+                e.id: e
+                for e in (
+                    await db.execute(
+                        select(Employee).where(
+                            Employee.organization_id == organization_id, Employee.id.in_(owner_ids)
+                        )
+                    )
+                ).scalars().all()
+            }
         from app.models.project import Project
 
         projects = {}
         if project_ids:
-            projects = {p.id: p.name for p in (await db.execute(select(Project).where(Project.id.in_(project_ids)))).scalars().all()}
+            projects = {
+                p.id: p.name
+                for p in (
+                    await db.execute(
+                        select(Project).where(
+                            Project.organization_id == organization_id, Project.id.in_(project_ids)
+                        )
+                    )
+                ).scalars().all()
+            }
         for r in risks:
             r.owner_name = owners[r.owner_id].full_name if r.owner_id and owners.get(r.owner_id) else None
             r.project_name = projects.get(r.project_id)
@@ -140,25 +176,57 @@ class RiskService:
         self, db: AsyncSession, *, organization_id: str, risk: Risk, data: dict[str, Any],
         actor: Optional[Employee] = None, ip_address: Optional[str] = None,
     ) -> Risk:
-        for key, value in data.items():
-            if hasattr(risk, key) and key not in ("id", "organization_id", "created_at"):
-                setattr(risk, key, value)
+        for key in ("project_id", "owner_id"):
+            if data.get(key):
+                await self._validate_ref(db, organization_id, key, data[key])
+        from app.work.guards import apply_editable
+
+        apply_editable(risk, data)
         if "probability" in data or "impact" in data:
             risk.risk_score = self.compute_score(risk.probability, risk.impact)
-        if risk.status == "closed":
-            risk.status = "closed"
         risk.updated_at = utcnow()
         await db.flush()
         await self._emit(db, "risk.updated", organization_id, actor, ip_address, risk)
+        from app.services.work_audit import record
+
+        await record(
+            db, organization_id=organization_id, action="risk.updated",
+            actor=actor, ip_address=ip_address,
+            resource_type="risk", resource_id=risk.id,
+            details={"title": risk.title, "risk_score": risk.risk_score},
+        )
         return risk
 
-    async def close(self, db: AsyncSession, *, organization_id: str, risk: Risk) -> Risk:
+    async def close(
+        self, db: AsyncSession, *, organization_id: str, risk: Risk,
+        actor: Optional[Employee] = None, ip_address: Optional[str] = None,
+    ) -> Risk:
         risk.status = "closed"
         risk.updated_at = utcnow()
         await db.flush()
+        await self._emit(db, "risk.closed", organization_id, actor, ip_address, risk)
+        from app.services.work_audit import record
+
+        await record(
+            db, organization_id=organization_id, action="risk.closed",
+            actor=actor, ip_address=ip_address,
+            resource_type="risk", resource_id=risk.id,
+            details={"title": risk.title},
+        )
         return risk
 
-    async def delete(self, db: AsyncSession, *, organization_id: str, risk: Risk):
+    async def delete(
+        self, db: AsyncSession, *, organization_id: str, risk: Risk,
+        actor: Optional[Employee] = None, ip_address: Optional[str] = None,
+    ):
+        from app.services.work_audit import record
+
+        await record(
+            db, organization_id=organization_id, action="risk.deleted",
+            actor=actor, ip_address=ip_address,
+            resource_type="risk", resource_id=risk.id,
+            details={"title": risk.title},
+        )
         await db.delete(risk)
 
 

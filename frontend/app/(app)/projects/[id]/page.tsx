@@ -12,6 +12,7 @@ import {
   FolderKanban,
   Layers,
   ListChecks,
+  Pencil,
   Plus,
   Rocket,
   ShieldAlert,
@@ -22,12 +23,14 @@ import {
 import {
   addProjectMember,
   closeRisk,
+  completeEpic,
   completeMilestone,
   completeSprint,
   createEpic,
   createMilestone,
   createRisk,
   createSprint,
+  deleteProject,
   getProject,
   getProjectHealth,
   getProjectStats,
@@ -40,8 +43,12 @@ import {
   listRisks,
   listSprints,
   listTasks,
+  projectLifecycle,
   removeProjectMember,
+  startEpic,
   startSprint,
+  updateProject,
+  updateTask,
 } from "@/lib/api";
 import { roleCan, PERMISSIONS } from "@/lib/permissions";
 import type { Epic, EmployeeSummary, Meeting, Milestone, Project, ProjectHealth, ProjectMember, ProjectStats, Risk, Sprint, Task, TimelineEntry } from "@/types";
@@ -98,6 +105,11 @@ function DetailContent() {
   const [showMilestoneModal, setShowMilestoneModal] = useState(false);
   const [showSprintModal, setShowSprintModal] = useState(false);
   const [showRiskModal, setShowRiskModal] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [lifecycleBusy, setLifecycleBusy] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [planningSprintId, setPlanningSprintId] = useState<string | null>(null);
+  const [planBusy, setPlanBusy] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -272,6 +284,81 @@ function DetailContent() {
     }
   }
 
+  async function handleLifecycle(action: string) {
+    setLifecycleBusy(action);
+    try {
+      await projectLifecycle(id, action);
+      toastSuccess(`Project ${action}`);
+      await load();
+    } catch (err) {
+      toastError(err instanceof Error ? err.message : `Unable to ${action} project`);
+    } finally {
+      setLifecycleBusy(null);
+    }
+  }
+
+  async function handleDeleteProject() {
+    if (!window.confirm(`Delete project "${project?.name}"? This cannot be undone.`)) return;
+    setDeleting(true);
+    try {
+      await deleteProject(id);
+      toastSuccess("Project deleted");
+      window.location.assign("/projects");
+    } catch (err) {
+      toastError(err instanceof Error ? err.message : "Unable to delete project");
+      setDeleting(false);
+    }
+  }
+
+  async function handleSaveProject(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setSaving(true);
+    setFormError(null);
+    try {
+      await updateProject(id, {
+        name: String(form.get("name") ?? ""),
+        description: String(form.get("description") ?? "").trim() || undefined,
+        priority: String(form.get("priority") ?? "medium"),
+        start_date: String(form.get("start_date") ?? "") || undefined,
+        end_date: String(form.get("end_date") ?? "") || undefined,
+        budget: Number(form.get("budget") ?? "") || undefined,
+        owner_id: String(form.get("owner_id") ?? "") || undefined,
+      });
+      toastSuccess("Project updated");
+      setEditOpen(false);
+      await load();
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Unable to update project");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleEpicLifecycle(epicId: string, action: "start" | "complete") {
+    try {
+      if (action === "start") await startEpic(epicId);
+      else await completeEpic(epicId);
+      toastSuccess(`Epic ${action === "start" ? "started" : "completed"}`);
+      await load();
+    } catch (err) {
+      toastError(err instanceof Error ? err.message : `Unable to ${action} epic`);
+    }
+  }
+
+  async function handlePlanTask(taskId: string, sprintId: string) {
+    setPlanBusy(taskId);
+    try {
+      await updateTask(taskId, { sprint_id: sprintId });
+      toastSuccess("Task added to sprint");
+      await load();
+    } catch (err) {
+      toastError(err instanceof Error ? err.message : "Unable to add task to sprint");
+    } finally {
+      setPlanBusy(null);
+    }
+  }
+
   if (error) return <ErrorState title="Could not load project" message={error} />;
   if (loading || !project) return <div className="flex justify-center py-24"><Spinner label="Loading project" /></div>;
 
@@ -289,6 +376,39 @@ function DetailContent() {
             <Badge tone={project.priority === "critical" ? "danger" : project.priority === "high" ? "warning" : "neutral"}>
               {project.priority}
             </Badge>
+            {canManage && project.status !== "archived" && (
+              <>
+                {["draft", "cancelled"].includes(project.status) && (
+                  <Button size="sm" variant="secondary" onClick={() => handleLifecycle("start")} disabled={lifecycleBusy === "start"}>
+                    {lifecycleBusy === "start" ? "Starting…" : "Start"}
+                  </Button>
+                )}
+                {project.status === "active" && (
+                  <>
+                    <Button size="sm" variant="secondary" onClick={() => handleLifecycle("pause")} disabled={lifecycleBusy === "pause"}>Pause</Button>
+                    <Button size="sm" variant="secondary" onClick={() => handleLifecycle("complete")} disabled={lifecycleBusy === "complete"}>Complete</Button>
+                  </>
+                )}
+                {project.status === "paused" && (
+                  <>
+                    <Button size="sm" variant="secondary" onClick={() => handleLifecycle("resume")} disabled={lifecycleBusy === "resume"}>Resume</Button>
+                    <Button size="sm" variant="secondary" onClick={() => handleLifecycle("complete")} disabled={lifecycleBusy === "complete"}>Complete</Button>
+                  </>
+                )}
+                {["active", "paused"].includes(project.status) && (
+                  <Button size="sm" variant="ghost" onClick={() => handleLifecycle("cancel")} disabled={lifecycleBusy === "cancel"}>Cancel</Button>
+                )}
+                {["completed", "cancelled"].includes(project.status) && (
+                  <Button size="sm" variant="secondary" onClick={() => handleLifecycle("archive")} disabled={lifecycleBusy === "archive"}>Archive</Button>
+                )}
+                <Button size="sm" variant="secondary" onClick={() => setEditOpen(true)}><Pencil className="h-3.5 w-3.5" /> Edit</Button>
+              </>
+            )}
+            {canManage && ["draft", "archived"].includes(project.status) && (
+              <Button size="sm" variant="ghost" onClick={handleDeleteProject} disabled={deleting} className="text-danger hover:bg-danger/10">
+                <Trash2 className="h-3.5 w-3.5" /> Delete
+              </Button>
+            )}
           </div>
         }
       />
@@ -424,9 +544,20 @@ function DetailContent() {
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[13px] font-medium text-ink">{epic.name}</p>
                       {epic.description && <p className="truncate text-[12px] text-muted">{epic.description}</p>}
+                      <div className="mt-1.5 h-1.5 w-full max-w-[240px] overflow-hidden rounded-full bg-line">
+                        <div className="h-full rounded-full bg-brand" style={{ width: `${epic.progress ?? 0}%` }} />
+                      </div>
                     </div>
                     <span className="text-[12px] text-faint">{epic.tasks_count} tasks</span>
                     <Badge tone={statusTone(epic.status)}>{epic.status}</Badge>
+                    {canManage && epic.status === "planned" && (
+                      <Button size="sm" variant="ghost" onClick={() => handleEpicLifecycle(epic.id, "start")}>Start</Button>
+                    )}
+                    {canManage && epic.status === "in_progress" && (
+                      <Button size="sm" variant="ghost" onClick={() => handleEpicLifecycle(epic.id, "complete")}>
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Complete
+                      </Button>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -459,27 +590,70 @@ function DetailContent() {
 
             <Card title="Sprints" subtitle="Time-boxed delivery cycles">
               {sprints.length === 0 ? (
-                <EmptyState icon={Rocket} title="No sprints" />
+                <EmptyState icon={Rocket} title="No sprints" description="Create a sprint to plan delivery cycles." />
               ) : (
-                <ul className="divide-y divide-line">
-                  {sprints.map((sprint) => (
-                    <li key={sprint.id} className="flex items-center gap-3 py-3">
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-[13px] font-medium text-ink">{sprint.name}</p>
-                        <p className="text-[12px] text-faint">
-                          {formatDate(sprint.start_date)} → {formatDate(sprint.end_date)}
-                        </p>
+                <div className="space-y-3">
+                  {sprints.map((sprint) => {
+                    const sprintTasks = tasks.filter((t) => t.sprint_id === sprint.id);
+                    const doneTasks = sprintTasks.filter((t) => t.status === "completed").length;
+                    const planning = planningSprintId === sprint.id;
+                    const backlog = tasks.filter((t) => !t.sprint_id && t.status !== "completed");
+                    return (
+                      <div key={sprint.id} className="rounded-xl border border-line bg-canvas/40 p-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[13px] font-semibold text-ink">{sprint.name}</p>
+                            <p className="text-[11px] text-faint">
+                              {formatDate(sprint.start_date)} → {formatDate(sprint.end_date)} · {doneTasks}/{sprintTasks.length} tasks done
+                            </p>
+                          </div>
+                          <Badge tone={statusTone(sprint.status)}>{sprint.status}</Badge>
+                          {canManage && sprint.status === "planned" && (
+                            <Button size="sm" variant="secondary" onClick={async () => { await startSprint(sprint.id); toastSuccess("Sprint started"); await load(); }}>Start</Button>
+                          )}
+                          {canManage && sprint.status === "active" && (
+                            <Button size="sm" variant="secondary" onClick={async () => { await completeSprint(sprint.id); toastSuccess("Sprint completed"); await load(); }}>Complete</Button>
+                          )}
+                        </div>
+                        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-line">
+                          <div className="h-full rounded-full bg-brand transition-all" style={{ width: `${sprint.progress ?? 0}%` }} />
+                        </div>
+                        {sprintTasks.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {sprintTasks.map((t) => (
+                              <Link key={t.id} href={`/tasks/${t.id}`} className={`rounded-full border px-2 py-0.5 text-[11px] ${t.status === "completed" ? "border-success/30 bg-success/10 text-success" : "border-line bg-canvas text-muted"}`}>
+                                {t.title}
+                              </Link>
+                            ))}
+                          </div>
+                        )}
+                        {canManage && ["planned", "active"].includes(sprint.status) && (
+                          <>
+                            <button onClick={() => setPlanningSprintId(planning ? null : sprint.id)} className="mt-2 text-[11px] font-medium text-brand hover:underline">
+                              {planning ? "Close planning" : "Plan tasks"}
+                            </button>
+                            {planning && (
+                              <div className="mt-2 space-y-1.5 border-t border-line pt-2">
+                                {backlog.length === 0 ? (
+                                  <p className="text-[11px] text-faint">No backlog tasks — every project task is already in a sprint.</p>
+                                ) : (
+                                  backlog.map((t) => (
+                                    <div key={t.id} className="flex items-center gap-2">
+                                      <Link href={`/tasks/${t.id}`} className="min-w-0 flex-1 truncate text-[12px] text-ink hover:underline">{t.title}</Link>
+                                      <Button size="sm" variant="ghost" disabled={planBusy === t.id} onClick={() => handlePlanTask(t.id, sprint.id)}>
+                                        <Plus className="h-3 w-3" /> Add
+                                      </Button>
+                                    </div>
+                                  ))
+                                )}
+                              </div>
+                            )}
+                          </>
+                        )}
                       </div>
-                      <Badge tone={statusTone(sprint.status)}>{sprint.status}</Badge>
-                      {canManage && sprint.status === "planned" && (
-                        <Button size="sm" variant="ghost" onClick={async () => { await startSprint(sprint.id); toastSuccess("Sprint started"); await load(); }}>Start</Button>
-                      )}
-                      {canManage && sprint.status === "active" && (
-                        <Button size="sm" variant="ghost" onClick={async () => { await completeSprint(sprint.id); toastSuccess("Sprint completed"); await load(); }}>Complete</Button>
-                      )}
-                    </li>
-                  ))}
-                </ul>
+                    );
+                  })}
+                </div>
               )}
             </Card>
           </div>
@@ -648,15 +822,34 @@ function DetailContent() {
           </div>
         </form>
       </Modal>
+
+      <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Edit project" description="Update project details. Status is managed via lifecycle actions.">
+        <form onSubmit={handleSaveProject} className="space-y-4">
+          {formError && <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger">{formError}</div>}
+          <Input label="Name" name="name" required defaultValue={project?.name ?? ""} />
+          <TextareaField label="Description" name="description" rows={3} defaultValue={project?.description ?? ""} />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Select label="Priority" name="priority" defaultValue={project?.priority ?? "medium"} options={["low", "medium", "high", "critical"].map((s) => ({ value: s, label: s }))} />
+            <Select label="Owner" name="owner_id" defaultValue={project?.owner_id ?? ""} options={employees.map((e) => ({ value: e.id, label: e.full_name }))} />
+            <Input label="Start date" name="start_date" type="date" defaultValue={project?.start_date ?? ""} />
+            <Input label="End date" name="end_date" type="date" defaultValue={project?.end_date ?? ""} />
+          </div>
+          <Input label="Budget" name="budget" type="number" min={0} step="0.01" defaultValue={project?.budget != null ? String(project.budget) : ""} placeholder="500000" />
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="ghost" onClick={() => setEditOpen(false)}>Cancel</Button>
+            <Button type="submit" loading={saving}>Save changes</Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }
 
-function TextareaField({ label, name, rows = 3 }: { label: string; name: string; rows?: number }) {
+function TextareaField({ label, name, rows = 3, defaultValue }: { label: string; name: string; rows?: number; defaultValue?: string }) {
   return (
     <div className="w-full">
       <label className="label">{label}</label>
-      <textarea name={name} rows={rows} className="input w-full resize-y" />
+      <textarea name={name} rows={rows} defaultValue={defaultValue} className="input w-full resize-y" />
     </div>
   );
 }

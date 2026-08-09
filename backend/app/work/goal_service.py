@@ -61,6 +61,14 @@ class GoalService:
             )
         await self.recompute_progress(db, organization_id=organization_id, goal=goal)
         await self._emit(db, "goal.created", organization_id, actor, ip_address, goal)
+        from app.services.work_audit import record
+
+        await record(
+            db, organization_id=organization_id, action="goal.created",
+            actor=actor, ip_address=ip_address,
+            resource_type="goal", resource_id=goal.id,
+            details={"name": goal.name, "scope": goal.scope},
+        )
         return goal
 
     async def _emit(self, db, name: str, organization_id: str, actor: Optional[Employee], ip: Optional[str], goal: Goal):
@@ -68,11 +76,12 @@ class GoalService:
 
         await event_service.emit(
             db, name=name, actor_id=actor.user_id if actor else None,
-            organization_id=organization_id, payload={"goal_id": goal.id, "name": goal.name},
+            organization_id=organization_id, payload={"goal_id": goal.id, "name": goal.name, "owner_id": goal.owner_id, "progress": goal.progress},
         )
 
     async def recompute_progress(self, db: AsyncSession, *, organization_id: str, goal: Goal) -> Goal:
         krs = await self.key_results(db, organization_id=organization_id, goal_id=goal.id)
+        was_completed = goal.status == "completed"
         if krs:
             ratios = [
                 min(1.0, (kr.current or 0) / kr.target)
@@ -86,6 +95,8 @@ class GoalService:
             goal.status = "at_risk"
         goal.updated_at = utcnow()
         await db.flush()
+        if goal.status == "completed" and not was_completed:
+            await self._emit(db, "goal.completed", organization_id, None, None, goal)
         return goal
 
     async def get(self, db: AsyncSession, *, organization_id: str, goal_id: str) -> Optional[Goal]:
@@ -155,6 +166,14 @@ class GoalService:
         goal.updated_at = utcnow()
         await db.flush()
         await self._emit(db, "goal.updated", organization_id, actor, ip_address, goal)
+        from app.services.work_audit import record
+
+        await record(
+            db, organization_id=organization_id, action="goal.updated",
+            actor=actor, ip_address=ip_address,
+            resource_type="goal", resource_id=goal.id,
+            details={"name": goal.name},
+        )
         return goal
 
     # ------------------------------------------------------------------ key results
@@ -193,6 +212,7 @@ class GoalService:
 
     async def add_key_result(
         self, db: AsyncSession, *, organization_id: str, goal_id: str, data: dict[str, Any],
+        actor: Optional[Employee] = None, ip_address: Optional[str] = None,
     ) -> KeyResult:
         if data.get("owner_id"):
             emp = await db.get(Employee, data["owner_id"])
@@ -213,6 +233,14 @@ class GoalService:
         goal = await db.get(Goal, goal_id)
         if goal and goal.organization_id == organization_id:
             await self.recompute_progress(db, organization_id=organization_id, goal=goal)
+        from app.services.work_audit import record
+
+        await record(
+            db, organization_id=organization_id, action="key_result.created",
+            actor=actor, ip_address=ip_address,
+            resource_type="key_result", resource_id=kr.id,
+            details={"title": kr.title, "goal_id": goal_id},
+        )
         return kr
 
     async def update_key_result(
@@ -238,17 +266,47 @@ class GoalService:
         if goal and goal.organization_id == organization_id:
             await self.recompute_progress(db, organization_id=organization_id, goal=goal)
             await self._emit(db, "goal.progress_updated", organization_id, actor, ip_address, goal)
+        from app.services.work_audit import record
+
+        await record(
+            db, organization_id=organization_id, action="key_result.updated",
+            actor=actor, ip_address=ip_address,
+            resource_type="key_result", resource_id=kr.id,
+            details={"title": kr.title, "goal_id": goal_id},
+        )
         return kr
 
-    async def delete_key_result(self, db: AsyncSession, *, organization_id: str, kr: KeyResult):
+    async def delete_key_result(
+        self, db: AsyncSession, *, organization_id: str, kr: KeyResult,
+        actor: Optional[Employee] = None, ip_address: Optional[str] = None,
+    ):
         goal_id = kr.goal_id
+        from app.services.work_audit import record
+
+        await record(
+            db, organization_id=organization_id, action="key_result.deleted",
+            actor=actor, ip_address=ip_address,
+            resource_type="key_result", resource_id=kr.id,
+            details={"title": kr.title, "goal_id": goal_id},
+        )
         await db.delete(kr)
         await db.flush()
         goal = await db.get(Goal, goal_id)
         if goal and goal.organization_id == organization_id:
             await self.recompute_progress(db, organization_id=organization_id, goal=goal)
 
-    async def delete(self, db: AsyncSession, *, organization_id: str, goal: Goal):
+    async def delete(
+        self, db: AsyncSession, *, organization_id: str, goal: Goal,
+        actor: Optional[Employee] = None, ip_address: Optional[str] = None,
+    ):
+        from app.services.work_audit import record
+
+        await record(
+            db, organization_id=organization_id, action="goal.deleted",
+            actor=actor, ip_address=ip_address,
+            resource_type="goal", resource_id=goal.id,
+            details={"name": goal.name},
+        )
         await db.delete(goal)
 
 

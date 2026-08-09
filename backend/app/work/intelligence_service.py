@@ -20,6 +20,88 @@ HEALTH_WATCH = 60
 
 
 class IntelligenceService:
+    async def execution_insights(
+        self, db: AsyncSession, *, organization_id: str, project_id: Optional[str] = None,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """Execution intelligence: overdue, at-risk, stalled, blocked, ready-to-start.
+
+        The dependency graph plus schedule state — the operational picture of
+        what is slipping, what is stuck, and what is safe to pick up next.
+        """
+        now = utcnow()
+        tomorrow = now.date() + timedelta(days=1)
+        horizon = now.date() + timedelta(days=7)
+        stale_cutoff = now - timedelta(days=5)
+
+        stmt = select(Task).where(
+            Task.organization_id == organization_id,
+            Task.status != "archived",
+        )
+        if project_id:
+            stmt = stmt.where(Task.project_id == project_id)
+        tasks = (await db.execute(stmt)).scalars().all()
+
+        overdue, at_risk, stalled, open_tasks = [], [], [], []
+        for t in tasks:
+            if t.status == "completed":
+                continue
+            open_tasks.append(t)
+            if t.due_date and t.due_date < tomorrow:
+                overdue.append(t)
+            elif (
+                t.due_date and t.due_date <= horizon
+                and (t.status in ("backlog", "todo", "review") or t.progress < 50)
+            ):
+                at_risk.append(t)
+            if t.status in ("in_progress", "review") and t.updated_at and t.updated_at < stale_cutoff:
+                stalled.append(t)
+
+        from app.work.dependency_service import dependency_service
+
+        blocked = await dependency_service.blocked_tasks(
+            db, organization_id=organization_id, project_id=project_id
+        )
+        ready = await dependency_service.ready_to_start(
+            db, organization_id=organization_id, project_id=project_id, limit=limit
+        )
+        critical = {}
+        if project_id:
+            critical = await dependency_service.critical_path(
+                db, organization_id=organization_id, project_id=project_id
+            )
+
+        def _brief(t: Task) -> dict[str, Any]:
+            return {
+                "task_id": t.id, "title": t.title, "status": t.status,
+                "priority": t.priority, "progress": t.progress,
+                "due_date": t.due_date, "estimate_hours": t.estimate_hours,
+                "assignee_id": t.assignee_id, "project_id": t.project_id,
+                "updated_at": t.updated_at,
+            }
+
+        return {
+            "project_id": project_id,
+            "counts": {
+                "open_tasks": len(open_tasks),
+                "overdue": len(overdue),
+                "at_risk": len(at_risk),
+                "stalled": len(stalled),
+                "blocked": len(blocked),
+                "deeply_blocked": sum(1 for b in blocked if b.get("deeply_blocked")),
+                "ready_to_start": len(ready),
+                "completed": sum(1 for t in tasks if t.status == "completed"),
+                "completion_rate": round(
+                    sum(1 for t in tasks if t.status == "completed") * 100 / len(tasks), 1
+                ) if tasks else 0.0,
+            },
+            "overdue": [_brief(t) for t in sorted(overdue, key=lambda t: t.due_date or now.date())[:limit]],
+            "at_risk": [_brief(t) for t in sorted(at_risk, key=lambda t: t.due_date or horizon)[:limit]],
+            "stalled": [_brief(t) for t in sorted(stalled, key=lambda t: t.updated_at or now)[:limit]],
+            "blocked": blocked[:limit],
+            "ready_to_start": ready,
+            "critical_path": critical,
+        }
     async def project_health(self, db: AsyncSession, *, organization_id: str, project_id: str) -> dict[str, Any]:
         project = await db.get(Project, project_id)
         if project is None or project.organization_id != organization_id:

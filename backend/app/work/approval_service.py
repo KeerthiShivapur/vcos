@@ -59,8 +59,16 @@ class ApprovalService:
                 priority="high" if approval.priority in ("high", "critical") else "normal",
                 entity_type="approval",
                 entity_id=approval.id,
-                link="/settings?tab=approvals",
+                link="/approvals",
             )
+        from app.services.work_audit import record
+
+        await record(
+            db, organization_id=organization_id, action="approval.requested",
+            actor=actor, ip_address=ip_address,
+            resource_type="approval", resource_id=approval.id,
+            details={"title": approval.title, "approval_type": approval.approval_type},
+        )
         return approval
 
     async def _emit(self, db, name: str, organization_id: str, actor: Optional[Employee], ip: Optional[str], approval: Approval):
@@ -69,7 +77,11 @@ class ApprovalService:
         await event_service.emit(
             db, name=name, actor_id=actor.user_id if actor else None,
             organization_id=organization_id,
-            payload={"approval_id": approval.id, "title": approval.title, "approval_type": approval.approval_type},
+            payload={
+                "approval_id": approval.id, "title": approval.title,
+                "approval_type": approval.approval_type, "status": approval.status,
+                "requester_id": approval.requester_id, "approver_id": approval.approver_id,
+            },
         )
 
     async def get(self, db: AsyncSession, *, organization_id: str, approval_id: str) -> Optional[Approval]:
@@ -126,6 +138,14 @@ class ApprovalService:
         approval.updated_at = utcnow()
         await db.flush()
         await self._emit(db, f"approval.{decision}", organization_id, actor, ip_address, approval)
+        from app.services.work_audit import record
+
+        await record(
+            db, organization_id=organization_id, action=f"approval.{decision}",
+            actor=actor, ip_address=ip_address,
+            resource_type="approval", resource_id=approval.id,
+            details={"title": approval.title, "note": note},
+        )
         return approval
 
     async def cancel(
@@ -138,6 +158,14 @@ class ApprovalService:
         approval.updated_at = utcnow()
         await db.flush()
         await self._emit(db, "approval.cancelled", organization_id, actor, ip_address, approval)
+        from app.services.work_audit import record
+
+        await record(
+            db, organization_id=organization_id, action="approval.cancelled",
+            actor=actor, ip_address=ip_address,
+            resource_type="approval", resource_id=approval.id,
+            details={"title": approval.title},
+        )
         return approval
 
     async def stats(self, db: AsyncSession, *, organization_id: str) -> dict[str, Any]:

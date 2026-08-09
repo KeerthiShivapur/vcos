@@ -67,6 +67,14 @@ class ProjectService:
             kind="project.created", title="Project created", description=project.name,
             meta={"code": project.code},
         )
+        from app.services.work_audit import record
+
+        await record(
+            db, organization_id=organization_id, action="project.created",
+            actor=actor, ip_address=ip_address,
+            resource_type="project", resource_id=project.id,
+            details={"name": project.name, "code": project.code},
+        )
         await self._emit(db, "project.created", organization_id, actor, ip_address,
                          {"project_id": project.id, "name": project.name, "code": project.code})
         if data.get("owner_id"):
@@ -218,11 +226,24 @@ class ProjectService:
         self, db: AsyncSession, *, organization_id: str, project: Project,
         data: dict[str, Any], actor: Optional[Employee] = None, ip_address: Optional[str] = None,
     ) -> Project:
-        for key, value in data.items():
-            if hasattr(project, key):
-                setattr(project, key, value)
+        from app.work.guards import apply_editable
+
+        if project.status == "archived":
+            raise ValueError("An archived project cannot be edited")
+        for key in ("owner_id", "department_id", "team_id", "roadmap_id"):
+            if data.get(key):
+                await self._validate_ref(db, organization_id, key, data[key])
+        apply_editable(project, data)
         project.updated_at = utcnow()
         await db.flush()
+        from app.services.work_audit import record
+
+        await record(
+            db, organization_id=organization_id, action="project.updated",
+            actor=actor, ip_address=ip_address,
+            resource_type="project", resource_id=project.id,
+            details={"name": project.name},
+        )
         await timeline_service.add(
             db, organization_id=organization_id, project_id=project.id,
             kind="project.updated", title="Project updated", description=project.name,
@@ -230,6 +251,135 @@ class ProjectService:
         await self._emit(db, "project.updated", organization_id, actor, ip_address,
                          {"project_id": project.id, "name": project.name})
         return project
+
+    async def lifecycle(
+        self, db: AsyncSession, *, organization_id: str, project: Project, action: str,
+        actor: Optional[Employee] = None, ip_address: Optional[str] = None,
+    ) -> Project:
+        """Explicit project lifecycle with state guards.
+
+        start:   draft -> active          pause:  active -> paused
+        resume:  paused -> active         complete: active|paused -> completed
+        cancel:  draft|active|paused -> cancelled
+        archive: completed|cancelled -> archived
+        """
+        allowed = {
+            "start": {"draft", "cancelled"},
+            "pause": {"active"},
+            "resume": {"paused"},
+            "complete": {"active", "paused", "draft"},
+            "cancel": {"draft", "active", "paused"},
+            "archive": {"completed", "cancelled"},
+        }.get(action)
+        if allowed is None:
+            raise ValueError(f"Invalid lifecycle action: {action}")
+        if project.status not in allowed:
+            raise ValueError(f"Cannot {action} a project in status {project.status}")
+        new_status = {
+            "start": "active", "pause": "paused", "resume": "active",
+            "complete": "completed", "cancel": "cancelled", "archive": "archived",
+        }[action]
+        event_name = {
+            "start": "project.started", "pause": "project.paused", "resume": "project.resumed",
+            "complete": "project.completed", "cancel": "project.cancelled", "archive": "project.archived",
+        }[action]
+        project.status = new_status
+        project.updated_at = utcnow()
+        if action == "complete":
+            project.progress = 100
+        elif action in ("start", "resume"):
+            from app.work.progress_rollup import rollup_project
+
+            await rollup_project(db, organization_id=organization_id, project_id=project.id)
+        await db.flush()
+        from app.services.work_audit import record
+
+        await record(
+            db, organization_id=organization_id, action=event_name,
+            actor=actor, ip_address=ip_address,
+            resource_type="project", resource_id=project.id,
+            details={"name": project.name, "from": project.status, "to": new_status},
+        )
+        await timeline_service.add(
+            db, organization_id=organization_id, project_id=project.id,
+            kind=event_name, title=f"Project {action.replace('_', ' ')}",
+            description=project.name, meta={"to": new_status},
+        )
+        await self._emit(db, event_name, organization_id, actor, ip_address,
+                         {"project_id": project.id, "name": project.name, "status": new_status})
+        return project
+
+    async def portfolio(
+        self, db: AsyncSession, *, organization_id: str, limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Every project with its health, progress and pressure signals."""
+        from app.work.intelligence_service import intelligence_service
+
+        projects = (
+            await db.execute(
+                select(Project).where(Project.organization_id == organization_id)
+                .order_by(desc(Project.updated_at)).limit(limit)
+            )
+        ).scalars().all()
+        out = []
+        for project in projects:
+            owner = None
+            if project.owner_id:
+                owner = await db.get(Employee, project.owner_id)
+            member_count = (
+                await db.execute(
+                    select(func.count(ProjectMember.id)).where(
+                        ProjectMember.organization_id == organization_id,
+                        ProjectMember.project_id == project.id,
+                    )
+                )
+            ).scalar() or 0
+            task_counts = dict(
+                (await db.execute(
+                    select(TaskModel.status, func.count(TaskModel.id))
+                    .where(TaskModel.organization_id == organization_id, TaskModel.project_id == project.id)
+                    .group_by(TaskModel.status)
+                )).all()
+            )
+            health = "good"
+            signals: list[str] = []
+            try:
+                health_data = await intelligence_service.project_health(
+                    db, organization_id=organization_id, project_id=project.id
+                )
+                health, signals = health_data["status"], health_data["signals"]
+            except ValueError:
+                pass
+            out.append({
+                "project_id": project.id,
+                "code": project.code,
+                "name": project.name,
+                "status": project.status,
+                "priority": project.priority,
+                "progress": project.progress,
+                "health": health,
+                "signals": signals,
+                "owner_id": project.owner_id,
+                "owner_name": owner.full_name if owner else None,
+                "members_count": member_count,
+                "tasks_total": sum(task_counts.values()),
+                "tasks_completed": task_counts.get("completed", 0),
+                "tasks_blocked": task_counts.get("blocked", 0),
+                "overdue_tasks": (
+                    await db.execute(
+                        select(func.count(TaskModel.id)).where(
+                            TaskModel.organization_id == organization_id,
+                            TaskModel.project_id == project.id,
+                            TaskModel.due_date.isnot(None),
+                            TaskModel.due_date < utcnow(),
+                            TaskModel.status.notin_(("completed", "archived")),
+                        )
+                    )
+                ).scalar() or 0,
+                "start_date": project.start_date,
+                "end_date": project.end_date,
+            })
+        return out
 
     async def add_member(
         self, db: AsyncSession, *, organization_id: str, project_id: str,
@@ -333,7 +483,22 @@ class ProjectService:
     async def timeline(self, db: AsyncSession, *, organization_id: str, project_id: str, limit: int = 100):
         return await timeline_service.list_all(db, organization_id=organization_id, project_id=project_id, limit=limit)
 
-    async def delete(self, db: AsyncSession, *, organization_id: str, project: Project):
+    async def delete(
+        self, db: AsyncSession, *, organization_id: str, project: Project,
+        actor: Optional[Employee] = None, ip_address: Optional[str] = None,
+    ):
+        from app.services.work_audit import record
+
+        if project.status not in ("draft", "archived"):
+            raise ValueError(
+                "Only draft or archived projects can be deleted; complete, cancel or archive this project first"
+            )
+        await record(
+            db, organization_id=organization_id, action="project.deleted",
+            actor=actor, ip_address=ip_address,
+            resource_type="project", resource_id=project.id,
+            details={"name": project.name},
+        )
         await db.delete(project)
 
 

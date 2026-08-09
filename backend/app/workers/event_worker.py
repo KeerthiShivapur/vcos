@@ -16,12 +16,12 @@ from app.events.event_bus import event_bus
 logger = logging.getLogger("vcos.workers.event")
 
 
-async def run_once(limit: int = 1000) -> int:
+async def run_once(limit: int = 5000) -> int:
     async with SessionLocal() as db:
         return await event_bus.process_pending(db, limit=limit)
 
 
-async def run_forever(interval_seconds: int = 60) -> None:
+async def run_forever(interval_seconds: int = 10) -> None:
     while True:
         try:
             processed = await run_once()

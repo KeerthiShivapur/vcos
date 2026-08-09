@@ -35,6 +35,21 @@ async def list_events(
     )
 
 
+@router.get("/feed")
+async def calendar_feed(
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None,
+    employee_id: Optional[str] = None,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("calendar:read")),
+    db: AsyncSession = Depends(get_db),
+):
+    """The merged company calendar: events, meetings, task deadlines, leave."""
+    return await calendar_service.feed(
+        db, organization_id=org.id, start=start, end=end, employee_id=employee_id,
+    )
+
+
 @router.post("/events", response_model=CalendarEventOut, status_code=201)
 async def create_event(
     payload: CalendarEventCreate,

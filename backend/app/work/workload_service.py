@@ -84,6 +84,9 @@ class WorkloadService:
             data = await self.compute_for_employee(
                 db, organization_id=organization_id, employee_id=emp.id, period_start=start, period_end=now
             )
+            newly_overloaded = data["is_overloaded"] and not await self._was_overloaded(
+                db, organization_id=organization_id, employee_id=emp.id
+            )
             db.add(
                 WorkloadSnapshot(
                     organization_id=organization_id,
@@ -99,7 +102,96 @@ class WorkloadService:
                     created_at=now,
                 )
             )
+            if newly_overloaded:
+                await self._alert_overload(db, organization_id=organization_id, employee=emp, data=data)
         return len(employees)
+
+    async def _was_overloaded(self, db, *, organization_id: str, employee_id: str) -> bool:
+        row = (
+            await db.execute(
+                select(WorkloadSnapshot.is_overloaded)
+                .where(
+                    WorkloadSnapshot.organization_id == organization_id,
+                    WorkloadSnapshot.employee_id == employee_id,
+                )
+                .order_by(WorkloadSnapshot.created_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        return bool(row)
+
+    async def _alert_overload(self, db, *, organization_id: str, employee: Employee, data: dict) -> None:
+        """Notify the employee the first time their load crosses the threshold."""
+        from app.services.work_alerts import notify_employee
+        from app.services.work_audit import record
+        from app.services.event_service import event_service
+
+        await event_service.emit(
+            db, name="workload.overload", actor_id=None,
+            organization_id=organization_id,
+            payload={
+                "employee_id": employee.id,
+                "utilization": data["utilization"],
+                "allocated_hours": data["allocated_hours"],
+                "meeting_hours": data["meeting_hours"],
+            },
+        )
+        await notify_employee(
+            db,
+            organization_id=organization_id,
+            employee_id=employee.id,
+            type="workload.overload",
+            title="Your workload is over capacity",
+            body=(
+                f"Utilization is at {data['utilization']:.0f}% — "
+                f"{data['allocated_hours']:.0f}h of allocated work plus "
+                f"{data['meeting_hours']:.0f}h of meetings on a 40h week."
+            ),
+            priority="high",
+            entity_type="employee",
+            entity_id=employee.id,
+            link="/my-work",
+        )
+        await record(
+            db, organization_id=organization_id, action="workload.overload",
+            actor=None, ip_address=None,
+            resource_type="employee", resource_id=employee.id,
+            details={"utilization": data["utilization"]},
+        )
+
+    async def team_load_summary(self, db, *, organization_id: str) -> list[dict]:
+        """Per-team utilization: member count, average load, overloaded count."""
+        from app.models.team import Team, TeamMember
+
+        teams = (
+            await db.execute(
+                select(Team).where(Team.organization_id == organization_id).order_by(Team.name.asc())
+            )
+        ).scalars().all()
+        out = []
+        for team in teams:
+            members = (
+                await db.execute(
+                    select(TeamMember.employee_id).where(
+                        TeamMember.organization_id == organization_id, TeamMember.team_id == team.id
+                    )
+                )
+            ).scalars().all()
+            loads = []
+            for employee_id in members:
+                loads.append(await self.compute_for_employee(db, organization_id=organization_id, employee_id=employee_id))
+            avg = round(sum(l["utilization"] for l in loads) / len(loads), 1) if loads else 0.0
+            out.append(
+                {
+                    "team_id": team.id,
+                    "team_name": team.name,
+                    "member_count": len(loads),
+                    "avg_utilization": avg,
+                    "overloaded_count": sum(1 for l in loads if l["is_overloaded"]),
+                    "overloaded_employees": [l["employee_id"] for l in loads if l["is_overloaded"]],
+                }
+            )
+        return sorted(out, key=lambda t: t["avg_utilization"], reverse=True)
 
     async def team_load(self, db, *, organization_id: str, team_id: Optional[str] = None, limit: int = 50) -> list[dict]:
         """Utilization across employees (optionally filtered by team)."""

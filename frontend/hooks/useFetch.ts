@@ -38,13 +38,29 @@ export function useFetch<T>(
       return;
     }
     let active = true;
-    setState((prev) => ({ ...prev, loading: true }));
-    (async () => {
+    let attempts = 0;
+    // The backend answers in well under a second; a fetch that lingers past
+    // this budget is stuck (cancelled by the browser during a navigation burst)
+    // and gets retried instead of leaving the page on a permanent spinner.
+    const SOFT_TIMEOUT_MS = 5_000;
+    const load = async () => {
+      setState((prev) => ({ ...prev, loading: true }));
       try {
-        const data = await api<T>(path, { query });
+        const data = await Promise.race([
+          api<T>(path, { query }),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("Request timed out, retrying")), SOFT_TIMEOUT_MS)
+          ),
+        ]);
         if (active) setState({ data, error: null, loading: false });
       } catch (error) {
-        if (active) {
+        if (!active) return;
+        if (attempts < 1) {
+          attempts += 1;
+          setTimeout(() => {
+            if (active) void load();
+          }, 400);
+        } else {
           setState({
             data: null,
             error: error instanceof Error ? error.message : "Request failed",
@@ -52,7 +68,8 @@ export function useFetch<T>(
           });
         }
       }
-    })();
+    };
+    void load();
     return () => {
       active = false;
     };

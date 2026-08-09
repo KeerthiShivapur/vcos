@@ -59,6 +59,8 @@ import {
   Video,
   Vote,
   Wallet,
+  Columns3,
+  Stamp,
 } from "lucide-react";
 import { classNames } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
@@ -110,7 +112,10 @@ export function Sidebar({ unread }: { unread: number }) {
 
   const work: NavItem[] = [
     { href: "/projects", label: "Projects", icon: FolderKanban, permission: PERMISSIONS.PROJECTS_READ },
+    { href: "/board", label: "Board", icon: Columns3, permission: PERMISSIONS.TASKS_READ },
     { href: "/tasks", label: "Tasks", icon: CheckSquare2, permission: PERMISSIONS.TASKS_READ },
+    { href: "/approvals", label: "Approvals", icon: Stamp, permission: PERMISSIONS.APPROVALS_READ },
+    { href: "/risks", label: "Risks", icon: ShieldAlert, permission: PERMISSIONS.RISKS_READ },
     { href: "/calendar", label: "Calendar", icon: CalendarDays, permission: PERMISSIONS.CALENDAR_READ },
     { href: "/meetings", label: "Meetings", icon: Users, permission: PERMISSIONS.MEETINGS_READ },
     { href: "/rooms", label: "Virtual Office", icon: Building2, permission: PERMISSIONS.MEETINGS_READ },

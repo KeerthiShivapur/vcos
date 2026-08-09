@@ -21,12 +21,14 @@ async def list_risks(
     project_id: Optional[str] = None,
     status: Optional[str] = None,
     severity: Optional[str] = None,
+    limit: int = 200,
     org: Organization = Depends(get_current_organization),
     user: User = Depends(require_permission("risks:read")),
     db: AsyncSession = Depends(get_db),
 ):
     return await risk_service.list_all(
-        db, organization_id=org.id, project_id=project_id, status=status, severity=severity,
+        db, organization_id=org.id, project_id=project_id, status=status,
+        severity=severity, limit=limit,
     )
 
 
@@ -96,6 +98,7 @@ async def update_risk(
 @router.post("/{risk_id}/close", response_model=RiskOut)
 async def close_risk(
     risk_id: str,
+    request: Request,
     org: Organization = Depends(get_current_organization),
     user: User = Depends(require_permission("risks:manage")),
     db: AsyncSession = Depends(get_db),
@@ -103,7 +106,12 @@ async def close_risk(
     risk = await risk_service.get(db, organization_id=org.id, risk_id=risk_id)
     if risk is None:
         raise HTTPException(404, "Risk not found")
-    risk = await risk_service.close(db, organization_id=org.id, risk=risk)
+    from app.people.employee_service import employee_service
+
+    actor = await employee_service.get_by_user(db, organization_id=org.id, user_id=user.id)
+    risk = await risk_service.close(
+        db, organization_id=org.id, risk=risk, actor=actor, ip_address=get_client_ip(request)
+    )
     await db.commit()
     risk = await risk_service.get(db, organization_id=org.id, risk_id=risk.id)
     return RiskOut.model_validate(risk)
@@ -112,6 +120,7 @@ async def close_risk(
 @router.delete("/{risk_id}", response_model=Message)
 async def delete_risk(
     risk_id: str,
+    request: Request,
     org: Organization = Depends(get_current_organization),
     user: User = Depends(require_permission("risks:manage")),
     db: AsyncSession = Depends(get_db),
@@ -119,6 +128,11 @@ async def delete_risk(
     risk = await risk_service.get(db, organization_id=org.id, risk_id=risk_id)
     if risk is None:
         raise HTTPException(404, "Risk not found")
-    await risk_service.delete(db, organization_id=org.id, risk=risk)
+    from app.people.employee_service import employee_service
+
+    actor = await employee_service.get_by_user(db, organization_id=org.id, user_id=user.id)
+    await risk_service.delete(
+        db, organization_id=org.id, risk=risk, actor=actor, ip_address=get_client_ip(request)
+    )
     await db.commit()
     return Message(message="Risk deleted")

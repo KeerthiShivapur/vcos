@@ -76,6 +76,17 @@ _POSTGRES_ALTERS: list[str] = [
     "ALTER TABLE meetings ADD COLUMN IF NOT EXISTS timezone VARCHAR(64)",
     "ALTER TABLE meetings ADD COLUMN IF NOT EXISTS duration_minutes INTEGER",
     "CREATE INDEX IF NOT EXISTS ix_meetings_meeting_code ON meetings (meeting_code)",
+    # Slice 3: event bus hardening — dispatch claim columns on background_jobs.
+    "ALTER TABLE background_jobs ADD COLUMN IF NOT EXISTS event_id VARCHAR(32)",
+    "ALTER TABLE background_jobs ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMPTZ",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_background_jobs_name_event ON background_jobs (name, event_id)",
+    # Slice 3 Step 6: task collaboration — tags column on the existing tasks table.
+    "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tags JSON",
+    # Slice 3 Step 8: project & roadmap management — progress on roadmaps.
+    "ALTER TABLE roadmaps ADD COLUMN IF NOT EXISTS progress INTEGER DEFAULT 0",
+    # Slice 3 Step 10: project/sprint execution — progress on sprints.
+    "ALTER TABLE sprints ADD COLUMN IF NOT EXISTS progress INTEGER DEFAULT 0",
+    "ALTER TABLE sprints ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ",
 ]
 
 

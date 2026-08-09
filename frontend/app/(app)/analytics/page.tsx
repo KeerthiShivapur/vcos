@@ -2,10 +2,12 @@
 
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, BarChart3, CalendarClock, CheckCircle2, FolderKanban, Target } from "lucide-react";
+import { AlertTriangle, BarChart3, CalendarClock, CheckCircle2, FolderKanban, Target, Users } from "lucide-react";
 
-import { getExecutiveDashboard } from "@/lib/api";
-import type { ExecutiveDashboard } from "@/types";
+import { getExecutiveDashboard, getTeamLoad } from "@/lib/api";
+import { roleCan, PERMISSIONS } from "@/lib/permissions";
+import type { ExecutiveDashboard, TeamLoadSummary } from "@/types";
+import { useAuth } from "@/hooks/useAuth";
 import { PageHeader, StatCard } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { Badge, statusTone } from "@/components/ui/Badge";
@@ -21,7 +23,10 @@ export default function AnalyticsPage() {
 }
 
 function AnalyticsContent() {
+  const { user } = useAuth();
+  const canViewWorkload = roleCan(user?.role, PERMISSIONS.WORKLOAD_READ);
   const [data, setData] = useState<ExecutiveDashboard | null>(null);
+  const [teamLoad, setTeamLoad] = useState<TeamLoadSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,7 +34,12 @@ function AnalyticsContent() {
     setLoading(true);
     setError(null);
     try {
-      setData(await getExecutiveDashboard());
+      const [dashboard, teams] = await Promise.all([
+        getExecutiveDashboard(),
+        canViewWorkload ? getTeamLoad() : Promise.resolve<TeamLoadSummary[]>([]),
+      ]);
+      setData(dashboard);
+      setTeamLoad(teams);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load executive analytics");
     } finally {
@@ -110,6 +120,54 @@ function AnalyticsContent() {
           </ul>
         </Card>
       </div>
+
+      {canViewWorkload && (
+        <Card title="Team workload" subtitle="Utilization per team, now">
+          {teamLoad.length === 0 ? (
+            <div className="flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2.5 text-[13px] text-faint">
+              <Users className="h-4 w-4" /> No team memberships to measure yet — join a team to see utilization.
+            </div>
+          ) : (
+            <ul className="space-y-4">
+              {teamLoad.map((team) => (
+                <li key={team.team_id} className="rounded-lg border border-line p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <p className="text-[13px] font-semibold text-ink">{team.team_name}</p>
+                      <Badge tone="neutral">{team.member_count} members</Badge>
+                      {team.overloaded_count > 0 ? (
+                        <Badge tone="danger">{team.overloaded_count} overloaded</Badge>
+                      ) : (
+                        <Badge tone="success">clear</Badge>
+                      )}
+                    </div>
+                    <p className="text-[12px] font-medium text-muted">{team.avg_utilization}% avg utilization</p>
+                  </div>
+                  <div className="mt-2.5 h-2.5 overflow-hidden rounded-full bg-canvas">
+                    <div
+                      className={`h-full rounded-full ${team.avg_utilization > 90 ? "bg-danger" : team.avg_utilization > 75 ? "bg-warning" : "bg-success"}`}
+                      style={{ width: `${Math.max(2, team.avg_utilization)}%` }}
+                    />
+                  </div>
+                  {team.overloaded_employees.length > 0 && (
+                    <ul className="mt-3 space-y-1.5">
+                      {team.overloaded_employees.map((member) => (
+                        <li key={member.employee_id} className="flex items-center justify-between gap-2 text-[12px]">
+                          <span className="flex items-center gap-1.5 text-muted">
+                            <AlertTriangle className="h-3.5 w-3.5 text-danger" />
+                            {member.full_name}
+                          </span>
+                          <Badge tone="danger">{member.utilization}% · {member.allocated_hours}h/40h</Badge>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      )}
     </div>
   );
 }

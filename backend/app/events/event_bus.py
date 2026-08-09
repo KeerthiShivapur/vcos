@@ -2,33 +2,42 @@
 
 Reliability model:
 - publish() persists an Event row AND enqueues a BackgroundJob
-  ("event.dispatch", payload={"event_id": ...}). If the queueing fails the
-  event itself is still persisted, so nothing is lost.
-- process_pending() runs the event worker's pass: for each queued job it
-  loads the event, runs registered handlers (marking the event processed
-  BEFORE dispatch so a crashing worker never double-processes), then marks
-  the job done. Failures are retried up to max_attempts with exponential
-  backoff tracked in the job row.
+  ("event.dispatch", event_id=...). If the queueing fails the event itself
+  is still persisted, so nothing is lost.
+- process_pending() runs the event worker's pass: it claims dispatch jobs
+  atomically (compare-and-set), runs registered handlers, marks the event
+  processed only after every handler succeeded, and marks the job done.
+- Handlers run with per-handler isolation: a failing handler is retried on
+  its own (the names of already-succeeded handlers are recorded on the job)
+  without re-running handlers that already succeeded, so side effects are
+  never duplicated.
+- Retries use exponential backoff persisted as next_retry_at, so a pass
+  never blocks on a slow retry. Jobs stuck in 'running' (crashed workers)
+  are reaped and retried. Events persisted without an explicit dispatch job
+  (legacy services using EventService.emit) are picked up as orphans, so
+  every event eventually flows through the handlers.
 - Every dispatch is idempotent: an event with processed_at set is skipped.
 """
 
-import asyncio
 import json
 import logging
 from datetime import timedelta
 from typing import Any, Optional
 
-from sqlalchemy import select
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.timeutils import ensure_aware, utcnow
-from app.models.intelligence import BackgroundJob
+from app.models.intelligence import BackgroundJob, gen_uuid
 from app.models.notification import Event as EventRow
 
 logger = logging.getLogger("vcos.events.bus")
 
 DISPATCH_JOB = "event.dispatch"
 _BACKOFF_BASE_SECONDS = 60
+_BACKOFF_CAP_SECONDS = 3600
+_STALE_JOB_AFTER_SECONDS = 900
+_MAX_ATTEMPTS_CAP = 10
 
 
 def _parse_payload(raw: Optional[str]) -> dict[str, Any]:
@@ -39,6 +48,11 @@ def _parse_payload(raw: Optional[str]) -> dict[str, Any]:
         return data if isinstance(data, dict) else {}
     except (json.JSONDecodeError, TypeError):
         return {}
+
+
+def _retry_delay_seconds(attempts: int) -> int:
+    """Exponential backoff for the Nth attempt (1-based), capped at 1 hour."""
+    return min(_BACKOFF_BASE_SECONDS * (2 ** (attempts - 1)), _BACKOFF_CAP_SECONDS)
 
 
 class EventBus:
@@ -72,6 +86,7 @@ class EventBus:
                     organization_id=organization_id,
                     name=DISPATCH_JOB,
                     status="queued",
+                    event_id=event.id,
                     payload_json=json.dumps({"event_id": event.id}),
                 )
             )
@@ -100,21 +115,55 @@ class EventBus:
     ) -> int:
         """One worker pass: dispatch queued events to their handlers.
 
-        Returns the number of events processed. Skips events whose handlers
-        were already applied (processed_at guard). Retries failed jobs.
+        Returns the number of events fully processed.
 
-        Events persisted without an explicit dispatch job (legacy services
-        using EventService.emit) are picked up as orphans, so every event
-        eventually flows through the handlers.
+        Concurrency & reliability guarantees:
+        - Jobs are claimed atomically (compare-and-set on queued/retry -> running),
+          so concurrent workers never dispatch the same event twice.
+        - Orphan events (persisted without an explicit dispatch job) are claimed
+          by inserting their dispatch job with ON CONFLICT DO NOTHING — the
+          (name, event_id) uniqueness makes the first worker the owner.
+        - Handlers run with per-handler isolation: a failing handler is retried
+          (names of already-succeeded handlers are recorded on the job) without
+          re-running handlers that already succeeded.
+        - Failed attempts use exponential backoff persisted as next_retry_at, so
+          the pass never blocks on a retry.
+        - Stale 'running' jobs (crashed workers) are reaped and retried.
+        - Events whose dispatch job permanently failed are re-adopted as orphans
+          and retried, so nothing is ever lost.
+        - Job-backed and orphan events are merged by age, so neither queue
+          starves under sustained inflow.
         """
         from app.events.subscriber import get_handlers
         from app.events import handlers  # noqa: F401 - ensure registration
 
         now = utcnow()
+
+        # Reap jobs stuck in 'running' from crashed workers so their events
+        # are retried instead of being lost.
+        await db.execute(
+            update(BackgroundJob)
+            .where(
+                BackgroundJob.name == DISPATCH_JOB,
+                BackgroundJob.status == "running",
+                BackgroundJob.started_at.isnot(None),
+                BackgroundJob.started_at < now - timedelta(seconds=_STALE_JOB_AFTER_SECONDS),
+            )
+            .values(status="retry", started_at=None)
+            .execution_options(synchronize_session=False)
+        )
+
         jobs = (
             await db.execute(
                 select(BackgroundJob)
-                .where(BackgroundJob.name == DISPATCH_JOB, BackgroundJob.status.in_(("queued", "retry")))
+                .where(
+                    BackgroundJob.name == DISPATCH_JOB,
+                    BackgroundJob.status.in_(("queued", "retry")),
+                    or_(
+                        BackgroundJob.next_retry_at.is_(None),
+                        BackgroundJob.next_retry_at <= now,
+                    ),
+                )
                 .order_by(BackgroundJob.created_at.asc())
                 .limit(limit)
             )
@@ -124,31 +173,43 @@ class EventBus:
             for job in jobs
             if (job.payload or {}).get("event_id")
         }
+        owned_event_ids = (
+            select(BackgroundJob.event_id).where(
+                BackgroundJob.name == DISPATCH_JOB,
+                BackgroundJob.event_id.isnot(None),
+                BackgroundJob.status.in_(("queued", "retry", "running")),
+            )
+        )
         orphans = (
             await db.execute(
                 select(EventRow)
                 .where(
                     EventRow.processed_at.is_(None),
+                    EventRow.id.not_in(owned_event_ids),
                     EventRow.id.not_in(list(job_event_ids)) if job_event_ids else True,
                 )
                 .order_by(EventRow.occurred_at.asc())
                 .limit(limit)
             )
         ).scalars().all()
+
+        # Merge job-backed and orphan events by age so neither source
+        # starves, then cap the whole pass at `limit` events.
+        work: list[tuple[EventRow, Optional[BackgroundJob]]] = []
+        for job in jobs:
+            event = await db.get(EventRow, (job.payload or {}).get("event_id"))
+            if event is None:
+                job.status = "failed"
+                job.error = "event row missing"
+                job.finished_at = now
+                continue
+            work.append((event, job))
+        work.extend((event, None) for event in orphans)
+        work.sort(key=lambda item: ensure_aware(item[0].occurred_at))
+        work = work[:limit]
+
         processed = 0
-        for job, orphan_event in [(j, None) for j in jobs] + [(None, e) for e in orphans]:
-            if job is not None:
-                payload = job.payload or {}
-                event = await db.get(EventRow, payload.get("event_id"))
-                if event is None:
-                    job.status = "failed"
-                    job.error = "event row missing"
-                    job.finished_at = now
-                    await db.flush()
-                    continue
-            else:
-                event = orphan_event
-                job = None
+        for event, job in work:
             if event_names and event.name not in event_names:
                 continue
             if event.processed_at is not None:
@@ -156,62 +217,145 @@ class EventBus:
                     job.status = "done"
                     job.finished_at = now
                 continue
-            handlers_for = get_handlers(event.name)
-            event_payload = _parse_payload(event.payload_json)
-            if not handlers_for:
-                # nothing subscribes — still let automation (triggers/rules) fire,
-                # then mark processed so we never rescan it
-                try:
-                    await self._run_automation(db, event, event_payload)
-                except Exception as exc:  # pragma: no cover - defensive
-                    logger.warning("automation hook failed for %s: %s", event.name, exc)
-                event.processed_at = now
-                if job is not None:
-                    job.status = "done"
-                    job.finished_at = now
-                processed += 1
-                continue
 
-            if job is None:
-                # orphan pickup — create bookkeeping so failures are retried
-                job = BackgroundJob(
-                    organization_id=event.organization_id,
-                    name=DISPATCH_JOB,
-                    status="running",
-                    attempts=1,
-                    payload_json=json.dumps({"event_id": event.id}),
-                    started_at=now,
-                )
-                db.add(job)
-                await db.flush()
+            if job is not None:
+                if not await self._claim_job(db, job, event.id, now):
+                    continue  # another worker owns it now
             else:
-                job.status = "running"
-                job.started_at = now
-                job.attempts += 1
-            try:
-                for handler in handlers_for:
-                    await handler(db, event, event_payload)
+                job = await self._claim_orphan(db, event, now)
+                if job is None:
+                    continue  # another worker created the dispatch job
+
+            event_payload = _parse_payload(event.payload_json)
+            handlers_for = get_handlers(event.name)
+            if not handlers_for:
+                # nothing subscribes — still let automation (triggers/rules)
+                # fire, then mark processed so we never rescan it
                 await self._run_automation(db, event, event_payload)
                 event.processed_at = now
                 job.status = "done"
                 job.finished_at = now
                 processed += 1
-            except Exception as exc:  # noqa: BLE001 - retry semantics
-                job.error = str(exc)[:2000]
+                await db.flush()
+                continue
+
+            job_payload = job.payload or {}
+            succeeded = set(job_payload.get("succeeded_handlers") or [])
+            failures: list[str] = []
+            for handler in handlers_for:
+                if handler.__name__ in succeeded:
+                    continue
+                try:
+                    await handler(db, event, event_payload)
+                    succeeded.add(handler.__name__)
+                except Exception as exc:  # noqa: BLE001 - per-handler retry semantics
+                    failures.append(f"{handler.__name__}: {exc}")
+                    logger.warning("handler %s failed for %s: %s", handler.__name__, event.name, exc)
+
+            await self._run_automation(db, event, event_payload)
+
+            if not failures:
+                event.processed_at = now
+                job.status = "done"
+                job.finished_at = now
+                processed += 1
+            else:
+                job.error = "; ".join(failures)[:2000]
+                job.payload_json = json.dumps(
+                    {**job_payload, "succeeded_handlers": sorted(succeeded)}, default=str
+                )
                 if job.attempts >= job.max_attempts:
                     job.status = "failed"
                     job.finished_at = now
+                    # Release ownership of the event so the orphan picker can
+                    # re-adopt it with a fresh job — nothing is ever lost.
+                    job.event_id = None
                     logger.error("event %s permanently failed after %s attempts: %s",
-                                 event.name, job.attempts, exc)
+                                 event.name, job.attempts, job.error)
                 else:
+                    delay = _retry_delay_seconds(job.attempts)
                     job.status = "retry"
-                    await db.flush()
-                    await asyncio.sleep(min(2 ** job.attempts, 30) * 0.01)
-                    logger.warning("event %s attempt %s failed, will retry: %s",
-                                   event.name, job.attempts, exc)
+                    job.next_retry_at = now + timedelta(seconds=delay)
+                    logger.warning("event %s attempt %s failed, retry in %ss: %s",
+                                   event.name, job.attempts, delay, job.error)
             await db.flush()
         await db.commit()
         return processed
+
+    async def _claim_job(
+        self, db: AsyncSession, job: BackgroundJob, event_id: str, now: Any
+    ) -> bool:
+        """Atomically claim a queued/retry dispatch job (compare-and-set).
+
+        Only one concurrent worker can flip the row to 'running'; losers get
+        a 0-row update and skip the event, so double dispatch is impossible.
+        """
+        result = await db.execute(
+            update(BackgroundJob)
+            .where(
+                BackgroundJob.id == job.id,
+                BackgroundJob.status.in_(("queued", "retry")),
+            )
+            .values(
+                status="running",
+                started_at=now,
+                attempts=BackgroundJob.attempts + 1,
+                event_id=event_id,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        await db.flush()
+        if result.rowcount != 1:
+            return False
+        # Reload the row so the session's "loaded state" matches the DB —
+        # otherwise later attribute changes equal to the stale loaded values
+        # (e.g. status retry -> running -> retry) would never be flushed.
+        await db.refresh(job)
+        return True
+
+    async def _claim_orphan(
+        self, db: AsyncSession, event: EventRow, now: Any
+    ) -> Optional[BackgroundJob]:
+        """Claim an orphan event by creating its dispatch job with ON CONFLICT.
+
+        The (name, event_id) unique index makes the first worker the owner;
+        a conflicting insert means another worker already claimed it.
+        """
+        job = BackgroundJob(
+            id=gen_uuid(),
+            organization_id=event.organization_id,
+            name=DISPATCH_JOB,
+            status="running",
+            attempts=1,
+            event_id=event.id,
+            payload_json=json.dumps({"event_id": event.id}),
+            started_at=now,
+        )
+        # on_conflict_do_nothing lives on the dialect-specific insert.
+        from sqlalchemy.dialects import postgresql, sqlite
+
+        dialect = db.get_bind().dialect.name
+        dialect_insert = postgresql.insert if dialect == "postgresql" else sqlite.insert
+        result = await db.execute(
+            dialect_insert(BackgroundJob)
+            .values(
+                id=job.id,
+                organization_id=job.organization_id,
+                name=DISPATCH_JOB,
+                status="running",
+                attempts=1,
+                event_id=event.id,
+                payload_json=job.payload_json,
+                started_at=now,
+            )
+            .on_conflict_do_nothing(index_elements=["name", "event_id"])
+        )
+        await db.flush()
+        if result.rowcount != 1:
+            return None
+        # Reload through the session so subsequent status mutations on the
+        # returned job are actually persisted at commit.
+        return await db.get(BackgroundJob, job.id)
 
     async def _run_automation(self, db: AsyncSession, event: EventRow, payload: dict[str, Any]) -> None:
         """Phase 14 hook: fire event-driven workflow triggers and business rules.
@@ -245,10 +389,13 @@ class EventBus:
         now = utcnow()
         for job in rows:
             if job.attempts >= job.max_attempts:
-                job.max_attempts += 2  # human-recoverable: allow another window
+                # human-recoverable: allow another window, but cap growth so
+                # the retry budget cannot balloon without bound
+                job.max_attempts = min(job.max_attempts + 2, _MAX_ATTEMPTS_CAP)
             job.status = "retry"
             job.error = None
             job.started_at = None
+            job.next_retry_at = None
             job.updated_at = now  # type: ignore[misc]
         await db.commit()
         return len(rows)
@@ -329,11 +476,13 @@ class EventBus:
                 "status": job.status,
                 "attempts": job.attempts,
                 "max_attempts": job.max_attempts,
+                "event_id": job.event_id,
                 "error": job.error,
                 "payload": job.payload,
                 "created_at": ensure_aware(job.created_at).isoformat() if job.created_at else None,
                 "started_at": ensure_aware(job.started_at).isoformat() if job.started_at else None,
                 "finished_at": ensure_aware(job.finished_at).isoformat() if job.finished_at else None,
+                "next_retry_at": ensure_aware(job.next_retry_at).isoformat() if job.next_retry_at else None,
             })
         return result
 
