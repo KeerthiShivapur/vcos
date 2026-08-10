@@ -8,6 +8,8 @@ tenancy isolation, and RBAC for the new permission codes.
 
 import pytest
 
+from datetime import date, timedelta
+
 from tests.conftest import register_org
 
 
@@ -466,6 +468,30 @@ async def test_workload_and_analytics(client):
     org_load = await client.get("/api/v1/workload/organization", headers=headers)
     assert org_load.status_code == 200
     assert org_load.json()["employees_tracked"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_my_work_with_due_dated_tasks(client):
+    org = await register_org(client, email="due@mywork.test.co")
+    headers = org["headers"]
+    me = await _employee_id(client, headers)
+
+    past = (date.today() - timedelta(days=2)).isoformat()
+    future = (date.today() + timedelta(days=5)).isoformat()
+    for due, title in ((past, "Overdue task"), (future, "Future task")):
+        created = await client.post(
+            "/api/v1/tasks",
+            json={"title": title, "assignee_id": me, "due_date": due, "status": "todo"},
+            headers=headers,
+        )
+        assert created.status_code == 201, created.text
+
+    my_work = await client.get("/api/v1/my-work", headers=headers)
+    assert my_work.status_code == 200, my_work.text
+    payload = my_work.json()["tasks"]
+    assert payload["total"] == 2
+    assert payload["overdue"] == 1
+    assert [t["title"] for t in my_work.json()["today_tasks"]] == ["Overdue task", "Future task"]
 
 
 @pytest.mark.asyncio

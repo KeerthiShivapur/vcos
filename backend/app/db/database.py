@@ -87,6 +87,14 @@ _POSTGRES_ALTERS: list[str] = [
     # Slice 3 Step 10: project/sprint execution — progress on sprints.
     "ALTER TABLE sprints ADD COLUMN IF NOT EXISTS progress INTEGER DEFAULT 0",
     "ALTER TABLE sprints ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ",
+    # Slice 4A: decision → execution lineage — tasks trace back to the
+    # originating decision and the goal they support.
+    "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS decision_id VARCHAR(32) REFERENCES decisions(id) ON DELETE SET NULL",
+    "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS goal_id VARCHAR(32) REFERENCES goals(id) ON DELETE SET NULL",
+    "CREATE INDEX IF NOT EXISTS ix_tasks_decision_id ON tasks (decision_id)",
+    "CREATE INDEX IF NOT EXISTS ix_tasks_goal_id ON tasks (goal_id)",
+    "ALTER TABLE decisions ADD COLUMN IF NOT EXISTS goal_id VARCHAR(32)",
+    "CREATE INDEX IF NOT EXISTS ix_decisions_goal_id ON decisions (goal_id)",
 ]
 
 

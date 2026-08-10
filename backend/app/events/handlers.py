@@ -28,7 +28,7 @@ logger = logging.getLogger("vcos.events.handlers")
 async def _resolve_employee(
     db: AsyncSession, organization_id: str, payload: dict[str, Any]
 ) -> Optional[Employee]:
-    for key in ("assignee_id", "owner_id", "author_id", "editor_id", "recipient_id", "actor_id", "employee_id", "approver_id"):
+    for key in ("assignee_id", "owner_id", "author_id", "editor_id", "recipient_id", "actor_id", "employee_id", "approver_id", "decision_maker_id"):
         value = payload.get(key)
         if not value:
             continue
@@ -703,17 +703,59 @@ async def handle_policy_approved(db, event, payload):
 async def handle_decision_made(db, event, payload):
     org_id = payload.get("organization_id") or event.organization_id
     employee = await _resolve_employee(db, org_id, payload)
+    decision_id = payload.get("decision_id") or payload.get("entity_id")
     if employee is not None:
         await _evolve_expertise(db, org_id, "decision.made", employee,
                                 _tokens(payload.get("title"), payload.get("summary")), event.id)
+        await _graph_link(
+            db, org_id, "decision.made", "employee", employee.id,
+            "decision", decision_id,
+            evidence=f"Made decision: {payload.get('title', '')[:120]}",
+        )
     await _learning_from_event(
         db, org_id, event, payload,
         event_type="decision",
         title=f"Decision: {payload.get('title', '')[:100]}",
         detail=payload.get("summary") or "A decision was recorded.",
         lesson="Decisions should be linked to measurable outcomes so the org can learn.",
-        entity_type="decision", entity_id=payload.get("decision_id"),
+        entity_type="decision", entity_id=decision_id,
         tags=_tokens(payload.get("title"), payload.get("category")),
+    )
+
+
+@on("decision.executed")
+async def handle_decision_executed(db, event, payload):
+    org_id = payload.get("organization_id") or event.organization_id
+    decision_id = payload.get("decision_id") or payload.get("entity_id")
+    task_id = payload.get("task_id")
+    employee = await _resolve_employee(db, org_id, payload)
+    if employee is not None:
+        await _evolve_expertise(db, org_id, "decision.executed", employee,
+                                _tokens(payload.get("title"), payload.get("action")), event.id,
+                                points=1.0)
+    if decision_id and task_id:
+        await _graph_link(
+            db, org_id, "decision.executed", "decision", decision_id,
+            "task", task_id,
+            evidence=f"Follow-up action became task: {payload.get('task_title', '')[:120]}",
+        )
+
+
+@on("decision.implemented")
+async def handle_decision_implemented(db, event, payload):
+    org_id = payload.get("organization_id") or event.organization_id
+    employee = await _resolve_employee(db, org_id, payload)
+    if employee is not None:
+        await _evolve_expertise(db, org_id, "decision.implemented", employee,
+                                _tokens(payload.get("title")), event.id, points=2.0)
+    await _learning_from_event(
+        db, org_id, event, payload,
+        event_type="decision",
+        title=f"Decision implemented: {payload.get('title', '')[:100]}",
+        detail="Every follow-up task from this decision is complete.",
+        lesson="Track decision-to-outcome so the org learns what actually got done.",
+        entity_type="decision", entity_id=payload.get("decision_id") or payload.get("entity_id"),
+        tags=_tokens(payload.get("title"), "implemented"),
     )
 
 

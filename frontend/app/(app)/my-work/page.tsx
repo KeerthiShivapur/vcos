@@ -116,6 +116,7 @@ function MyWorkContent() {
                         <p className="truncate text-[13px] font-medium text-ink hover:text-brand">{task.title}</p>
                         <p className="text-[12px] text-faint">
                           {full?.project_name ?? "No project"}
+                          {full?.decision ? ` · from decision "${full.decision.title}"` : ""}
                           {task.due_date ? ` · due ${formatDate(task.due_date)}` : ""}
                         </p>
                       </Link>

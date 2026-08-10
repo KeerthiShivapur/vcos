@@ -73,7 +73,11 @@ EVENT_CATALOG: dict[str, str] = {
     "approval.approved": "An approval was approved",
     "approval.rejected": "An approval was rejected",
     "approval.cancelled": "An approval was cancelled",
+    "decision.created": "A decision was recorded",
     "decision.made": "A decision was made",
+    "decision.executed": "A decision follow-up action became a task",
+    "decision.implemented": "A decision was implemented (all follow-up tasks done)",
+    "decision.reviewed": "A decision was reviewed",
     # --- risks
     "risk.detected": "A risk was detected",
     "risk.updated": "A risk was updated",
@@ -306,6 +310,7 @@ EXPERTISE_EVENTS: dict[str, tuple[float, str]] = {
     "innovation.submitted": (2.0, "Submitted an innovation idea"),
     "policy.approved": (1.0, "Approved a policy"),
     "decision.made": (1.5, "Made a decision"),
+    "decision.implemented": (2.0, "Implemented a decision"),
     "template.used": (0.5, "Used a template"),
     "approval.approved": (0.5, "Approved a request"),
 }
@@ -328,6 +333,8 @@ GRAPH_EVENTS: dict[str, str] = {
     "team.member.added": "member_of",
     "manager.changed": "reports_to",
     "decision.made": "decided",
+    "decision.executed": "produces",
+    "decision.implemented": "implemented",
 }
 
 

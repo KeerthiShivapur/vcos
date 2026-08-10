@@ -41,6 +41,8 @@ class Task(Base, TimestampMixin):
     milestone_id: Mapped[Optional[str]] = mapped_column(ForeignKey("milestones.id", ondelete="SET NULL"))
     sprint_id: Mapped[Optional[str]] = mapped_column(ForeignKey("sprints.id", ondelete="SET NULL"))
     parent_task_id: Mapped[Optional[str]] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"))
+    decision_id: Mapped[Optional[str]] = mapped_column(ForeignKey("decisions.id", ondelete="SET NULL"), index=True)
+    goal_id: Mapped[Optional[str]] = mapped_column(ForeignKey("goals.id", ondelete="SET NULL"), index=True)
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(30), default="backlog", index=True)

@@ -602,6 +602,44 @@ function DetailContent() {
         </div>
 
         <div className="space-y-6">
+          {task.decision && (
+            <Card title="Why this task exists" subtitle="The decision that created this work">
+              <div className="space-y-3 text-[13px]">
+                <div>
+                  <p className="text-faint">Decision</p>
+                  <Link href={`/decisions/${task.decision.id}`} className="font-medium text-brand hover:underline">
+                    {task.decision.title}
+                  </Link>
+                  <Badge tone="neutral" className="ml-2">{task.decision.status}</Badge>
+                </div>
+                {task.decision.reason && (
+                  <div>
+                    <p className="text-faint">Reason</p>
+                    <p className="text-muted">{task.decision.reason}</p>
+                  </div>
+                )}
+                {task.decision.context && (
+                  <div>
+                    <p className="text-faint">Context</p>
+                    <p className="text-muted">{task.decision.context}</p>
+                  </div>
+                )}
+                {task.goal_name && (
+                  <div>
+                    <p className="text-faint">Goal</p>
+                    <p className="text-ink">{task.goal_name}</p>
+                  </div>
+                )}
+                {task.decision.decided_at && (
+                  <div>
+                    <p className="text-faint">Decision made</p>
+                    <p className="text-muted">{formatDate(task.decision.decided_at)}</p>
+                  </div>
+                )}
+              </div>
+            </Card>
+          )}
+
           <Card title="Details">
             <dl className="space-y-3 text-[13px]">
               <DetailRow label="Project" value={task.project_name ? <Link className="text-brand hover:underline" href={`/projects/${task.project_id}`}>{task.project_name}</Link> : "—"} />

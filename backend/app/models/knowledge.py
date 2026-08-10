@@ -250,6 +250,7 @@ class Decision(Timestamped):
     future_review_date: Mapped[Optional[date]] = mapped_column(Date)
     lessons_learned: Mapped[Optional[str]] = mapped_column(Text)
     project_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    goal_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
     meeting_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
     department_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)

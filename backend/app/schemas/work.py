@@ -216,7 +216,8 @@ class TaskCreate(BaseModel):
     milestone_id: Optional[str] = None
     sprint_id: Optional[str] = None
     parent_task_id: Optional[str] = None
-    goal_id: Optional[str] = None  # deprecated/no column — explicitly rejected by service
+    decision_id: Optional[str] = None
+    goal_id: Optional[str] = None
     title: str
     description: Optional[str] = None
     status: Optional[str] = Field(default="backlog", pattern="^(backlog|todo|in_progress|review|blocked|completed|archived)$")
@@ -234,7 +235,6 @@ class TaskCreate(BaseModel):
 class TaskUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
-    goal_id: Optional[str] = None  # deprecated/no column - explicitly rejected by service
     status: Optional[str] = Field(default=None, pattern="^(backlog|todo|in_progress|review|blocked|completed|archived)$")
     priority: Optional[str] = Field(default=None, pattern="^(low|medium|high|critical)$")
     assignee_id: Optional[str] = None
@@ -248,6 +248,8 @@ class TaskUpdate(BaseModel):
     milestone_id: Optional[str] = None
     sprint_id: Optional[str] = None
     parent_task_id: Optional[str] = None
+    goal_id: Optional[str] = None
+    decision_id: Optional[str] = None
     tags: Optional[List[str]] = None
 
 
@@ -267,6 +269,10 @@ class TaskOut(ORMModel):
     sprint_id: Optional[str] = None
     parent_task_id: Optional[str] = None
     parent_title: Optional[str] = None
+    decision_id: Optional[str] = None
+    decision: Optional[dict] = None
+    goal_id: Optional[str] = None
+    goal_name: Optional[str] = None
     subtasks_count: int = 0
     subtasks_completed: int = 0
     title: str

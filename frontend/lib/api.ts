@@ -2085,6 +2085,14 @@ export async function transitionDecision(id: string, status: string): Promise<De
   return api<Decision>(`/decisions/${id}/status`, { method: "POST", body: { status } });
 }
 
+export async function executeDecisionAction(id: string, actionIndex: number): Promise<{ decision: Decision; task: Task }> {
+  return api<{ decision: Decision; task: Task }>(`/decisions/${id}/actions/${actionIndex}/execute`, { method: "POST" });
+}
+
+export async function listDecisionTasks(id: string): Promise<Task[]> {
+  return api<Task[]>(`/decisions/${id}/tasks`);
+}
+
 // ---------------------------------------------------------------- hub
 
 export async function knowledgeSearch(query: {

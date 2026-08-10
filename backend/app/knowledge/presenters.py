@@ -120,15 +120,33 @@ async def present(
         payload["usage_count"] = getattr(entity, "usage_count", 0)
     if kind == "decision":
         from app.knowledge.decision_service import decision_service
+        from app.schemas.knowledge import normalize_follow_up_actions
 
         payload["context"] = getattr(entity, "context", None)
         payload["impact"] = getattr(entity, "impact", None)
         payload["business_impact"] = getattr(entity, "business_impact", None)
-        payload["follow_up_actions"] = getattr(entity, "follow_up_actions", None)
+        raw_actions = normalize_follow_up_actions(getattr(entity, "follow_up_actions", None)) or []
+        owner_ids = [a.get("owner_id") for a in raw_actions if a.get("owner_id")]
+        owner_names = await _names(db, owner_ids)
+        payload["follow_up_actions"] = [
+            {**action, "owner_name": owner_names.get(action.get("owner_id")) if action.get("owner_id") else None}
+            for action in raw_actions
+        ]
         payload["future_review_date"] = getattr(entity, "future_review_date", None)
         payload["lessons_learned"] = getattr(entity, "lessons_learned", None)
         payload["decision_date"] = getattr(entity, "decision_date", None)
         payload["decided_at"] = getattr(entity, "decided_at", None)
+        if hasattr(entity, "goal_id"):
+            payload["goal_id"] = getattr(entity, "goal_id", None)
+            if entity.goal_id:
+                from app.models.goal import Goal
+
+                goal = await db.get(Goal, entity.goal_id)
+                payload["goal_name"] = goal.name if goal else None
+        from app.api.v1.tasks import _task_payload
+
+        tasks = await decision_service.tasks_for(db, organization_id=organization_id, decision_id=entity.id)
+        payload["tasks"] = [_task_payload(t) for t in tasks]
         options = await decision_service.options(db, organization_id=organization_id, decision_id=entity.id)
         payload["options"] = [
             {

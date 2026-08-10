@@ -276,7 +276,7 @@ class IntelligenceService:
             ).order_by(Task.due_date.asc().nulls_last())
         )).scalars().all()
         open_tasks = [t for t in my_tasks if t.status not in ("completed", "archived")]
-        overdue_tasks = [t for t in open_tasks if t.due_date and t.due_date < now]
+        overdue_tasks = [t for t in open_tasks if t.due_date and t.due_date < now.date()]
         completed_tasks = [t for t in my_tasks if t.status == "completed"]
         from app.work.workload_service import workload_service
 
@@ -313,7 +313,7 @@ class IntelligenceService:
             ],
             "today_tasks": [
                 {"id": t.id, "title": t.title, "status": t.status, "due_date": t.due_date}
-                for t in sorted(open_tasks, key=lambda t: t.due_date or now)[:10]
+                for t in sorted(open_tasks, key=lambda t: t.due_date or now.date())[:10]
             ],
         }
 

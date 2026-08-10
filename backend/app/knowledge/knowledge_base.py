@@ -246,6 +246,13 @@ def entity_text(entity: Any) -> str:
         getattr(entity, "lessons_learned", ""),
         getattr(entity, "category", ""),
     ]
+    actions = getattr(entity, "follow_up_actions", None)
+    if isinstance(actions, list):
+        for action in actions:
+            if isinstance(action, str):
+                parts.append(action)
+            elif isinstance(action, dict):
+                parts.append(action.get("text") or "")
     return " ".join(p for p in parts if p)
 
 

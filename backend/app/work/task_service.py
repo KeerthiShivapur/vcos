@@ -15,6 +15,8 @@ VALID_STATUSES = ("backlog", "todo", "in_progress", "review", "blocked", "comple
 
 class TaskService:
     async def _validate_ref(self, db, organization_id: str, key: str, value: str):
+        from app.models.goal import Goal
+        from app.models.knowledge import Decision
         from app.models.project import Epic, Milestone, Project, Sprint
 
         model = {
@@ -25,6 +27,8 @@ class TaskService:
             "assignee_id": Employee,
             "reporter_id": Employee,
             "parent_task_id": Task,
+            "goal_id": Goal,
+            "decision_id": Decision,
         }.get(key)
         if model is None:
             return
@@ -36,11 +40,9 @@ class TaskService:
         self, db, *, organization_id: str, data: dict[str, Any],
         actor: Optional[Employee] = None, ip_address: Optional[str] = None,
     ) -> Task:
-        for key in ("project_id", "epic_id", "milestone_id", "sprint_id", "assignee_id", "reporter_id", "parent_task_id"):
+        for key in ("project_id", "epic_id", "milestone_id", "sprint_id", "assignee_id", "reporter_id", "parent_task_id", "goal_id", "decision_id"):
             if data.get(key):
                 await self._validate_ref(db, organization_id, key, data[key])
-        if "goal_id" in data:
-            raise ValueError("Unsupported field: goal_id")
         task = Task(
             organization_id=organization_id,
             project_id=data.get("project_id"),
@@ -48,6 +50,8 @@ class TaskService:
             milestone_id=data.get("milestone_id"),
             sprint_id=data.get("sprint_id"),
             parent_task_id=data.get("parent_task_id"),
+            decision_id=data.get("decision_id"),
+            goal_id=data.get("goal_id"),
             title=data["title"],
             description=data.get("description"),
             status=data.get("status", "backlog"),
@@ -86,6 +90,7 @@ class TaskService:
                 "project_id": task.project_id, "status": task.status,
                 "assignee_id": task.assignee_id, "parent_task_id": task.parent_task_id,
                 "sprint_id": task.sprint_id,
+                "decision_id": task.decision_id, "goal_id": task.goal_id,
             },
         )
 
@@ -108,6 +113,25 @@ class TaskService:
         if task.parent_task_id:
             parent = await db.get(Task, task.parent_task_id)
             task.parent_title = parent.title if parent else None
+        if task.goal_id:
+            from app.models.goal import Goal
+
+            goal = await db.get(Goal, task.goal_id)
+            task.goal_name = goal.name if goal else None
+        if task.decision_id:
+            from app.models.knowledge import Decision
+
+            decision = await db.get(Decision, task.decision_id)
+            if decision is not None:
+                task.decision = {
+                    "id": decision.id,
+                    "title": decision.title,
+                    "context": decision.context,
+                    "reason": decision.summary or decision.impact or decision.description,
+                    "status": decision.status,
+                    "decided_at": decision.decided_at,
+                    "project_id": decision.project_id,
+                }
         subtask_counts = await db.execute(
             select(func.count(Task.id), func.sum(case((Task.status == "completed", 1), else_=0)))
             .where(Task.organization_id == organization_id, Task.parent_task_id == task.id)
@@ -236,7 +260,7 @@ class TaskService:
         actor: Optional[Employee] = None, ip_address: Optional[str] = None,
         force: bool = False,
     ) -> Task:
-        for key in ("project_id", "epic_id", "milestone_id", "sprint_id", "assignee_id", "reporter_id", "parent_task_id"):
+        for key in ("project_id", "epic_id", "milestone_id", "sprint_id", "assignee_id", "reporter_id", "parent_task_id", "goal_id", "decision_id"):
             if data.get(key):
                 await self._validate_ref(db, organization_id, key, data[key])
         if data.get("parent_task_id"):
@@ -254,8 +278,6 @@ class TaskService:
                 cursor = row.one_or_none()
                 cursor_id = cursor.parent_task_id if cursor else None
                 hops += 1
-        if "goal_id" in data:
-            raise ValueError("Field is not editable: goal_id")
         if data.get("status") in ("in_progress", "completed"):
             blockers = await self._unsatisfied_blockers(
                 db, organization_id=organization_id, task=task, target_status=data["status"]
@@ -297,6 +319,8 @@ class TaskService:
         if task.status == "completed" and old_status != "completed":
             await self._emit(db, "task.completed", organization_id, actor, ip_address, task)
             await self._alert_completed(db, organization_id, task, actor)
+            if task.decision_id:
+                await self._refresh_decision(db, organization_id, task.decision_id, actor, ip_address)
         if "assignee_id" in data and task.assignee_id:
             await self._alert_assigned(db, organization_id, task, actor)
         from app.services.work_audit import record
@@ -368,18 +392,42 @@ class TaskService:
             return
         from app.services.work_alerts import notify_employee
 
+        decision_title = None
+        if task.decision_id:
+            from app.models.knowledge import Decision
+
+            decision = await db.get(Decision, task.decision_id)
+            decision_title = decision.title if decision else None
+        title = (
+            f"Task assigned to you (from decision '{decision_title}'): {task.title}"
+            if decision_title
+            else f"Task assigned to you: {task.title}"
+        )
+        body = f"Status: {task.status}" + (f" · Due {task.due_date.isoformat()}" if task.due_date else "")
+        if decision_title:
+            body += " · This task was created from a follow-up action on the decision."
         await notify_employee(
             db,
             organization_id=organization_id,
             employee_id=task.assignee_id,
             type="task.assigned",
-            title=f"Task assigned to you: {task.title}",
-            body=f"Status: {task.status}" + (f" · Due {task.due_date.isoformat()}" if task.due_date else ""),
+            title=title,
+            body=body,
             actor_id=actor.user_id if actor else None,
             entity_type="task",
             entity_id=task.id,
             link=f"/tasks/{task.id}",
-            metadata={"project_id": task.project_id},
+            metadata={"project_id": task.project_id, "decision_id": task.decision_id},
+        )
+
+    async def _refresh_decision(self, db, organization_id: str, decision_id: str, actor: Optional[Employee], ip_address: Optional[str]):
+        """Close the decision → execution loop: when every follow-up task is
+        done, the originating decision becomes `implemented`."""
+        from app.knowledge.decision_service import decision_service
+
+        await decision_service.refresh_status(
+            db, organization_id=organization_id, decision_id=decision_id,
+            actor=actor, ip_address=ip_address,
         )
 
     async def _alert_completed(self, db, organization_id: str, task: Task, actor: Optional[Employee]):

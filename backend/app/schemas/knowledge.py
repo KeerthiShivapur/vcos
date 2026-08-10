@@ -4,7 +4,7 @@ decisions, semantic search, knowledge graph, analytics)."""
 from datetime import date, datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.common import ORMModel
 
@@ -399,6 +399,49 @@ class TemplateOut(BaseModel):
 
 # --- Decisions ---------------------------------------------------------------
 
+class FollowUpAction(BaseModel):
+    """A structured follow-up action on a decision.
+
+    Carries the full lineage: who owns it, which goal/project it serves,
+    when it is due, and — once executed — which task it became.
+    """
+
+    text: str = Field(min_length=1, max_length=300)
+    owner_id: Optional[str] = None
+    project_id: Optional[str] = None
+    goal_id: Optional[str] = None
+    due_date: Optional[date] = None
+    status: Optional[str] = Field(default="pending", pattern="^(pending|in_progress|completed|skipped)$")
+    task_id: Optional[str] = None
+
+
+def normalize_follow_up_actions(actions: Any) -> Optional[list[dict]]:
+    """Normalize follow-up actions into structured dicts.
+
+    Accepts both the legacy flat strings ("Do X") and the structured
+    action objects, so existing clients keep working.
+    """
+    if actions is None:
+        return None
+    out: list[dict] = []
+    for item in actions:
+        if isinstance(item, str):
+            out.append({"text": item, "status": "pending"})
+        elif isinstance(item, dict):
+            out.append(
+                {
+                    "text": item.get("text", "").strip() or str(item.get("title", "")).strip(),
+                    "owner_id": item.get("owner_id"),
+                    "project_id": item.get("project_id"),
+                    "goal_id": item.get("goal_id"),
+                    "due_date": item.get("due_date"),
+                    "status": item.get("status", "pending"),
+                    "task_id": item.get("task_id"),
+                }
+            )
+    return [a for a in out if a.get("text")]
+
+
 class DecisionCreate(BaseModel):
     title: str = Field(min_length=1, max_length=240)
     description: Optional[str] = None
@@ -409,16 +452,26 @@ class DecisionCreate(BaseModel):
     decision_date: Optional[date] = None
     impact: Optional[str] = None
     business_impact: Optional[str] = None
-    follow_up_actions: Optional[list[str]] = None
+    follow_up_actions: Optional[list[Any]] = None
     future_review_date: Optional[date] = None
     lessons_learned: Optional[str] = None
     project_id: Optional[str] = None
+    goal_id: Optional[str] = None
     meeting_id: Optional[str] = None
     department_id: Optional[str] = None
     tags: Optional[list[str]] = None
     summary: Optional[str] = None
     options: Optional[list["DecisionOptionCreate"]] = None
     participants: Optional[list["DecisionParticipantCreate"]] = None
+
+    @field_validator("follow_up_actions")
+    @classmethod
+    def _actions(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        if not isinstance(value, list):
+            raise ValueError("follow_up_actions must be a list")
+        return value
 
 
 class DecisionUpdate(BaseModel):
@@ -430,10 +483,11 @@ class DecisionUpdate(BaseModel):
     decision_date: Optional[date] = None
     impact: Optional[str] = None
     business_impact: Optional[str] = None
-    follow_up_actions: Optional[list[str]] = None
+    follow_up_actions: Optional[list[Any]] = None
     future_review_date: Optional[date] = None
     lessons_learned: Optional[str] = None
     project_id: Optional[str] = None
+    goal_id: Optional[str] = None
     meeting_id: Optional[str] = None
     department_id: Optional[str] = None
     tags: Optional[list[str]] = None
@@ -504,11 +558,13 @@ class DecisionOut(BaseModel):
     decision_date: Optional[date] = None
     impact: Optional[str] = None
     business_impact: Optional[str] = None
-    follow_up_actions: Optional[list[str]] = None
+    follow_up_actions: Optional[list[dict]] = None
     future_review_date: Optional[date] = None
     lessons_learned: Optional[str] = None
     project_id: Optional[str] = None
     project_name: Optional[str] = None
+    goal_id: Optional[str] = None
+    goal_name: Optional[str] = None
     meeting_id: Optional[str] = None
     department_id: Optional[str] = None
     version: int
@@ -516,6 +572,7 @@ class DecisionOut(BaseModel):
     decided_at: Optional[datetime] = None
     options: Optional[list[DecisionOptionOut]] = []
     participants: Optional[list[DecisionParticipantOut]] = []
+    tasks: Optional[list[dict]] = []
     created_at: datetime
     updated_at: datetime
 

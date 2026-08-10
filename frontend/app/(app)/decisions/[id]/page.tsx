@@ -8,13 +8,14 @@ import { Check, Gavel, ThumbsUp, Trash2 } from "lucide-react";
 import {
   chooseDecisionOption,
   deleteDecision,
+  executeDecisionAction,
   getDecision,
   transitionDecision,
   updateDecision,
   touchPresence,
 } from "@/lib/api";
 import { roleCan, PERMISSIONS } from "@/lib/permissions";
-import type { Decision } from "@/types";
+import type { Decision, FollowUpAction } from "@/types";
 import { useAuth } from "@/hooks/useAuth";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
@@ -34,6 +35,13 @@ const STATUS_FLOW: Record<string, string> = {
   proposed: "made",
   made: "implemented",
   implemented: "reviewed",
+};
+
+const ACTION_TONES: Record<string, "neutral" | "brand" | "success" | "danger"> = {
+  pending: "neutral",
+  in_progress: "brand",
+  completed: "success",
+  skipped: "danger",
 };
 
 export default function DecisionDetailPage() {
@@ -103,6 +111,19 @@ function DetailContent() {
       toastSuccess(`Status: ${next}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to update status");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function convertAction(index: number) {
+    setBusy(true);
+    try {
+      const result = await executeDecisionAction(id, index);
+      setDecision(result.decision);
+      toastSuccess("Action converted to a task and assigned to its owner");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to convert action");
     } finally {
       setBusy(false);
     }
@@ -231,6 +252,34 @@ function DetailContent() {
         </div>
       </div>
 
+      {decision.follow_up_actions && decision.follow_up_actions.length > 0 && (
+        <div className="card p-6">
+          <div className="mb-4 flex items-center gap-2">
+            <Check className="h-4 w-4 text-brand" />
+            <p className="text-[13px] font-semibold text-ink">Follow-up actions</p>
+            <span className="ml-auto text-[12px] text-faint">
+              {decision.follow_up_actions.filter((a) => a.status !== "completed").length} open
+            </span>
+          </div>
+          <div className="space-y-3">
+            {decision.follow_up_actions.map((action, index) => (
+              <FollowUpRow
+                key={index}
+                action={action}
+                index={index}
+                decision={decision}
+                canManage={canManage}
+                busy={busy}
+                onConvert={convertAction}
+              />
+            ))}
+          </div>
+          <p className="mt-4 text-[12px] text-faint">
+            When every converted task is completed, the decision is automatically marked implemented.
+          </p>
+        </div>
+      )}
+
       {decision.participants && decision.participants.length > 0 && (
         <div className="card p-6">
           <p className="mb-3 text-[13px] font-semibold text-ink">Participants</p>
@@ -280,6 +329,55 @@ function DetailContent() {
           <Button variant="danger" onClick={remove} loading={busy}>Delete</Button>
         </div>
       </Modal>
+    </div>
+  );
+}
+
+function FollowUpRow({
+  action,
+  index,
+  decision,
+  canManage,
+  busy,
+  onConvert,
+}: {
+  action: FollowUpAction;
+  index: number;
+  decision: Decision;
+  canManage: boolean;
+  busy: boolean;
+  onConvert: (index: number) => void;
+}) {
+  const task = action.task_id ? decision.tasks?.find((t) => t.id === action.task_id) ?? null : null;
+  return (
+    <div className="rounded-lg border border-line p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[14px] font-semibold text-ink">{action.text}</p>
+          <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted">
+            <span className="flex items-center gap-1.5">
+              <Avatar name={action.owner_name ?? action.owner_id ?? "?"} size="xs" />
+              {action.owner_name ?? "Unassigned"}
+            </span>
+            {task && (
+              <Link href={`/tasks/${task.id}`} className="text-brand hover:underline">
+                {task.title} · {task.status.replace(/_/g, " ")}
+              </Link>
+            )}
+            {action.project_id && decision.tasks?.length === 0 && <span>Project linked</span>}
+            {action.goal_id && <span>Goal linked</span>}
+            {action.due_date && <span>Due {formatDate(action.due_date)}</span>}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <Badge tone={ACTION_TONES[action.status] ?? "neutral"}>{action.status.replace(/_/g, " ")}</Badge>
+          {canManage && !task && action.status === "pending" && (
+            <Button size="sm" variant="secondary" loading={busy} onClick={() => onConvert(index)}>
+              <Check className="h-4 w-4" /> Convert to task
+            </Button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

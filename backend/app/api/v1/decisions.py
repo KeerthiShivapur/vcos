@@ -57,10 +57,13 @@ async def create_decision(
     db: AsyncSession = Depends(get_db),
 ):
     actor = await _actor(db, org, user)
-    entity = await decision_service.create(
-        db, organization_id=org.id, payload=payload.model_dump(exclude_unset=True),
-        actor=actor, ip_address=get_client_ip(request),
-    )
+    try:
+        entity = await decision_service.create(
+            db, organization_id=org.id, payload=payload.model_dump(exclude_unset=True),
+            actor=actor, ip_address=get_client_ip(request),
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     await db.commit()
     return await present(db, organization_id=org.id, entity=entity, kind="decision")
 
@@ -92,10 +95,13 @@ async def update_decision(
     db: AsyncSession = Depends(get_db),
 ):
     actor = await _actor(db, org, user)
-    entity = await decision_service.update(
-        db, organization_id=org.id, entity_id=decision_id,
-        payload=payload.model_dump(exclude_unset=True), actor=actor, ip_address=get_client_ip(request),
-    )
+    try:
+        entity = await decision_service.update(
+            db, organization_id=org.id, entity_id=decision_id,
+            payload=payload.model_dump(exclude_unset=True), actor=actor, ip_address=get_client_ip(request),
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     if entity is None:
         raise HTTPException(404, "Decision not found")
     await db.commit()
@@ -208,3 +214,52 @@ async def transition_decision(
         raise HTTPException(400, "Invalid decision status transition")
     await db.commit()
     return await present(db, organization_id=org.id, entity=entity, kind="decision")
+
+
+@router.post("/{decision_id}/actions/{action_index}/execute", response_model=dict)
+async def execute_follow_up_action(
+    decision_id: str,
+    action_index: int,
+    request: Request,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("knowledge:manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Slice 4A — convert a follow-up action into a real task."""
+    from app.schemas.work import TaskOut
+    from app.api.v1.tasks import _task_payload
+    from app.work.task_service import task_service
+
+    actor = await _actor(db, org, user)
+    try:
+        result = await decision_service.execute_action(
+            db, organization_id=org.id, decision_id=decision_id, action_index=action_index,
+            actor=actor, ip_address=get_client_ip(request),
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if result is None:
+        raise HTTPException(400, "Action not executable (missing, already executed, or decision not found)")
+    decision, task = result
+    await db.commit()
+    task = await task_service.get(db, organization_id=org.id, task_id=task.id)
+    return {
+        "decision": await present(db, organization_id=org.id, entity=decision, kind="decision"),
+        "task": TaskOut.model_validate(_task_payload(task)),
+    }
+
+
+@router.get("/{decision_id}/tasks", response_model=list[dict])
+async def decision_tasks(
+    decision_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("knowledge:read")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Every task this decision produced, with execution status."""
+    if await decision_service.get(db, organization_id=org.id, entity_id=decision_id) is None:
+        raise HTTPException(404, "Decision not found")
+    from app.api.v1.tasks import _task_payload
+
+    tasks = await decision_service.tasks_for(db, organization_id=org.id, decision_id=decision_id)
+    return [_task_payload(t) for t in tasks]

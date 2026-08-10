@@ -744,6 +744,10 @@ export interface Task {
   sprint_id: string | null;
   parent_task_id: string | null;
   parent_title: string | null;
+  decision_id: string | null;
+  decision: TaskDecisionLineage | null;
+  goal_id: string | null;
+  goal_name: string | null;
   subtasks_count: number;
   subtasks_completed: number;
   title: string;
@@ -768,6 +772,16 @@ export interface Task {
   blocked_by: { id: string; task_id: string; title: string; status: string; kind: string }[] | null;
   created_at: string | null;
   updated_at: string | null;
+}
+
+export interface TaskDecisionLineage {
+  id: string;
+  title: string;
+  context: string | null;
+  reason: string | null;
+  status: string;
+  decided_at: string | null;
+  project_id: string | null;
 }
 
 export interface Dependency {
@@ -1408,6 +1422,16 @@ export interface DecisionParticipant {
   role: string;
 }
 
+export interface FollowUpAction {
+  text: string;
+  owner_id: string | null;
+  project_id: string | null;
+  goal_id: string | null;
+  due_date: string | null;
+  status: "pending" | "in_progress" | "completed" | "skipped" | string;
+  task_id: string | null;
+}
+
 export interface Decision extends KnowledgeBase {
   context: string | null;
   decision_maker_id: string | null;
@@ -1415,16 +1439,19 @@ export interface Decision extends KnowledgeBase {
   decision_date: string | null;
   impact: string | null;
   business_impact: string | null;
-  follow_up_actions: string[] | null;
+  follow_up_actions: FollowUpAction[] | null;
   future_review_date: string | null;
   lessons_learned: string | null;
   project_id: string | null;
   project_name: string | null;
+  goal_id: string | null;
+  goal_name: string | null;
   meeting_id: string | null;
   department_id: string | null;
   decided_at: string | null;
   options: DecisionOption[];
   participants: DecisionParticipant[];
+  tasks: Task[];
 }
 
 export interface KnowledgeSearchResult {
