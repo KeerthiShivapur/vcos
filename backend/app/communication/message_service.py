@@ -181,6 +181,8 @@ class MessageService:
         conversation = await self.get_conversation(db, organization_id=organization_id, conversation_id=conversation_id)
         if conversation is None:
             return None
+        if conversation.type == "dm":
+            raise ValueError("Direct messages are limited to two participants")
         existing = (
             await db.execute(
                 select(ConversationMember).where(
@@ -348,26 +350,48 @@ class MessageService:
             resource_type="message",
             resource_id=message.id,
         )
-        member_employees = await self.members(db, organization_id=organization_id, conversation_id=conversation_id)
-        for member in member_employees:
-            if member.employee_id == actor.id:
-                continue
-            user_id = await _user_id_for_employee(db, organization_id, member.employee_id)
-            if not user_id:
-                continue
-            await notify_user(
-                db,
-                organization_id=organization_id,
-                recipient_id=user_id,
-                type="messaging.message",
-                title=conversation.title or "New direct message",
-                body=(payload.get("content") or "")[:160],
-                actor_id=actor.id,
-                link=f"/messages/{conversation_id}",
-                entity_type="message",
-                entity_id=message.id,
-                priority="low",
-            )
+        # Scale-neutral: ordinary messages are delivered via realtime to
+        # subscribed members, not as per-member notification rows. Targeted
+        # notifications only: DM recipient, reply author, @mentions.
+        if conversation.type == "dm":
+            member_employees = await self.members(db, organization_id=organization_id, conversation_id=conversation_id)
+            for member in member_employees:
+                if member.employee_id == actor.id:
+                    continue
+                user_id = await _user_id_for_employee(db, organization_id, member.employee_id)
+                if not user_id:
+                    continue
+                await notify_user(
+                    db,
+                    organization_id=organization_id,
+                    recipient_id=user_id,
+                    type="messaging.message",
+                    title="New direct message",
+                    body=(payload.get("content") or "")[:160],
+                    actor_id=actor.id,
+                    link=f"/messages/{conversation_id}",
+                    entity_type="message",
+                    entity_id=message.id,
+                    priority="low",
+                )
+        if payload.get("reply_to"):
+            original = await self.get_message(db, organization_id=organization_id, message_id=payload["reply_to"])
+            if original is not None and original.sender_id != actor.id:
+                user_id = await _user_id_for_employee(db, organization_id, original.sender_id)
+                if user_id:
+                    await notify_user(
+                        db,
+                        organization_id=organization_id,
+                        recipient_id=user_id,
+                        type="messaging.reply",
+                        title="Replied to your message",
+                        body=(payload.get("content") or "")[:160],
+                        actor_id=actor.id,
+                        link=f"/messages/{conversation_id}",
+                        entity_type="message",
+                        entity_id=message.id,
+                        priority="normal",
+                    )
         await notify_mentions(
             db,
             organization_id=organization_id,

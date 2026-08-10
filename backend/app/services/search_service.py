@@ -1304,9 +1304,9 @@ class SearchService:
             recommendations = await recommendation_service.list(db, organization_id, status="active", limit=remaining)
             for r in recommendations:
                 _hit("recommendation", "/intelligence?tab=recommendations",
-                     r["title"], f"Recommendation · {r['priority']} priority",
+                     r["title"], f"Recommendation · {r.get('priority') or r.get('impact') or 'medium'} priority",
                      r.get("rationale") or "Executive recommendation", 0.5,
-                     {"priority": r["priority"], "status": r["status"]})
+                     {"priority": r.get("priority") or r.get("impact") or "medium", "status": r["status"]})
 
         if remaining > 0:
             simulations = await simulation_service.list(db, organization_id, limit=remaining)

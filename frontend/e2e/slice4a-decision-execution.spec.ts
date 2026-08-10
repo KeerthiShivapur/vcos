@@ -49,11 +49,13 @@ test("slice 4a: decision follow-up action converts to a task and implementing cl
   await founder.getByLabel("Email").fill(bobEmail);
   await founder.getByLabel("Full name (optional)").fill(bobName);
   await founder.getByRole("button", { name: "Send invitation" }).click();
+  // The invite UI has a built-in recovery path (4s soft cap → recheck →
+  // resend) for the occasionally dropped request; give it headroom.
   const inviteUrl = await founder
     .locator("code")
     .filter({ hasText: "http://localhost:3000/register?invite=" })
     .first()
-    .textContent({ timeout: 10_000 });
+    .textContent({ timeout: 30_000 });
   expect(inviteUrl).toContain("/register?invite=");
   await founder.getByRole("button", { name: "Done" }).click();
 

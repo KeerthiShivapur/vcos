@@ -126,7 +126,7 @@ test("people & organization journey: structure, hierarchy, notifications, permis
 
   // 9. The org chart shows Bob under Charlie.
   await founder.goto("/organization");
-  await expect(founder.getByRole("heading", { name: "Organization" })).toBeVisible();
+  await expect(founder.getByRole("heading", { name: "Organization", exact: true })).toBeVisible();
   await founder.getByRole("button", { name: "Expand all" }).click();
   await expect(founder.getByText(charlieName).first()).toBeVisible({ timeout: 15_000 });
   await expect(founder.getByText(bobName).first()).toBeVisible({ timeout: 15_000 });

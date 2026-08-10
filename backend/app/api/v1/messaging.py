@@ -190,10 +190,13 @@ async def add_conversation_member(
     if actor is None:
         raise HTTPException(400, "No employee profile linked")
     await _require_membership(db, org, conversation_id, actor.id)
-    member = await message_service.add_member(
-        db, organization_id=org.id, conversation_id=conversation_id, employee_id=payload.employee_id,
-        actor=actor, ip_address=get_client_ip(request),
-    )
+    try:
+        member = await message_service.add_member(
+            db, organization_id=org.id, conversation_id=conversation_id, employee_id=payload.employee_id,
+            actor=actor, ip_address=get_client_ip(request),
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
     if member is None:
         raise HTTPException(404, "Conversation not found")
     await db.commit()

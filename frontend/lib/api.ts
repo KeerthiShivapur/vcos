@@ -196,10 +196,12 @@ export const tokenStore = {
 // but this Windows/Chromium build occasionally drops an in-flight request at
 // initiation: it never reaches the wire and the resulting fetch promise never
 // settles (or rejects with TypeError). Without a cap, callers hang on disabled
-// buttons and "Opening your company" forever. Each attempt is hard-capped.
+// buttons and "Opening your company" forever. Each attempt is hard-capped
+// (10s: a cold API worker can take several seconds on first-time requests
+// like org registration; the 2.5s cap aborted those mid-flight).
 // Only idempotent GETs are retried: a timed-out mutation may still be applied
 // server-side, so re-sending a POST/PATCH/DELETE could duplicate state.
-const ATTEMPT_TIMEOUT_MS = 2_500;
+const ATTEMPT_TIMEOUT_MS = 10_000;
 const ATTEMPT_RETRY_DELAY_MS = 400;
 
 function isNetworkError(err: unknown): boolean {

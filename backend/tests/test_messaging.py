@@ -4,6 +4,11 @@ Covers: DM lifecycle, notification fan-out to linked users (regression for
 the recipient_id FK bug), mentions, edit/delete correctness, reaction events
 + audit, read state (receipts + last_read_at), RBAC gating on
 communication:write, and tenancy isolation.
+
+Scale-neutral notification contract: ordinary channel messages are delivered
+via realtime (event bus -> personal hub channels), not as per-member
+notification rows. Notification rows are created only for targeted signals:
+DM recipient, reply author, @mentions, membership changes.
 """
 
 import pytest
@@ -623,3 +628,88 @@ async def test_member_added_notifies_and_fans_out(client, db_session_factory):
         assert any(c["id"] == cid for c in listed.json())
     finally:
         live_hub.unregister_personal(bob["id"], bob_key)
+
+
+@pytest.mark.asyncio
+async def test_channel_ordinary_message_no_per_member_notification(client, db_session_factory):
+    """Scale-neutral: an ordinary channel message must not fan out one
+    notification row per member; realtime delivery carries it instead."""
+    org = await register_org(client, email="owner@sc4b.test.co")
+    headers = org["headers"]
+    invited = await _invite_user(client, headers, "maya2@sc4b.test.co", "Maya Two")
+    maya = await _employee_by_email(client, headers, "maya2@sc4b.test.co")
+    maya_headers = {"Authorization": f"Bearer {invited['access_token']}"}
+
+    conversation = await client.post(
+        "/api/v1/conversations",
+        json={"type": "channel", "title": "Scale Check", "member_ids": [maya["id"]]},
+        headers=headers,
+    )
+    assert conversation.status_code == 201, conversation.text
+    cid = conversation.json()["id"]
+
+    message = await _send(client, headers, cid, "Ordinary channel update, no per-member row")
+
+    maya_notifications = (
+        await client.get("/api/v1/notifications", headers=maya_headers)
+    ).json()["items"]
+    assert not any(
+        n["type"] == "messaging.message" and n["entity_id"] == message["id"]
+        for n in maya_notifications
+    )
+
+    payloads = await _event_payloads(db_session_factory, org["organization"]["id"], "messaging.message_sent")
+    assert any(p.get("message_id") == message["id"] for p in payloads)
+
+
+@pytest.mark.asyncio
+async def test_reply_notifies_original_author(client):
+    """Targeted: a reply notifies the original author only (O(1) lookup)."""
+    org = await register_org(client, email="owner@rp4b.test.co")
+    headers = org["headers"]
+    invited = await _invite_user(client, headers, "kate2@rp4b.test.co", "Kate Reply", role="admin")
+    kate = await _employee_by_email(client, headers, "kate2@rp4b.test.co")
+    kate_headers = {"Authorization": f"Bearer {invited['access_token']}"}
+
+    conversation = await _dm(client, headers, kate["id"])
+    original = await _send(client, headers, conversation["id"], "Please review the migration plan")
+
+    reply = await _send(client, kate_headers, conversation["id"], "Done, looks good", reply_to=original["id"])
+    assert reply["reply_to"] == original["id"]
+
+    owner_notifications = (await client.get("/api/v1/notifications", headers=headers)).json()["items"]
+    assert any(
+        n["type"] == "messaging.reply"
+        and n["entity_id"] == reply["id"]
+        and n["link"] == f"/messages/{conversation['id']}"
+        for n in owner_notifications
+    )
+
+    kate_notifications = (await client.get("/api/v1/notifications", headers=kate_headers)).json()["items"]
+    assert not any(n["type"] == "messaging.reply" and n["entity_id"] == reply["id"] for n in kate_notifications)
+
+
+@pytest.mark.asyncio
+async def test_dm_rejects_third_member(client):
+    """DMs are bounded to two participants: adding a third member is refused."""
+    org = await register_org(client, email="owner@dm3b4b.test.co")
+    headers = org["headers"]
+    invited = await _invite_user(client, headers, "mary@dm3b4b.test.co", "Mary Third")
+    maya = await _employee_by_email(client, headers, "mary@dm3b4b.test.co")
+
+    conversation = await _dm(client, headers, maya["id"])
+    third = await _invite_user(client, headers, "ted@dm3b4b.test.co", "Ted Third")
+    ted = await _employee_by_email(client, headers, "ted@dm3b4b.test.co")
+
+    added = await client.post(
+        f"/api/v1/conversations/{conversation['id']}/members",
+        json={"employee_id": ted["id"]},
+        headers=headers,
+    )
+    assert added.status_code == 400, added.text
+
+    members = (await client.get(
+        f"/api/v1/conversations/{conversation['id']}/members", headers=headers
+    )).json()
+    assert len(members) == 2
+    assert third["access_token"]  # invited user still exists; just not in the DM

@@ -62,8 +62,10 @@ test("project execution: epics, sprint planning, sprint lifecycle, rollups, proj
   })).json();
 
   // 3. Project page: Structure tab — epic lifecycle buttons.
+  // Page-load fetches can take ~20s worst case (a dropped request is retried
+  // once with a 10s cap per attempt), so allow 30s for the first render.
   await page.goto(`/projects/${project.id}`);
-  await expect(page.getByRole("heading", { name: "Orbit" })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("heading", { name: "Orbit" })).toBeVisible({ timeout: 30_000 });
   await page.getByRole("button", { name: /Structure/ }).click();
   await expect(page.getByText("Core platform")).toBeVisible();
   await page.getByRole("button", { name: "Start", exact: true }).first().click();
@@ -72,12 +74,18 @@ test("project execution: epics, sprint planning, sprint lifecycle, rollups, proj
   expect(epicAfterStart.status).toBe("in_progress");
 
   // 4. Sprint planning: assign both backlog tasks to the sprint via the UI, then start it.
+  // Each Add moves the task out of the backlog, so wait for the Add-button
+  // count to drop before clicking again (avoids double-clicking one task).
   const sprintCard = page.locator(".rounded-xl.border").filter({ hasText: "Sprint Alpha" }).last();
+  const addButtons = sprintCard.getByRole("button", { name: "Add", exact: true });
   await expect(sprintCard.getByText("planned")).toBeVisible();
   await sprintCard.getByRole("button", { name: "Plan tasks" }).click();
-  await sprintCard.getByRole("button", { name: "Add", exact: true }).first().click();
+  await expect(addButtons).toHaveCount(2);
+  await addButtons.first().click();
+  await expect(addButtons).toHaveCount(1);
   await expect(sprintCard.getByText("Fix payment bug")).toBeVisible({ timeout: 10_000 });
-  await sprintCard.getByRole("button", { name: "Add", exact: true }).first().click();
+  await addButtons.first().click();
+  await expect(addButtons).toHaveCount(0);
   await expect(sprintCard.getByText("Write API docs")).toBeVisible({ timeout: 10_000 });
   await sprintCard.getByRole("button", { name: "Start", exact: true }).click();
   await expect(sprintCard.getByText("active")).toBeVisible({ timeout: 10_000 });
@@ -89,7 +97,7 @@ test("project execution: epics, sprint planning, sprint lifecycle, rollups, proj
   // 5. Complete a task via API → sprint progress rolls up and the UI reflects it.
   await request.patch(`${API}/tasks/${taskA.id}`, { headers: auth, data: { status: "completed" } });
   await page.reload();
-  await expect(page.getByRole("button", { name: /Structure/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Structure/ })).toBeVisible({ timeout: 30_000 });
   await page.getByRole("button", { name: /Structure/ }).click();
   await expect(sprintCard.getByText(/1\/2 tasks done/)).toBeVisible({ timeout: 10_000 });
   const sprintAfterDone = await (await request.get(`${API}/sprints/${sprint.id}`, { headers: auth })).json();
@@ -124,7 +132,7 @@ test("project execution: epics, sprint planning, sprint lifecycle, rollups, proj
     data: { name: "Disposable", code: `dp${t.slice(0, 4)}`, status: "draft" },
   })).json();
   await page.goto(`/projects/${draft.id}`);
-  await expect(page.getByRole("heading", { name: "Disposable" })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("heading", { name: "Disposable" })).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole("button", { name: "Start", exact: true })).toBeVisible();
   page.once("dialog", (d) => d.accept());
   await page.getByRole("button", { name: "Delete", exact: true }).click();

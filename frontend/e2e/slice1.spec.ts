@@ -60,11 +60,13 @@ test("founder journey: register, invite, accept, RBAC visibility", async ({ brow
   await alice.getByRole("button", { name: "Send invitation" }).click();
 
   // Dev-mode email transport: the invite URL is shown in the result modal.
+  // The invite UI recovers from dropped requests (4s cap → recheck → resend),
+  // so give the URL some headroom.
   const inviteUrl = await alice
     .locator("code")
     .filter({ hasText: "http://localhost:3000/register?invite=" })
     .first()
-    .textContent({ timeout: 10_000 });
+    .textContent({ timeout: 30_000 });
   expect(inviteUrl).toContain("/register?invite=");
   await alice.getByRole("button", { name: "Done" }).click();
 
