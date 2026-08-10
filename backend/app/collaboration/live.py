@@ -53,6 +53,7 @@ class LiveHub:
     def __init__(self) -> None:
         self._rooms: dict[str, dict[int, LiveConnection]] = {}
         self._keys: dict[tuple[str, str], int] = {}  # (session_id, employee_id) -> conn key
+        self._personal: dict[str, dict[int, LiveConnection]] = {}  # employee_id -> conns
 
     # ------------------------------------------------------------------ registry
 
@@ -161,6 +162,55 @@ class LiveHub:
 
     def count(self, session_id: str) -> int:
         return len(self._rooms.get(session_id, {}))
+
+    # ------------------------------------------------------------- personal fan-out
+    # A per-employee channel used for messaging: each member of a conversation
+    # has a personal room they join via /ws/messaging. Purely in-memory: no
+    # database work happens on the receive path.
+
+    def register_personal(self, employee_id: str, conn: LiveConnection) -> int:
+        key = id(conn)
+        self._personal.setdefault(employee_id, {})[key] = conn
+        return key
+
+    def unregister_personal(self, employee_id: str, key: int) -> Optional[LiveConnection]:
+        room = self._personal.get(employee_id)
+        if not room:
+            return None
+        conn = room.pop(key, None)
+        if conn is None:
+            return None
+        if not room:
+            self._personal.pop(employee_id, None)
+        return conn
+
+    def personal_count(self, employee_id: str) -> int:
+        return len(self._personal.get(employee_id, {}))
+
+    async def send_personal(self, employee_id: str, event: str, data: Optional[dict[str, Any]] = None) -> bool:
+        """Deliver an event to every tab of one employee's personal channel."""
+        room = self._personal.get(employee_id)
+        if not room:
+            return False
+        envelope = _envelope(event, data)
+        wire = _dumps(envelope)
+        delivered = False
+        dead: list[int] = []
+        for key, conn in room.items():
+            try:
+                sender = getattr(conn.ws, "send_text", None)
+                if sender is not None:
+                    result = sender(wire)
+                else:
+                    result = conn.ws.send_json(json.loads(wire))
+                if hasattr(result, "__await__"):
+                    await result
+                delivered = True
+            except Exception:  # pragma: no cover - socket raced
+                dead.append(key)
+        for key in dead:
+            self.unregister_personal(employee_id, key)
+        return delivered
 
 
 def _envelope(event: str, data: Optional[dict[str, Any]]) -> dict[str, Any]:

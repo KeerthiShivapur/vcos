@@ -77,6 +77,74 @@ async def _authorize(token: Optional[str]) -> tuple[User, Employee, AsyncSession
     return user, employee, db
 
 
+@router.websocket("/ws/messaging")
+async def messaging_ws(websocket: WebSocket):
+    """Personal messaging channel (Slice 4B).
+
+    Connect with the access token as a query param:
+
+        ws://host/ws/messaging?token=<access_token>
+
+    The server registers the connection on the employee's personal hub
+    channel. The event worker pushes `messaging.*` events here as they are
+    dispatched from the event bus — no database work happens on this receive
+    path (the hub is in-memory). If the socket drops, the client's 30s
+    polling fallback keeps the UI coherent.
+
+    Client → server:  heartbeat
+    Server → client:  welcome {employee_id}
+                      messaging.message.sent {conversation_id, message}
+                      messaging.message.updated {conversation_id, message}
+                      messaging.message.deleted {conversation_id, message_id}
+                      messaging.message.reaction {conversation_id, message_id, emoji, reacted}
+                      messaging.member.added {conversation_id, employee_id}
+                      pong {at}  /  error {message}
+    """
+    token = websocket.query_params.get("token")
+    try:
+        user, employee, db = await _authorize(token)
+    except ValueError as exc:
+        await websocket.close(code=4401, reason=str(exc))
+        return
+
+    await websocket.accept()
+    conn = LiveConnection(
+        ws=websocket,
+        employee_id=employee.id,
+        name=employee.full_name or "Unknown",
+        role="member",
+    )
+    live_hub.register_personal(employee.id, conn)
+    try:
+        await websocket.send_json(
+            {
+                "type": "welcome",
+                "ts": _ts(),
+                "data": {"employee_id": employee.id},
+            }
+        )
+    except Exception:  # pragma: no cover - raced close
+        live_hub.unregister_personal(employee.id, id(conn))
+        await db.close()
+        return
+
+    try:
+        while True:
+            raw = await websocket.receive_json()
+            msg_type = raw.get("type")
+            if msg_type == "heartbeat":
+                await _send(websocket, "pong", {"at": _ts()})
+                continue
+            await _send(websocket, "error", {"message": f"Unknown message type: {msg_type}"})
+    except WebSocketDisconnect:
+        pass
+    except Exception as exc:  # pragma: no cover - socket robustness
+        logger.warning("live: messaging socket error: %s", exc)
+    finally:
+        live_hub.unregister_personal(employee.id, id(conn))
+        await db.close()
+
+
 @router.websocket("/ws/meetings/{meeting_id}")
 async def meeting_ws(websocket: WebSocket, meeting_id: str):
     token = websocket.query_params.get("token")

@@ -1,11 +1,13 @@
 "use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
-import { Pin, Search, Send, Smile } from "lucide-react";
+import { Pencil, Pin, Search, Send, Smile, Trash2 } from "lucide-react";
 
 import {
   archiveConversation,
   createConversation,
+  deleteMessage,
+  editMessage,
   getMyEmployee,
   listConversations,
   listEmployees,
@@ -18,6 +20,7 @@ import {
   sendMessage,
   toggleMessagePin,
 } from "@/lib/api";
+import { messagingChannel } from "@/lib/websocket";
 import type { ChatMessage, Conversation, EmployeeSummary } from "@/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
@@ -28,6 +31,8 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { Spinner } from "@/components/ui/Spinner";
 import { Avatar } from "@/components/ui/Avatar";
 import { timeAgo } from "@/lib/utils";
+
+const POLL_INTERVAL_MS = 30_000;
 
 export default function MessagesPage() {
   return (
@@ -49,7 +54,14 @@ function MessagesContent() {
   const [newMessage, setNewMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [tab, setTab] = useState<"conversations" | "mentions">("conversations");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
+  const lastMessageIds = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    lastMessageIds.current = new Set(messages.map((m) => m.id));
+  }, [messages]);
 
   async function loadConversations() {
     try {
@@ -90,10 +102,118 @@ function MessagesContent() {
   }, []);
 
   useEffect(() => {
+    const applyMessage = (data: Record<string, unknown>) => {
+      const message = data.message as ChatMessage | undefined;
+      const conversationId = String(data.conversation_id ?? "");
+      if (!message || message.conversation_id !== conversationId) return;
+      setMessages((rows) => (rows.some((r) => r.id === message.id) ? rows : [...rows, message]));
+      if (activeId === conversationId) {
+        markConversationRead(conversationId).catch(() => undefined);
+        markMessageRead(message.id).catch(() => undefined);
+      }
+      setConversations((rows) =>
+        rows.map((c) =>
+          c.id === conversationId
+            ? {
+                ...c,
+                message_count: c.message_count + 1,
+                last_message_at: message.created_at,
+                last_message_preview: message.content ?? "",
+                unread_count: activeId === c.id ? 0 : c.unread_count + 1,
+              }
+            : c,
+        ),
+      );
+      if (myEmployeeId && message.mentions.includes(myEmployeeId)) {
+        listMyMentions(20).then(setMentions).catch(() => undefined);
+      }
+    };
+
+    const updateMessage = (data: Record<string, unknown>) => {
+      const message = data.message as ChatMessage | undefined;
+      if (!message) return;
+      setMessages((rows) => rows.map((r) => (r.id === message.id ? message : r)));
+      setMentions((rows) => rows.map((r) => (r.id === message.id ? message : r)));
+      setConversations((rows) =>
+        rows.map((c) =>
+          c.id === message.conversation_id
+            ? { ...c, last_message_preview: message.deleted ? "(deleted)" : (message.content ?? "") }
+            : c,
+        ),
+      );
+    };
+
+    const removeMessage = (data: Record<string, unknown>) => {
+      const messageId = String(data.message_id ?? "");
+      if (!messageId) return;
+      const tombstone = { deleted: true, content: null } as Partial<ChatMessage>;
+      setMessages((rows) => rows.map((r) => (r.id === messageId ? { ...r, ...tombstone } : r)));
+      setMentions((rows) => rows.map((r) => (r.id === messageId ? { ...r, ...tombstone } : r)));
+    };
+
+    const applyReaction = (data: Record<string, unknown>) => {
+      const messageId = String(data.message_id ?? "");
+      if (!messageId) return;
+      const emoji = String(data.emoji ?? "👍");
+      const reacted = Boolean(data.reacted);
+      setMessages((rows) =>
+        rows.map((r) => {
+          if (r.id !== messageId) return r;
+          const reactions = [...r.reactions];
+          const idx = reactions.findIndex((x) => x.emoji === emoji);
+          if (reacted) {
+            if (idx >= 0) reactions[idx] = { emoji, count: reactions[idx].count + 1 };
+            else reactions.push({ emoji, count: 1 });
+          } else if (idx >= 0) {
+            if (reactions[idx].count <= 1) reactions.splice(idx, 1);
+            else reactions[idx] = { emoji, count: reactions[idx].count - 1 };
+          }
+          return { ...r, reactions, reaction_count: Math.max(0, r.reaction_count + (reacted ? 1 : -1)) };
+        }),
+      );
+    };
+
+    const memberAdded = () => {
+      loadConversations().catch(() => undefined);
+    };
+
+    const unsubscribes = [
+      messagingChannel.subscribe("messaging.message.sent", applyMessage),
+      messagingChannel.subscribe("messaging.message.updated", updateMessage),
+      messagingChannel.subscribe("messaging.message.deleted", removeMessage),
+      messagingChannel.subscribe("messaging.message.reaction", applyReaction),
+      messagingChannel.subscribe("messaging.member.added", memberAdded),
+    ];
+    return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId, myEmployeeId]);
+
+  useEffect(() => {
     if (listRef.current) {
       listRef.current.scrollTop = listRef.current.scrollHeight;
     }
   }, [messages, activeId]);
+
+  useEffect(() => {
+    const poll = setInterval(async () => {
+      try {
+        const list = await listConversations();
+        setConversations(list);
+        if (!activeId) return;
+        const rows = await listMessages(activeId);
+        const fresh = rows.filter((m) => !lastMessageIds.current.has(m.id));
+        setMessages(rows);
+        if (fresh.length > 0) {
+          markConversationRead(activeId).catch(() => undefined);
+          fresh.forEach((m) => markMessageRead(m.id).catch(() => undefined));
+        }
+      } catch {
+        /* best-effort 30s fallback */
+      }
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(poll);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId]);
 
   async function startDm(employeeId: string) {
     try {
@@ -146,6 +266,37 @@ function MessagesContent() {
       await openConversation(activeId!);
     } catch {
       /* ignore */
+    }
+  }
+
+  function startEdit(message: ChatMessage) {
+    setEditingId(message.id);
+    setEditDraft(message.content ?? "");
+  }
+
+  async function saveEdit(id: string) {
+    const content = editDraft.trim();
+    if (!content) return;
+    try {
+      const updated = await editMessage(id, content);
+      setMessages((rows) => rows.map((r) => (r.id === id ? updated : r)));
+      setMentions((rows) => rows.map((r) => (r.id === id ? updated : r)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to edit message");
+    } finally {
+      setEditingId(null);
+    }
+  }
+
+  async function remove(id: string) {
+    if (!window.confirm("Delete this message?")) return;
+    try {
+      await deleteMessage(id);
+      const tombstone = { deleted: true, content: null } as Partial<ChatMessage>;
+      setMessages((rows) => rows.map((r) => (r.id === id ? { ...r, ...tombstone } : r)));
+      setMentions((rows) => rows.map((r) => (r.id === id ? { ...r, ...tombstone } : r)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to delete message");
     }
   }
 
@@ -267,10 +418,33 @@ function MessagesContent() {
                         {message.sender_id !== myEmployeeId && (
                           <p className="text-[11px] font-semibold opacity-70">{message.sender_name}</p>
                         )}
-                        {message.deleted ? (
+                        {editingId === message.id ? (
+                          <div className="flex items-center gap-1">
+                            <Input
+                              autoFocus
+                              value={editDraft}
+                              onChange={(e) => setEditDraft(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") saveEdit(message.id);
+                                if (e.key === "Escape") setEditingId(null);
+                              }}
+                              placeholder="Edit message…"
+                            />
+                            <Button size="sm" variant="secondary" onClick={() => saveEdit(message.id)}>
+                              Save
+                            </Button>
+                          </div>
+                        ) : message.deleted ? (
                           <p className="text-[13px] italic opacity-60">Deleted message</p>
                         ) : (
-                          <p className="whitespace-pre-wrap text-[13px]">{message.content}</p>
+                          <p className="whitespace-pre-wrap text-[13px]">
+                            {message.content}
+                            {message.edited && (
+                              <span className={`ml-1 text-[11px] ${message.sender_id === myEmployeeId ? "text-white/70" : "text-faint"}`}>
+                                (edited)
+                              </span>
+                            )}
+                          </p>
                         )}
                         <div className={`mt-1 flex items-center gap-2 text-[11px] ${message.sender_id === myEmployeeId ? "text-white/70" : "text-faint"}`}>
                           <span>{timeAgo(message.created_at)}</span>
@@ -285,6 +459,16 @@ function MessagesContent() {
                           <button onClick={() => pin(message)} title="Pin" className="hover:opacity-70">
                             <Pin className="h-3 w-3" />
                           </button>
+                          {!message.deleted && message.sender_id === myEmployeeId && (
+                            <>
+                              <button onClick={() => startEdit(message)} title="Edit" className="hover:opacity-70">
+                                <Pencil className="h-3 w-3" />
+                              </button>
+                              <button onClick={() => remove(message.id)} title="Delete" className="hover:opacity-70">
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            </>
+                          )}
                         </div>
                         {message.reactions.length > 0 && (
                           <div className="mt-1 flex gap-1">

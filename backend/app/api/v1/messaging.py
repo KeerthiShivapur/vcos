@@ -69,7 +69,7 @@ async def create_conversation(
     payload: ConversationCreate,
     request: Request,
     org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("communication:read")),
+    user: User = Depends(require_permission("communication:write")),
     db: AsyncSession = Depends(get_db),
 ):
     actor = await _actor(db, org, user)
@@ -86,8 +86,9 @@ async def create_conversation(
 @router.post("/dms/{employee_id}", response_model=dict)
 async def open_dm(
     employee_id: str,
+    request: Request,
     org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("communication:read")),
+    user: User = Depends(require_permission("communication:write")),
     db: AsyncSession = Depends(get_db),
 ):
     actor = await _actor(db, org, user)
@@ -96,7 +97,8 @@ async def open_dm(
     if employee_id == actor.id:
         raise HTTPException(400, "Cannot DM yourself")
     conversation = await message_service.find_or_create_dm(
-        db, organization_id=org.id, other_employee_id=employee_id, actor=actor
+        db, organization_id=org.id, other_employee_id=employee_id, actor=actor,
+        ip_address=get_client_ip(request),
     )
     await db.commit()
     return await _present_conversation(db, org, actor.id, conversation)
@@ -122,7 +124,7 @@ async def update_conversation(
     payload: ConversationCreate,
     request: Request,
     org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("communication:read")),
+    user: User = Depends(require_permission("communication:write")),
     db: AsyncSession = Depends(get_db),
 ):
     actor = await _actor(db, org, user)
@@ -142,7 +144,7 @@ async def archive_conversation(
     conversation_id: str,
     request: Request,
     org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("communication:read")),
+    user: User = Depends(require_permission("communication:write")),
     db: AsyncSession = Depends(get_db),
 ):
     actor = await _actor(db, org, user)
@@ -181,7 +183,7 @@ async def add_conversation_member(
     payload: ConversationMemberPayload,
     request: Request,
     org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("communication:read")),
+    user: User = Depends(require_permission("communication:write")),
     db: AsyncSession = Depends(get_db),
 ):
     actor = await _actor(db, org, user)
@@ -204,7 +206,7 @@ async def remove_conversation_member(
     employee_id: str,
     request: Request,
     org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("communication:read")),
+    user: User = Depends(require_permission("communication:write")),
     db: AsyncSession = Depends(get_db),
 ):
     actor = await _actor(db, org, user)
@@ -273,7 +275,7 @@ async def send_message(
     payload: MessageCreate,
     request: Request,
     org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("communication:read")),
+    user: User = Depends(require_permission("communication:write")),
     db: AsyncSession = Depends(get_db),
 ):
     actor = await _actor(db, org, user)
@@ -345,7 +347,7 @@ async def update_message(
     payload: MessageUpdate,
     request: Request,
     org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("communication:read")),
+    user: User = Depends(require_permission("communication:write")),
     db: AsyncSession = Depends(get_db),
 ):
     actor = await _actor(db, org, user)
@@ -370,7 +372,7 @@ async def delete_message(
     message_id: str,
     request: Request,
     org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("communication:read")),
+    user: User = Depends(require_permission("communication:write")),
     db: AsyncSession = Depends(get_db),
 ):
     actor = await _actor(db, org, user)
@@ -393,8 +395,9 @@ async def delete_message(
 async def toggle_message_reaction(
     message_id: str,
     payload: ReactionPayload,
+    request: Request,
     org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("communication:read")),
+    user: User = Depends(require_permission("communication:write")),
     db: AsyncSession = Depends(get_db),
 ):
     actor = await _actor(db, org, user)
@@ -405,7 +408,8 @@ async def toggle_message_reaction(
         raise HTTPException(404, "Message not found")
     await _require_membership(db, org, message.conversation_id, actor.id)
     result = await message_service.toggle_reaction(
-        db, organization_id=org.id, message_id=message_id, emoji=payload.emoji, actor=actor
+        db, organization_id=org.id, message_id=message_id, emoji=payload.emoji, actor=actor,
+        ip_address=get_client_ip(request),
     )
     await db.commit()
     return result
@@ -450,8 +454,9 @@ async def mark_message_read(
 @router.post("/messages/{message_id}/pin", response_model=dict)
 async def pin_message(
     message_id: str,
+    request: Request,
     org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("communication:read")),
+    user: User = Depends(require_permission("communication:write")),
     db: AsyncSession = Depends(get_db),
 ):
     actor = await _actor(db, org, user)

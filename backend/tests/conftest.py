@@ -133,6 +133,7 @@ async def app_factory(engine):
         meetings,
         memory,
         mentorship,
+        messaging,
         notifications,
         offboarding,
         onboarding,
@@ -199,6 +200,7 @@ async def app_factory(engine):
     test_app.include_router(users.router, prefix=prefix)
     test_app.include_router(roles.router, prefix=prefix)
     test_app.include_router(notifications.router, prefix=prefix)
+    test_app.include_router(messaging.router, prefix=prefix)
     test_app.include_router(workspace.router, prefix=prefix)
     test_app.include_router(audit.router, prefix=prefix)
     test_app.include_router(events.router, prefix=prefix)

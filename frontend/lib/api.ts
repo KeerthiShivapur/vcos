@@ -196,9 +196,9 @@ export const tokenStore = {
 // but this Windows/Chromium build occasionally drops an in-flight request at
 // initiation: it never reaches the wire and the resulting fetch promise never
 // settles (or rejects with TypeError). Without a cap, callers hang on disabled
-// buttons and "Opening your company" forever. Each attempt is hard-capped, and
-// a network-level failure is retried once — dropped requests never reach the
-// server (verified via DB), so a retry cannot duplicate state.
+// buttons and "Opening your company" forever. Each attempt is hard-capped.
+// Only idempotent GETs are retried: a timed-out mutation may still be applied
+// server-side, so re-sending a POST/PATCH/DELETE could duplicate state.
 const ATTEMPT_TIMEOUT_MS = 2_500;
 const ATTEMPT_RETRY_DELAY_MS = 400;
 
@@ -272,7 +272,9 @@ export async function api<T>(
   path: string,
   options: RequestOptions = {}
 ): Promise<T> {
-  const { method = "GET", body, query, auth = true, retry = true } = options;
+  const { method = "GET", body, query, auth = true, retry } = options;
+  const canRefreshReissue = retry ?? true;
+  const allowRetry = retry ?? method === "GET";
   const url = new URL(`${API_URL}${path}`);
   if (query) {
     for (const [key, value] of Object.entries(query)) {
@@ -293,10 +295,10 @@ export async function api<T>(
       headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
     },
-    retry
+    allowRetry
   );
 
-  if (response.status === 401 && auth && retry) {
+  if (response.status === 401 && auth && canRefreshReissue) {
     try {
       const pair = await refreshTokens();
       accessToken = pair.access_token;

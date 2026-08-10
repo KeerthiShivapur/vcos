@@ -205,12 +205,98 @@ class SearchService:
             await self._search_memory(db, organization_id=organization_id, pattern=pattern, limit=limit)
         )
 
+        results.extend(
+            await self._search_messaging(db, organization_id=organization_id, user_id=user_id, pattern=pattern, limit=limit)
+        )
+
         return {
             "query": query,
             "results": results,
             "total": len(results),
             "took_ms": int((time.perf_counter() - started) * 1000),
         }
+
+    async def _search_messaging(
+        self, db: AsyncSession, *, organization_id: str, user_id: str, pattern: str, limit: int
+    ) -> list[dict[str, Any]]:
+        """Slice 4B — index conversations and messages the viewer belongs to
+        (membership-scoped: results are limited to the viewer's conversations)."""
+        from app.models.communication import Conversation, ConversationMember, Message
+        from app.models.employee import Employee
+
+        out: list[dict[str, Any]] = []
+
+        employee = (
+            await db.execute(
+                select(Employee).where(
+                    Employee.organization_id == organization_id,
+                    Employee.user_id == user_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if employee is None:
+            return out
+        member_conversation_ids = select(ConversationMember.conversation_id).where(
+            ConversationMember.organization_id == organization_id,
+            ConversationMember.employee_id == employee.id,
+        )
+
+        remaining = limit
+        conversations = await db.execute(
+            select(Conversation)
+            .where(
+                Conversation.organization_id == organization_id,
+                Conversation.is_archived.is_(False),
+                Conversation.id.in_(member_conversation_ids),
+                or_(
+                    func_lower(Conversation.title).like(pattern),
+                    func_lower(Conversation.channel_key).like(pattern),
+                ),
+            )
+            .limit(remaining)
+        )
+        for c in conversations.scalars().all():
+            out.append(
+                {
+                    "type": "conversation",
+                    "id": c.id,
+                    "title": c.title or ("Direct message" if c.type == "dm" else "Conversation"),
+                    "subtitle": f"Conversation · {c.type}",
+                    "url": f"/messages/{c.id}",
+                    "snippet": c.channel_key or c.type,
+                    "score": 0.8,
+                    "metadata": {"type": c.type},
+                }
+            )
+        remaining = limit - len(out)
+
+        if remaining > 0:
+            messages = await db.execute(
+                select(Message)
+                .where(
+                    Message.organization_id == organization_id,
+                    Message.deleted.is_(False),
+                    Message.content.isnot(None),
+                    Message.conversation_id.in_(member_conversation_ids),
+                    func_lower(Message.content).like(pattern),
+                )
+                .order_by(Message.created_at.desc())
+                .limit(remaining)
+            )
+            for m in messages.scalars().all():
+                out.append(
+                    {
+                        "type": "message",
+                        "id": m.id,
+                        "title": (m.content or "")[:80],
+                        "subtitle": "Message",
+                        "url": f"/messages/{m.conversation_id}",
+                        "snippet": (m.content or "")[:120],
+                        "score": 0.7,
+                        "metadata": {"conversation_id": m.conversation_id},
+                    }
+                )
+        return out
 
     async def _search_people(
         self, db: AsyncSession, *, organization_id: str, pattern: str, limit: int

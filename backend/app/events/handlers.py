@@ -1545,3 +1545,176 @@ async def handle_payment_completed(db, event, payload):
             "vendor", payload["vendor_id"],
             evidence=f"Paid {payload.get('amount') or 0:,.2f}",
         )
+
+
+# ---------------------------------------------------------------------------
+# Slice 4B — Messaging operating loop
+# ---------------------------------------------------------------------------
+# These handlers drive the realtime leg of the messaging loop: they fan out
+# live updates to the in-memory LiveHub personal channels and (for membership)
+# notify the affected employee. Handlers never commit — the EventBus owns the
+# transaction. The hub push performs no database work; if nobody is connected
+# it is a no-op (clients keep the 30s polling fallback).
+
+
+async def _conversation_member_ids(db: AsyncSession, org_id: str, conversation_id: str) -> list[str]:
+    from app.models.communication import ConversationMember
+
+    return list(
+        (
+            await db.execute(
+                select(ConversationMember.employee_id).where(
+                    ConversationMember.organization_id == org_id,
+                    ConversationMember.conversation_id == conversation_id,
+                )
+            )
+        ).scalars().all()
+    )
+
+
+async def _push_messaging(employee_ids: list[str], event_type: str, data: Optional[dict[str, Any]]) -> None:
+    from app.collaboration.live import live_hub
+
+    for employee_id in employee_ids:
+        if not employee_id:
+            continue
+        try:
+            await live_hub.send_personal(employee_id, event_type, data)
+        except Exception:  # pragma: no cover - hub is defensive
+            logger.warning("messaging push failed for %s", employee_id, exc_info=True)
+
+
+async def _messaging_sender_name(db: AsyncSession, org_id: str, sender_id: Optional[str]) -> Optional[str]:
+    if not sender_id:
+        return None
+    sender = await db.get(Employee, sender_id)
+    if sender is None or sender.organization_id != org_id:
+        return None
+    return sender.display_name or " ".join(p for p in (sender.first_name, sender.last_name) if p) or sender_id
+
+
+@on("messaging.message_sent")
+async def handle_messaging_message_sent(db, event, payload):
+    """Realtime: deliver the new message to every conversation member (except the sender)."""
+    org_id = payload.get("organization_id") or event.organization_id
+    message_id = payload.get("message_id")
+    conversation_id = payload.get("conversation_id")
+    if not message_id or not conversation_id:
+        return
+    from app.communication.message_service import message_service
+    from app.communication.presenters import present_message
+
+    message = await message_service.get_message(db, organization_id=org_id, message_id=message_id)
+    if message is None or message.deleted:
+        return
+    presented = await present_message(
+        message,
+        sender_name=await _messaging_sender_name(db, org_id, message.sender_id),
+    )
+    members = await _conversation_member_ids(db, org_id, conversation_id)
+    await _push_messaging(
+        [m for m in members if m != message.sender_id],
+        "messaging.message.sent",
+        {"conversation_id": conversation_id, "message": presented},
+    )
+
+
+@on("messaging.message_updated")
+async def handle_messaging_message_updated(db, event, payload):
+    """Realtime: propagate an edit to the conversation so clients can patch in place."""
+    org_id = payload.get("organization_id") or event.organization_id
+    message_id = payload.get("message_id")
+    if not message_id:
+        return
+    from app.communication.message_service import message_service
+    from app.communication.presenters import present_message
+
+    message = await message_service.get_message(db, organization_id=org_id, message_id=message_id)
+    if message is None or message.deleted:
+        return
+    presented = await present_message(
+        message,
+        sender_name=await _messaging_sender_name(db, org_id, message.sender_id),
+    )
+    members = await _conversation_member_ids(db, org_id, message.conversation_id)
+    await _push_messaging(
+        members,
+        "messaging.message.updated",
+        {"conversation_id": message.conversation_id, "message": presented},
+    )
+
+
+@on("messaging.message_deleted")
+async def handle_messaging_message_deleted(db, event, payload):
+    """Realtime: tell clients to drop/replace the deleted message."""
+    org_id = payload.get("organization_id") or event.organization_id
+    message_id = payload.get("message_id")
+    if not message_id:
+        return
+    from app.communication.message_service import message_service
+
+    message = await message_service.get_message(db, organization_id=org_id, message_id=message_id)
+    if message is None:
+        return
+    members = await _conversation_member_ids(db, org_id, message.conversation_id)
+    await _push_messaging(
+        members,
+        "messaging.message.deleted",
+        {"conversation_id": message.conversation_id, "message_id": message_id},
+    )
+
+
+@on("messaging.message_reaction_added")
+@on("messaging.message_reaction_removed")
+async def handle_messaging_message_reaction(db, event, payload):
+    """Realtime: keep reaction state in sync without a refetch."""
+    org_id = payload.get("organization_id") or event.organization_id
+    message_id = payload.get("message_id")
+    if not message_id:
+        return
+    from app.communication.message_service import message_service
+
+    message = await message_service.get_message(db, organization_id=org_id, message_id=message_id)
+    if message is None:
+        return
+    reacted = event.name.endswith("_added")
+    members = await _conversation_member_ids(db, org_id, message.conversation_id)
+    await _push_messaging(
+        members,
+        "messaging.message.reaction",
+        {
+            "conversation_id": message.conversation_id,
+            "message_id": message_id,
+            "emoji": payload.get("emoji"),
+            "reacted": reacted,
+        },
+    )
+
+
+@on("messaging.member_added")
+async def handle_messaging_member_added(db, event, payload):
+    """Membership: notify the added member and surface the conversation to everyone live."""
+    org_id = payload.get("organization_id") or event.organization_id
+    conversation_id = payload.get("conversation_id")
+    employee_id = payload.get("employee_id")
+    if not conversation_id or not employee_id:
+        return
+    from app.models.communication import Conversation
+
+    conversation = await db.get(Conversation, conversation_id)
+    if conversation is None or conversation.organization_id != org_id:
+        return
+    member = await db.get(Employee, employee_id)
+    if member is not None and member.organization_id == org_id:
+        await _notify_user(
+            db, org_id, _recipient_user_id(member), "messaging",
+            f"Added to conversation: {conversation.title or 'New conversation'}",
+            "You were added to a conversation and can now send messages.",
+            entity_type="conversation", entity_id=conversation_id,
+        )
+    members = await _conversation_member_ids(db, org_id, conversation_id)
+    await _push_messaging(
+        members,
+        "messaging.member.added",
+        {"conversation_id": conversation_id, "employee_id": employee_id},
+    )

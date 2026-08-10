@@ -1,11 +1,18 @@
 """Messaging service — channels, conversations, DMs, reactions, receipts (Phase 5.17)."""
 
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from sqlalchemy import and_, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.communication.events import emit_and_audit, notify_mentions, notify_user
+from app.communication.events import (
+    _user_id_for_employee,
+    emit_and_audit,
+    notify_mentions,
+    notify_user,
+)
 from app.models.communication import (
     Conversation,
     ConversationMember,
@@ -74,6 +81,8 @@ class MessageService:
             )
         )
         for employee_id in payload.get("member_ids") or []:
+            if employee_id == actor.id:
+                continue
             db.add(
                 ConversationMember(
                     organization_id=organization_id,
@@ -246,7 +255,7 @@ class MessageService:
         )
 
     async def find_or_create_dm(
-        self, db: AsyncSession, *, organization_id: str, other_employee_id: str, actor: Employee
+        self, db: AsyncSession, *, organization_id: str, other_employee_id: str, actor: Employee, ip_address: Optional[str] = None
     ) -> Conversation:
         my_rows = (
             await db.execute(
@@ -294,6 +303,17 @@ class MessageService:
                 role="member",
             )
         )
+        await emit_and_audit(
+            db,
+            organization_id=organization_id,
+            name="messaging.conversation_created",
+            actor=actor,
+            actor_user_id=None,
+            ip_address=ip_address,
+            payload={"conversation_id": conversation.id, "type": conversation.type},
+            resource_type="conversation",
+            resource_id=conversation.id,
+        )
         return conversation
 
     # ------------------------------------------------------------- messages
@@ -330,20 +350,24 @@ class MessageService:
         )
         member_employees = await self.members(db, organization_id=organization_id, conversation_id=conversation_id)
         for member in member_employees:
-            if member.employee_id != actor.id:
-                await notify_user(
-                    db,
-                    organization_id=organization_id,
-                    recipient_id=member.employee_id,
-                    type="messaging.message",
-                    title=conversation.title or "New direct message",
-                    body=(payload.get("content") or "")[:160],
-                    actor_id=actor.id,
-                    link=f"/messages/{conversation_id}",
-                    entity_type="message",
-                    entity_id=message.id,
-                    priority="low",
-                )
+            if member.employee_id == actor.id:
+                continue
+            user_id = await _user_id_for_employee(db, organization_id, member.employee_id)
+            if not user_id:
+                continue
+            await notify_user(
+                db,
+                organization_id=organization_id,
+                recipient_id=user_id,
+                type="messaging.message",
+                title=conversation.title or "New direct message",
+                body=(payload.get("content") or "")[:160],
+                actor_id=actor.id,
+                link=f"/messages/{conversation_id}",
+                entity_type="message",
+                entity_id=message.id,
+                priority="low",
+            )
         await notify_mentions(
             db,
             organization_id=organization_id,
@@ -397,6 +421,7 @@ class MessageService:
             return None
         message.content = content
         message.edited = True
+        message.edited_at = datetime.now(timezone.utc)
         await emit_and_audit(
             db,
             organization_id=organization_id,
@@ -433,7 +458,8 @@ class MessageService:
         return True
 
     async def toggle_reaction(
-        self, db: AsyncSession, *, organization_id: str, message_id: str, emoji: str, actor: Employee
+        self, db: AsyncSession, *, organization_id: str, message_id: str, emoji: str, actor: Employee,
+        ip_address: Optional[str] = None,
     ) -> dict[str, Any]:
         message = await self.get_message(db, organization_id=organization_id, message_id=message_id)
         if message is None:
@@ -470,6 +496,19 @@ class MessageService:
             )
         ).scalar_one()
         message.reaction_count = count
+        await emit_and_audit(
+            db,
+            organization_id=organization_id,
+            name=(
+                "messaging.message_reaction_added" if reacted else "messaging.message_reaction_removed"
+            ),
+            actor=actor,
+            actor_user_id=None,
+            ip_address=ip_address,
+            payload={"message_id": message_id, "emoji": emoji},
+            resource_type="message",
+            resource_id=message_id,
+        )
         return {"reacted": reacted, "reaction_count": count}
 
     async def reactions(
@@ -504,13 +543,18 @@ class MessageService:
             )
         ).scalar_one_or_none()
         if row is None:
-            db.add(
-                MessageReadReceipt(
+            stmt = (
+                pg_insert(MessageReadReceipt)
+                .values(
                     organization_id=organization_id,
                     message_id=message_id,
                     reader_id=employee_id,
                 )
+                .on_conflict_do_nothing(
+                    constraint="uq_message_read_receipts_reader",
+                )
             )
+            await db.execute(stmt)
         return True
 
     async def unread_counts(
@@ -550,25 +594,29 @@ class MessageService:
                 )
             )
         ).scalars().all()
-        existing_ids = set(
-            (
-                await db.execute(
-                    select(MessageReadReceipt.message_id).where(
-                        MessageReadReceipt.organization_id == organization_id,
-                        MessageReadReceipt.reader_id == employee_id,
-                    )
+        if messages:
+            stmt = pg_insert(MessageReadReceipt).on_conflict_do_nothing(
+                constraint="uq_message_read_receipts_reader",
+            )
+            await db.execute(stmt, [
+                {
+                    "organization_id": organization_id,
+                    "message_id": message.id,
+                    "reader_id": employee_id,
+                }
+                for message in messages
+            ])
+        membership = (
+            await db.execute(
+                select(ConversationMember).where(
+                    ConversationMember.organization_id == organization_id,
+                    ConversationMember.conversation_id == conversation_id,
+                    ConversationMember.employee_id == employee_id,
                 )
-            ).scalars().all()
-        )
-        for message in messages:
-            if message.id not in existing_ids:
-                db.add(
-                    MessageReadReceipt(
-                        organization_id=organization_id,
-                        message_id=message.id,
-                        reader_id=employee_id,
-                    )
-                )
+            )
+        ).scalar_one_or_none()
+        if membership is not None:
+            membership.last_read_at = func.now()
 
     async def pin_message(
         self, db: AsyncSession, *, organization_id: str, conversation_id: str, message_id: str, actor: Employee

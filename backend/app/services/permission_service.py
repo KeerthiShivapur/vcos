@@ -75,6 +75,7 @@ PERMISSIONS: list[tuple[str, str, str, Optional[str]]] = [
     ("knowledge:approve", "Approve Knowledge", "knowledge", "Approve or reject knowledge workflows (policies, documents)"),
     # Phase 5 — Communication & Community
     ("communication:read", "Use Communication", "communication", "View and participate in communities, posts, forums, polls, events, recognition, innovation and messaging"),
+    ("communication:write", "Send Messages", "communication", "Send, edit, delete and react to conversation messages"),
     ("communication:manage", "Manage Communication", "communication", "Create and moderate communities, announcements, events and idea reviews"),
     # Phase 8 — Executive Intelligence
     ("executive:view", "View Executive Intelligence", "executive", "View the executive dashboard, digital twin, health, risks, predictions and reports"),
@@ -171,7 +172,7 @@ _KNOWLEDGE_READ = ["knowledge:read"]
 _KNOWLEDGE_WRITE = ["knowledge:read", "knowledge:manage"]
 
 # Phase 5 — Communication & Community
-_COMMUNICATION_ALL = ["communication:read", "communication:manage"]
+_COMMUNICATION_ALL = ["communication:read", "communication:write", "communication:manage"]
 _COMMUNICATION_READ = ["communication:read"]
 
 # Phase 10 — Learning & Growth Operating System

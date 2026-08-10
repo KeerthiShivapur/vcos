@@ -516,6 +516,7 @@ class Message(Timestamped):
     content: Mapped[Optional[str]] = mapped_column(Text)
     reply_to: Mapped[Optional[str]] = mapped_column(String(32))
     edited: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    edited_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     attachments: Mapped[Optional[list]] = mapped_column(JSON)

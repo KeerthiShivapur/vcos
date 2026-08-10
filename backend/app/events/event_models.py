@@ -294,6 +294,17 @@ EVENT_CATALOG: dict[str, str] = {
     "timeline.recorded": "An organization timeline entry was recorded",
     "context.updated": "Universal context was built or refreshed",
     "company.history": "The company history digest was generated",
+    # --- Slice 4B — Messaging operating loop
+    "messaging.conversation_created": "A conversation was created",
+    "messaging.conversation_updated": "A conversation was updated",
+    "messaging.conversation_archived": "A conversation was archived",
+    "messaging.member_added": "A member was added to a conversation",
+    "messaging.member_removed": "A member was removed from a conversation",
+    "messaging.message_sent": "A message was sent",
+    "messaging.message_updated": "A message was edited",
+    "messaging.message_deleted": "A message was deleted",
+    "messaging.message_reaction_added": "A reaction was added to a message",
+    "messaging.message_reaction_removed": "A reaction was removed from a message",
 }
 # Events that feed the expertise engine (entity employee).
 EXPERTISE_EVENTS: dict[str, tuple[float, str]] = {

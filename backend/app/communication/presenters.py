@@ -370,6 +370,7 @@ async def present_message(
         "content": message.content,
         "reply_to": message.reply_to,
         "edited": message.edited,
+        "edited_at": message.edited_at,
         "deleted": message.deleted,
         "deleted_at": message.deleted_at,
         "attachments": message.attachments or [],

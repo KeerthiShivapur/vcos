@@ -95,6 +95,8 @@ _POSTGRES_ALTERS: list[str] = [
     "CREATE INDEX IF NOT EXISTS ix_tasks_goal_id ON tasks (goal_id)",
     "ALTER TABLE decisions ADD COLUMN IF NOT EXISTS goal_id VARCHAR(32)",
     "CREATE INDEX IF NOT EXISTS ix_decisions_goal_id ON decisions (goal_id)",
+    # Slice 4B: messaging loop — edited timestamp on messages.
+    "ALTER TABLE messages ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ",
 ]
 
 

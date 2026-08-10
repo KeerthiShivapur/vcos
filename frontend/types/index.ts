@@ -1425,6 +1425,7 @@ export interface DecisionParticipant {
 export interface FollowUpAction {
   text: string;
   owner_id: string | null;
+  owner_name: string | null;
   project_id: string | null;
   goal_id: string | null;
   due_date: string | null;
