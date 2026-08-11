@@ -43,5 +43,5 @@ All runs executed against the live backend (uvicorn, `http://localhost:8999`) an
 
 ## Repository state
 
-- Commit: <pending commit hash>
-- Tag: `vcos-slice-4c-complete` (pending)
+- Commit: `fe1579a` (Slice 4c: governance kernel)
+- Tag: `vcos-slice-4c-complete`
