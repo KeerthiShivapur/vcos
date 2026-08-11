@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_client_ip, get_current_organization, require_permission
+from app.api.deps import get_client_ip, get_current_organization, get_current_user, require_permission
 from app.db.database import get_db
 from app.models.organization import Organization
 from app.models.user import User
@@ -82,12 +82,38 @@ async def decide_approval(
     payload: ApprovalDecide,
     request: Request,
     org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("approvals:manage")),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Decide an approval.
+
+    Slice 4C: an approval created under an active approval policy may be
+    decided by any user holding the policy's required permission at the
+    policy's scope (roles, delegations and org-wide authority all count).
+    Approvals without a policy keep the historical rule (approvals:manage).
+    """
     approval = await approval_service.get(db, organization_id=org.id, approval_id=approval_id)
     if approval is None:
         raise HTTPException(404, "Approval not found")
+    from app.models.governance import ApprovalPolicy
+    from app.services.governance_service import governance_service
+
+    policy = None
+    if approval.policy_id:
+        policy = await db.get(ApprovalPolicy, approval.policy_id)
+    authorized = False
+    if policy is not None and policy.is_active:
+        codes = await governance_service.effective_permission_codes(
+            db, organization_id=org.id, user_id=user.id, scope_id=policy.scope_id
+        )
+        authorized = policy.required_permission in codes
+    else:
+        codes = await governance_service.effective_permission_codes(
+            db, organization_id=org.id, user_id=user.id
+        )
+        authorized = "approvals:manage" in codes
+    if not authorized:
+        raise HTTPException(403, "Missing permission to decide this approval")
     from app.people.employee_service import employee_service
 
     actor = await employee_service.get_by_user(db, organization_id=org.id, user_id=user.id)

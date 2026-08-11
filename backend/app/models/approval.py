@@ -39,6 +39,7 @@ class Approval(Base, TimestampMixin):
     decision_note: Mapped[Optional[str]] = mapped_column(Text)
     entity_type: Mapped[Optional[str]] = mapped_column(String(60))
     entity_id: Mapped[Optional[str]] = mapped_column(String(32))
+    policy_id: Mapped[Optional[str]] = mapped_column(String(32))
     created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 

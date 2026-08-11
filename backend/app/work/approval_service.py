@@ -41,6 +41,7 @@ class ApprovalService:
             due_at=data.get("due_at"),
             entity_type=data.get("entity_type"),
             entity_id=data.get("entity_id"),
+            policy_id=data.get("policy_id"),
         )
         db.add(approval)
         await db.flush()
@@ -132,6 +133,7 @@ class ApprovalService:
             raise ValueError("Approval has already been decided")
         if decision not in ("approved", "rejected"):
             raise ValueError("Invalid decision")
+        await self._enforce_policy(db, organization_id, approval, actor)
         approval.status = decision
         approval.decision_note = note
         approval.decided_at = utcnow()
@@ -144,9 +146,42 @@ class ApprovalService:
             db, organization_id=organization_id, action=f"approval.{decision}",
             actor=actor, ip_address=ip_address,
             resource_type="approval", resource_id=approval.id,
-            details={"title": approval.title, "note": note},
+            details={"title": approval.title, "note": note, "policy_id": approval.policy_id},
         )
         return approval
+
+    async def _enforce_policy(
+        self, db: AsyncSession, organization_id: str, approval: Approval,
+        actor: Optional[Employee],
+    ) -> None:
+        """Slice 4C governance: approval policies gate who may decide what.
+
+        Without a policy the historical rule applies (approvals:manage holder
+        may decide). With an active policy the decider must hold the policy's
+        required permission at the policy's scope, and self-approval is denied
+        unless the policy explicitly allows it.
+        """
+        if not approval.policy_id:
+            return
+        from app.models.governance import ApprovalPolicy
+        from app.services.governance_service import governance_service
+
+        policy = await db.get(ApprovalPolicy, approval.policy_id)
+        if policy is None or not policy.is_active:
+            return
+        if actor is None:
+            raise ValueError("You are not authorized to decide this approval")
+        if not policy.self_approval_allowed and approval.requester_id and actor.id == approval.requester_id:
+            raise ValueError("Self-approval is not allowed for this policy")
+        allowed = await governance_service.has_permission(
+            db,
+            organization_id=organization_id,
+            user_id=actor.user_id,
+            permission_code=policy.required_permission,
+            scope_id=policy.scope_id,
+        )
+        if not allowed:
+            raise ValueError("You are not authorized to decide this approval")
 
     async def cancel(
         self, db: AsyncSession, *, organization_id: str, approval: Approval,

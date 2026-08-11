@@ -92,6 +92,7 @@ export function Sidebar({ unread }: { unread: number }) {
     { href: "/settings?tab=roles", label: "Roles & Permissions", icon: ShieldCheck, permission: PERMISSIONS.ROLES_READ },
     { href: "/settings?tab=audit", label: "Audit Log", icon: ScanSearch, permission: PERMISSIONS.AUDIT_READ },
     { href: "/settings?tab=sessions", label: "Sessions", icon: Settings },
+    { href: "/governance", label: "Governance", icon: ShieldCheck, permission: PERMISSIONS.GOVERNANCE_READ },
   ];
 
   const people: NavItem[] = [

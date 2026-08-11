@@ -179,6 +179,7 @@ class EmployeeSummary(ORMModel):
     is_online: bool = False
     top_skills: List[str] = []
     is_favorite: bool = False
+    user_id: Optional[str] = None
 
 
 class EmployeeOut(EmployeeSummary):

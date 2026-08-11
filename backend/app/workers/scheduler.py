@@ -115,6 +115,8 @@ WORKER_REGISTRY: list[tuple[str, int]] = [
     ("simulation", 86400),      # periodic quarterly outlook simulations
     ("innovation", 43200),      # continuous idea and opportunity scanning
     ("resilience", 21600),      # disruption signal scan + response plan refresh
+    # Slice 4C — Governance, RBAC & Enterprise Control Foundation
+    ("delegation", 300),        # expire overdue delegations (lazy deny already enforced)
     ("governance", 21600),      # escalate AI recommendations awaiting human review
 ]
 

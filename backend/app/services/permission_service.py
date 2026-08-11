@@ -146,6 +146,9 @@ PERMISSIONS: list[tuple[str, str, str, Optional[str]]] = [
     # Phase 20 — Universal Organizational Intelligence Network (Company Brain)
     ("brain:read", "Use Company Brain", "brain", "View the unified company overview, ask the universal AI, use universal search, graph, health, memory, timeline, context and events"),
     ("brain:manage", "Manage Company Brain", "brain", "Trigger evolution cycles, rebuild the universal graph, generate executive intelligence and briefings, refresh company health"),
+    # Slice 4C — Governance, RBAC & Enterprise Control Foundation
+    ("governance:read", "View Governance", "governance", "View scopes, scoped assignments, delegations, approval policies and effective permissions"),
+    ("governance:manage", "Manage Governance", "governance", "Create scopes, assign scoped roles, delegate and revoke authority, manage approval policies"),
 ]
 
 # Default roles created for every new organization.
@@ -244,6 +247,10 @@ _INNOVATION_READ = ["innovation:read"]
 _BRAIN_ALL = ["brain:read", "brain:manage"]
 _BRAIN_READ = ["brain:read"]
 
+# Slice 4C — Governance, RBAC & Enterprise Control Foundation
+_GOVERNANCE_ALL = ["governance:read", "governance:manage"]
+_GOVERNANCE_READ = ["governance:read"]
+
 DEFAULT_ROLE_PERMISSIONS: dict[str, list[str]] = {
     "ceo": [
         "organization:read", "organization:update", "organization:settings", "organization:delete",
@@ -277,6 +284,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, list[str]] = {
         *_PREDICTIONS_ALL,
         *_INNOVATION_ALL,
         *_BRAIN_ALL,
+        *_GOVERNANCE_ALL,
     ],
     "admin": [
         "organization:read", "organization:update", "organization:settings",
@@ -309,6 +317,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, list[str]] = {
         *_PREDICTIONS_ALL,
         *_INNOVATION_ALL,
         *_BRAIN_ALL,
+        *_GOVERNANCE_ALL,
     ],
     "hr": [
         "organization:read", "dashboard:read", "users:read", "users:invite", "users:manage",
@@ -336,6 +345,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, list[str]] = {
         *_PREDICTIONS_READ,
         *_INNOVATION_READ,
         *_BRAIN_READ,
+        *_GOVERNANCE_READ,
     ],
     "manager": [
         "organization:read", "dashboard:read", "users:read", "users:profile",
@@ -367,6 +377,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, list[str]] = {
         *_PREDICTIONS_READ,
         *_INNOVATION_READ,
         *_BRAIN_READ,
+        *_GOVERNANCE_READ,
     ],
     "employee": [        "organization:read", "dashboard:read", "users:read", "users:profile",
         "notifications:read", "workspace:read", "workspace:manage",
@@ -412,6 +423,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, list[str]] = {
         *_PREDICTIONS_READ,
         *_INNOVATION_READ,
         *_BRAIN_READ,
+        *_GOVERNANCE_READ,
     ],
 }
 
@@ -501,12 +513,48 @@ class PermissionService:
         return roles
 
     async def user_permission_codes(self, db: AsyncSession, user_id: str, organization_id: str) -> set[str]:
-        """Effective permission codes for a user across all their roles."""
+        """Effective permission codes for a user: organization-wide roles plus
+        active organization-wide delegations.
+
+        Organization-wide only — scoped (ABAC) authority is layered on top by
+        the governance service when the caller resolves a scope. Queries are
+        bounded by the user's own roles and grants, never by org size.
+        """
+        from sqlalchemy import or_
+
         rows = await db.execute(
             select(Permission.code)
             .join(RolePermission, RolePermission.permission_id == Permission.id)
             .join(UserRole, UserRole.role_id == RolePermission.role_id)
-            .where(UserRole.user_id == user_id, UserRole.organization_id == organization_id)
+            .where(
+                UserRole.user_id == user_id,
+                UserRole.organization_id == organization_id,
+                UserRole.scope_id.is_(None),
+            )
+        )
+        codes = set(rows.scalars().all())
+        from app.core.timeutils import utcnow
+        from app.models.enterprise import AccessGrant
+
+        grants = await db.execute(
+            select(AccessGrant.permission_code).where(
+                AccessGrant.organization_id == organization_id,
+                AccessGrant.granted_to_user == user_id,
+                AccessGrant.status == "active",
+                AccessGrant.resource_type.is_(None),
+                or_(AccessGrant.expires_at.is_(None), AccessGrant.expires_at > utcnow()),
+                or_(AccessGrant.starts_at.is_(None), AccessGrant.starts_at <= utcnow()),
+            )
+        )
+        codes.update(grants.scalars().all())
+        return codes
+
+    async def role_permission_codes(self, db: AsyncSession, role_id: str) -> set[str]:
+        """Permission codes granted by a single role."""
+        rows = await db.execute(
+            select(Permission.code)
+            .join(RolePermission, RolePermission.permission_id == Permission.id)
+            .where(RolePermission.role_id == role_id)
         )
         return set(rows.scalars().all())
 

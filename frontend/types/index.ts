@@ -294,6 +294,7 @@ export interface EmployeeSummary {
   display_name: string | null;
   full_name: string;
   email: string;
+  user_id: string | null;
   avatar_url: string | null;
   designation: string | null;
   department_id: string | null;
@@ -1251,6 +1252,57 @@ export interface Risk {
   detected_from: string | null;
   created_at: string | null;
   updated_at: string | null;
+}
+
+export interface GovernanceScope {
+  id: string;
+  name: string;
+  scope_type: string;
+  parent_id: string | null;
+  entity_id: string | null;
+  depth: number;
+  created_at: string | null;
+}
+
+export interface GovernanceAssignment {
+  id: string;
+  user_id: string;
+  role_id: string;
+  scope_id: string | null;
+  created_at: string | null;
+}
+
+export interface GovernanceDelegation {
+  id: string;
+  granted_by: string | null;
+  granted_to_user: string;
+  permission_code: string;
+  resource_type: string | null;
+  resource_id: string | null;
+  reason: string | null;
+  starts_at: string | null;
+  expires_at: string | null;
+  status: string;
+  created_at: string | null;
+}
+
+export interface ApprovalPolicy {
+  id: string;
+  name: string;
+  approval_type: string;
+  description: string | null;
+  required_permission: string;
+  scope_id: string | null;
+  self_approval_allowed: boolean;
+  is_active: boolean;
+  created_at: string | null;
+}
+
+export interface EffectivePermissions {
+  user_id: string;
+  scope_id: string | null;
+  permissions: string[];
+  has_permission: Record<string, boolean>;
 }
 
 export interface Workload {

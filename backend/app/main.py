@@ -127,6 +127,7 @@ from app.api.v1 import (  # noqa: E402
     finance,
     forums,
     goals,
+    governance,
     health,
     hr,
     infrastructure,
@@ -222,6 +223,7 @@ app.include_router(goals.router, prefix=API_PREFIX)
 app.include_router(calendar.router, prefix=API_PREFIX)
 app.include_router(meeting_rooms.router, prefix=API_PREFIX)
 app.include_router(approvals.router, prefix=API_PREFIX)
+app.include_router(governance.router, prefix=API_PREFIX)
 app.include_router(risks.router, prefix=API_PREFIX)
 app.include_router(workload.router, prefix=API_PREFIX)
 app.include_router(documents.router, prefix=API_PREFIX)

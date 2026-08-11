@@ -46,7 +46,7 @@ def _summary_payload(emp) -> dict[str, Any]:
         "display_name": emp.display_name,
         "full_name": emp.full_name,
         "email": emp.email,
-        "avatar_url": emp.avatar_url,
+        "user_id": emp.user_id,
         "designation": emp.designation,
         "department_id": emp.department_id,
         "department_name": getattr(emp, "department_name", None),

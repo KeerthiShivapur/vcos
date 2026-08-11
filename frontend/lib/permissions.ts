@@ -99,6 +99,8 @@ export const PERMISSIONS = {
   MARKETPLACE_READ: "marketplace:read",
   MARKETPLACE_INSTALL: "marketplace:install",
   THEME_MANAGE: "theme:manage",
+  GOVERNANCE_READ: "governance:read",
+  GOVERNANCE_MANAGE: "governance:manage",
 } as const;
 
 export type PermissionCode = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -230,6 +232,13 @@ const DEVELOPERS_ALL: PermissionCode[] = [
   PERMISSIONS.THEME_MANAGE,
 ];
 
+const GOVERNANCE_READ: PermissionCode[] = [PERMISSIONS.GOVERNANCE_READ];
+
+const GOVERNANCE_ALL: PermissionCode[] = [
+  PERMISSIONS.GOVERNANCE_READ,
+  PERMISSIONS.GOVERNANCE_MANAGE,
+];
+
 const ROLE_PERMISSIONS: Record<string, PermissionCode[]> = {
   ceo: Object.values(PERMISSIONS),
   admin: Object.values(PERMISSIONS),
@@ -273,6 +282,7 @@ const ROLE_PERMISSIONS: Record<string, PermissionCode[]> = {
     ...INDUSTRY_ALL,
     ...DIGITAL_TWIN_ALL,
     ...DEVELOPERS_ALL,
+    ...GOVERNANCE_READ,
   ],
   manager: [
     PERMISSIONS.ORGANIZATION_READ,
@@ -307,6 +317,7 @@ const ROLE_PERMISSIONS: Record<string, PermissionCode[]> = {
     ...INDUSTRY_READ,
     ...DIGITAL_TWIN_READ,
     ...DEVELOPERS_READ,
+    ...GOVERNANCE_READ,
   ],
   employee: [
     PERMISSIONS.ORGANIZATION_READ,
@@ -369,6 +380,7 @@ const ROLE_PERMISSIONS: Record<string, PermissionCode[]> = {
     ...HR_READ,
     ...PAYROLL_READ,
     ...FINANCE_ALL,
+    ...GOVERNANCE_READ,
   ],
 };
 
@@ -603,6 +615,13 @@ export const PERMISSION_GROUPS: { resource: string; items: { id: string; code: s
       { id: "marketplace-read", code: "marketplace:read", name: "Browse the marketplace" },
       { id: "marketplace-install", code: "marketplace:install", name: "Install extensions" },
       { id: "theme-manage", code: "theme:manage", name: "Manage branding themes" },
+    ],
+  },
+  {
+    resource: "governance",
+    items: [
+      { id: "gov-read", code: "governance:read", name: "View scopes, assignments, delegations and approval policies" },
+      { id: "gov-manage", code: "governance:manage", name: "Create scopes, assign scoped roles, delegate and revoke authority, manage approval policies" },
     ],
   },
 ];

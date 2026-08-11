@@ -48,6 +48,7 @@ from app.models.collaboration import (  # noqa: F401
     MeetingWhiteboard,
 )
 from app.models.approval import Approval, Risk  # noqa: F401
+from app.models.governance import ApprovalPolicy, GovernanceScope  # noqa: F401
 from app.models.workload import WorkloadSnapshot  # noqa: F401
 from app.models.knowledge import (  # noqa: F401
     Decision,
@@ -404,6 +405,8 @@ __all__ = [
     "CalendarEvent",
     "Approval",
     "Risk",
+    "GovernanceScope",
+    "ApprovalPolicy",
     "WorkloadSnapshot",
     "KnowledgeCategory",
     "KnowledgeTag",

@@ -65,6 +65,11 @@ class UserRole(Base, TimestampMixin):
     organization_id: Mapped[str] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
+    # Slice 4C: null = organization-wide assignment; otherwise anchored at a
+    # governance scope (authority applies to that scope and its descendants).
+    scope_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("governance_scopes.id", ondelete="CASCADE"), index=True
+    )
 
     user: Mapped["User"] = relationship(back_populates="user_roles")  # noqa: F821
     role: Mapped["Role"] = relationship(back_populates="user_roles")  # noqa: F821

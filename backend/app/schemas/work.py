@@ -589,6 +589,7 @@ class ApprovalCreate(BaseModel):
     due_at: Optional[datetime] = None
     entity_type: Optional[str] = None
     entity_id: Optional[str] = None
+    policy_id: Optional[str] = None
 
 
 class ApprovalDecide(BaseModel):
@@ -612,6 +613,7 @@ class ApprovalOut(ORMModel):
     decision_note: Optional[str] = None
     entity_type: Optional[str] = None
     entity_id: Optional[str] = None
+    policy_id: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

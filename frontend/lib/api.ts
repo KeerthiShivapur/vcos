@@ -14,6 +14,7 @@ import type {
   Announcement,
   AnnouncementReceipt,
   Approval,
+  ApprovalPolicy,
   Attendee,
   Availability,
   Badge,
@@ -31,6 +32,7 @@ import type {
   DepartmentStats,
   Dependency,
   Document,
+  EffectivePermissions,
   Employee,
   EmployeeBadge,
   EmployeeSummary,
@@ -42,6 +44,9 @@ import type {
   ForumReply,
   ForumThread,
   Goal,
+  GovernanceAssignment,
+  GovernanceDelegation,
+  GovernanceScope,
   Idea,
   KeyResult,
   KnowledgeAnalytics,
@@ -96,6 +101,7 @@ import type {
   Recognition,
   Risk,
   Roadmap,
+  Role,
   SearchResponse,
   Skill,
   SkillGap,
@@ -1319,6 +1325,78 @@ export async function closeRisk(id: string): Promise<Risk> {
 
 export async function deleteRisk(id: string): Promise<Message> {
   return api<Message>(`/risks/${id}`, { method: "DELETE" });
+}
+
+// ---------------------------------------------------------------- governance
+
+export async function listGovernanceScopes(): Promise<GovernanceScope[]> {
+  return api<GovernanceScope[]>("/governance/scopes");
+}
+
+export async function listRoles(): Promise<Role[]> {
+  return api<Role[]>("/roles");
+}
+
+export async function createGovernanceScope(payload: Record<string, unknown>): Promise<GovernanceScope> {
+  return api<GovernanceScope>("/governance/scopes", { method: "POST", body: payload });
+}
+
+export async function updateGovernanceScope(id: string, payload: Record<string, unknown>): Promise<GovernanceScope> {
+  return api<GovernanceScope>(`/governance/scopes/${id}`, { method: "PATCH", body: payload });
+}
+
+export async function deleteGovernanceScope(id: string): Promise<Message> {
+  return api<Message>(`/governance/scopes/${id}`, { method: "DELETE" });
+}
+
+export async function listGovernanceAssignments(query: {
+  user_id?: string;
+  scope_id?: string;
+  role_id?: string;
+} = {}): Promise<GovernanceAssignment[]> {
+  return api<GovernanceAssignment[]>("/governance/assignments", { query });
+}
+
+export async function createGovernanceAssignment(payload: Record<string, unknown>): Promise<GovernanceAssignment> {
+  return api<GovernanceAssignment>("/governance/assignments", { method: "POST", body: payload });
+}
+
+export async function removeGovernanceAssignment(id: string): Promise<Message> {
+  return api<Message>(`/governance/assignments/${id}`, { method: "DELETE" });
+}
+
+export async function listGovernanceDelegations(query: {
+  granted_to?: string;
+  granted_by?: string;
+  status?: string;
+} = {}): Promise<GovernanceDelegation[]> {
+  return api<GovernanceDelegation[]>("/governance/delegations", { query });
+}
+
+export async function createGovernanceDelegation(payload: Record<string, unknown>): Promise<GovernanceDelegation> {
+  return api<GovernanceDelegation>("/governance/delegations", { method: "POST", body: payload });
+}
+
+export async function revokeGovernanceDelegation(id: string): Promise<GovernanceDelegation> {
+  return api<GovernanceDelegation>(`/governance/delegations/${id}/revoke`, { method: "POST" });
+}
+
+export async function getEffectivePermissions(userId: string, scopeId?: string): Promise<EffectivePermissions> {
+  return api<EffectivePermissions>("/governance/effective-permissions", {
+    query: { user_id: userId, scope_id: scopeId },
+  });
+}
+
+export async function listApprovalPolicies(): Promise<ApprovalPolicy[]> {
+  return api<ApprovalPolicy[]>("/governance/policies");
+}
+
+export async function createApprovalPolicy(payload: Record<string, unknown>): Promise<ApprovalPolicy> {
+  return api<ApprovalPolicy>("/governance/policies", { method: "POST", body: payload });
+}
+
+export async function updateApprovalPolicy(id: string, payload: Record<string, unknown>): Promise<ApprovalPolicy> {
+  return api<ApprovalPolicy>(`/governance/policies/${id}`, { method: "PATCH", body: payload });
 }
 
 // ---------------------------------------------------------------- workload & analytics

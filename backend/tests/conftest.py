@@ -116,6 +116,7 @@ async def app_factory(engine):
         extensions,
         finance,
         goals,
+        governance,
         health,
         hr,
         industry,
@@ -224,6 +225,7 @@ async def app_factory(engine):
     test_app.include_router(collaboration_live.router, prefix=prefix)
     test_app.include_router(recordings.router, prefix=prefix)
     test_app.include_router(approvals.router, prefix=prefix)
+    test_app.include_router(governance.router, prefix=prefix)
     test_app.include_router(risks.router, prefix=prefix)
     test_app.include_router(workload.router, prefix=prefix)
     test_app.include_router(documents.router, prefix=prefix)

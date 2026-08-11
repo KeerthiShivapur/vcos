@@ -97,6 +97,11 @@ _POSTGRES_ALTERS: list[str] = [
     "CREATE INDEX IF NOT EXISTS ix_decisions_goal_id ON decisions (goal_id)",
     # Slice 4B: messaging loop — edited timestamp on messages.
     "ALTER TABLE messages ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ",
+    # Slice 4C: governance kernel — scoped role assignments + approval policies.
+    "ALTER TABLE user_roles ADD COLUMN IF NOT EXISTS scope_id VARCHAR(32)",
+    "CREATE INDEX IF NOT EXISTS ix_user_roles_scope_id ON user_roles (scope_id)",
+    "ALTER TABLE approvals ADD COLUMN IF NOT EXISTS policy_id VARCHAR(32)",
+    "CREATE INDEX IF NOT EXISTS ix_approvals_policy_id ON approvals (policy_id)",
 ]
 
 
