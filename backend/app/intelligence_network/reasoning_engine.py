@@ -65,13 +65,24 @@ def _claim_text(item: dict[str, Any]) -> str:
         return f"Budget {title}: {detail or 'tracked'}"
     if etype == "employee":
         return f"{title} ({detail or 'employee'}) is part of the organization"
+    if etype == "document":
+        return f"Document {title} — {detail or 'published knowledge'}"
+    if etype == "wiki":
+        return f"Wiki page {title} — {detail or 'published knowledge'}"
+    if etype == "policy":
+        return f"Policy {title} — {detail or 'published knowledge'}"
+    if etype == "sop":
+        return f"SOP {title} — {detail or 'published knowledge'}"
+    if etype == "template":
+        return f"Template {title} — {detail or 'published knowledge'}"
     return f"{title} is referenced by the question"
 
 
 _CLAIM_TEMPLATES = {"project": _claim_text, "task": _claim_text, "decision": _claim_text,
                     "conversation": _claim_text, "message": _claim_text, "scope": _claim_text,
                     "approval_policy": _claim_text, "goal": _claim_text, "budget": _claim_text,
-                    "employee": _claim_text}
+                    "employee": _claim_text, "document": _claim_text, "wiki": _claim_text,
+                    "policy": _claim_text, "sop": _claim_text, "template": _claim_text}
 
 
 class ReasoningEngine:

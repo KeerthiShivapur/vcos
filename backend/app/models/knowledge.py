@@ -463,3 +463,43 @@ class KnowledgeIndex(Base):
     __table_args__ = (
         UniqueConstraint("entity_type", "entity_id", name="uq_knowledge_search_index_entity"),
     )
+
+
+class KnowledgeVector(Base):
+    """Slice 4D.2 — persisted semantic vector per deterministic chunk.
+
+    One row per (tenant, source, chunk) holding the embedding produced by the
+    configured embedding provider. The row is the evidence lineage for
+    semantic retrieval: every chunk knows its canonical source row
+    (``source_type`` + ``source_id``), when that source last changed
+    (``source_updated_at``) and when the vector was (re)indexed
+    (``indexed_at``). Deletes remove the rows, so removed content can never
+    resurface through search.
+    """
+
+    __tablename__ = "knowledge_vectors"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    source_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    chunk_text: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    embedding: Mapped[Optional[str]] = mapped_column(Text)  # JSON float list
+    provider: Mapped[str] = mapped_column(String(40), nullable=False)
+    dim: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    indexed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    metadata_json: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "source_type", "source_id", "chunk_index",
+            name="uq_knowledge_vector_chunk",
+        ),
+    )

@@ -21,6 +21,8 @@ import type {
   BrainAnswer,
   BrainAnswerRequest,
   BrainGraphTraversal,
+  BrainKnowledgeSearchRequest,
+  BrainKnowledgeSearchResponse,
   CalendarEvent,
   CalendarFeedItem,
   ChatMessage,
@@ -7637,6 +7639,15 @@ export async function deleteTheme(id: string): Promise<{ status: string; theme_i
 
 export async function brainAnswer(payload: BrainAnswerRequest): Promise<BrainAnswer> {
   return api<BrainAnswer>("/brain/answer", { method: "POST", body: payload });
+}
+
+export async function brainKnowledgeSearch(
+  payload: BrainKnowledgeSearchRequest
+): Promise<BrainKnowledgeSearchResponse> {
+  return api<BrainKnowledgeSearchResponse>("/brain/knowledge/search", {
+    method: "POST",
+    body: payload,
+  });
 }
 
 export async function brainGraphRelationshipSync(payload: {

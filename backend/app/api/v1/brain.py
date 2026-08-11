@@ -132,6 +132,40 @@ async def brain_answer(
     )
 
 
+class BrainKnowledgeSearchIn(BaseModel):
+    question: str
+    kinds: Optional[list[str]] = None
+    limit: int = 10
+
+
+@router.post("/knowledge/search")
+async def brain_knowledge_search(
+    body: BrainKnowledgeSearchIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4D.2 — hybrid semantic knowledge search under governance.
+
+    Retrieves chunk-level semantic evidence from the persisted
+    ``KnowledgeVector`` index, filtered to what the caller may access before
+    any scoring or exposure. Results carry evidence lineage (source row,
+    scores, provider, freshness) and never include raw embeddings.
+    """
+    if not body.question.strip():
+        raise HTTPException(status_code=422, detail="question is required")
+    from app.knowledge.semantic_search import search as semantic_knowledge_search
+
+    return await semantic_knowledge_search(
+        db,
+        organization_id=org.id,
+        user=user,
+        query=body.question,
+        kinds=body.kinds,
+        limit=body.limit or 10,
+    )
+
+
 @router.post("/advise")
 async def brain_advise(
     body: BrainAskIn,

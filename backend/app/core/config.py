@@ -70,6 +70,19 @@ class Settings(BaseSettings):
     AI_RETRIES: int = 2
     AI_CACHE_ENABLED: bool = True
 
+    # --- Embedding gateway (Slice 4D.2) ---
+    # The embeddings provider is independent from the LLM provider (AI gateway
+    # boundary). The API provider talks to a self-hosted /embeddings endpoint
+    # (e.g. Ollama, text-embeddings-inference) or any Groq-compatible gateway
+    # reachable via EMBEDDING_BASE_URL — never a vendor-locked OpenAI model.
+    # The deterministic provider keeps the system fully offline. Every stored
+    # vector records which provider produced it.
+    # provider: deterministic | api | groq
+    EMBEDDING_PROVIDER: str = "deterministic"
+    EMBEDDING_MODEL: str = "bge-m3"
+    EMBEDDING_BASE_URL: Optional[str] = None  # defaults to AI_BASE_URL
+    EMBEDDING_API_KEY: Optional[str] = None  # defaults to AI_API_KEY
+
     # --- Rate limiting ---
     RATE_LIMIT_ENABLED: bool = True
     RATE_LIMIT_REQUESTS: int = 120

@@ -2071,6 +2071,43 @@ export interface BrainAnswer {
   answered_at: string;
 }
 
+
+// Slice 4D.2 - Semantic Company Knowledge Intelligence
+
+export interface BrainKnowledgeSearchRequest {
+  question: string;
+  kinds?: string[] | null;
+  limit?: number | null;
+}
+
+export interface BrainKnowledgeSearchResult {
+  source_type: string;
+  source_id: string;
+  title: string;
+  snippet: string;
+  chunk_index: number;
+  url: string;
+  status: string | null;
+  project_id: string | null;
+  category: string | null;
+  scope: string;
+  provider: string;
+  semantic_score: number;
+  lexical_score: number;
+  retrieval_score: number;
+  updated_at: string | null;
+  indexed_at: string | null;
+}
+
+export interface BrainKnowledgeSearchResponse {
+  query: string;
+  results: BrainKnowledgeSearchResult[];
+  total: number;
+  limit: number;
+  provider: string | null;
+  truncated: boolean;
+}
+
 export interface BrainGraphRelationshipNode {
   type: string;
   id: string;

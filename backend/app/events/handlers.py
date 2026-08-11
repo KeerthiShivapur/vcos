@@ -1834,3 +1834,69 @@ async def handle_company_intel_policy_change(db, event, payload):
         scope_id = policy.scope_id if policy is not None else None
     if scope_id:
         await _company_intel_refresh(db, org_id, "scope", scope_id, reason=event.name)
+
+
+# ---------------------------------------------------------------------------
+# semantic knowledge indexing (Slice 4D.2) — change-driven consumers
+#
+# Every knowledge write (create / update / restore / status change) re-indexes
+# the affected entity's chunk vectors; every delete or archive removes them so
+# removed content can never resurface. Handlers never commit (the event bus
+# owns the transaction) and each re-index is idempotent and bounded.
+# ---------------------------------------------------------------------------
+
+_KNOWLEDGE_KINDS = ("document", "wiki", "policy", "sop", "template", "decision")
+_KNOWLEDGE_REINDEX_SUFFIXES = (
+    "created", "updated", "restored",
+    "published", "approved", "made", "implemented", "reviewed",
+)
+_KNOWLEDGE_DELETE_SUFFIXES = ("deleted", "archived")
+
+_KNOWLEDGE_REINDEX_EVENTS = tuple(
+    f"{kind}.{suffix}" for kind in _KNOWLEDGE_KINDS for suffix in _KNOWLEDGE_REINDEX_SUFFIXES
+)
+_KNOWLEDGE_DELETE_EVENTS = tuple(
+    f"{kind}.{suffix}" for kind in _KNOWLEDGE_KINDS for suffix in _KNOWLEDGE_DELETE_SUFFIXES
+)
+
+
+async def handle_semantic_knowledge_reindex(db, event, payload):
+    """Change-driven: knowledge writes re-index the affected entity's vectors."""
+    org_id = payload.get("organization_id") or event.organization_id
+    entity_id = payload.get("entity_id") or payload.get("id") or payload.get("document_id")
+    entity_type = event.name.split(".")[0]
+    if not org_id or not entity_id or entity_type not in _KNOWLEDGE_KINDS:
+        return
+    try:
+        from app.knowledge import semantic_indexer
+
+        await semantic_indexer.reindex_entity(
+            db, organization_id=org_id, kind=entity_type, entity_id=entity_id
+        )
+    except Exception:  # noqa: BLE001 - per-event isolation
+        logger.exception("semantic reindex failed for %s/%s", entity_type, entity_id)
+
+
+for _event_name in _KNOWLEDGE_REINDEX_EVENTS:
+    on(_event_name)(handle_semantic_knowledge_reindex)
+
+
+async def handle_semantic_knowledge_delete(db, event, payload):
+    """Change-driven: knowledge deletes/archives remove the entity's vectors."""
+    org_id = payload.get("organization_id") or event.organization_id
+    entity_id = payload.get("entity_id") or payload.get("id") or payload.get("document_id")
+    entity_type = event.name.split(".")[0]
+    if not org_id or not entity_id or entity_type not in _KNOWLEDGE_KINDS:
+        return
+    try:
+        from app.knowledge import semantic_indexer
+
+        await semantic_indexer.delete_entity(
+            db, organization_id=org_id, kind=entity_type, entity_id=entity_id
+        )
+    except Exception:  # noqa: BLE001 - per-event isolation
+        logger.exception("semantic delete failed for %s/%s", entity_type, entity_id)
+
+
+for _event_name in _KNOWLEDGE_DELETE_EVENTS:
+    on(_event_name)(handle_semantic_knowledge_delete)

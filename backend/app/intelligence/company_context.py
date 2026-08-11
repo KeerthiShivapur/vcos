@@ -36,6 +36,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from functools import partial
 from typing import Any, Optional
 
 from sqlalchemy import select
@@ -69,7 +70,20 @@ EVIDENCE_TYPES = (
     "goal",
     "budget",
     "employee",
+    "document",
+    "wiki",
+    "policy",
+    "sop",
+    "template",
 )
+
+# Slice 4D.2 — knowledge kinds the brain can cite as evidence. Access mirrors
+# the retrieval law: org-wide callers see published knowledge; scoped callers
+# only see project-anchored documents/wikis whose project is inside their
+# visible scope subtree (policies/SOPs/templates have no project anchor and
+# are org-wide only — conservative downward-only behavior).
+KNOWLEDGE_EVIDENCE_KINDS = ("document", "wiki", "policy", "sop", "template")
+KNOWLEDGE_PUBLISHED = ("published", "approved", "made", "implemented", "reviewed")
 
 # Evidence type -> (model, frontend url template, matchable text fields,
 #                   source label). Deterministic keyword classifier below.
@@ -84,6 +98,12 @@ _EVIDENCE_META: dict[str, dict[str, Any]] = {
     "goal": {"source": "goals", "url": "/goals/{}"},
     "budget": {"source": "budgets", "url": "/finance/budgets/{}"},
     "employee": {"source": "employees", "url": "/people/{}"},
+    # Slice 4D.2 — knowledge evidence (urls follow the knowledge entity routes)
+    "document": {"source": "documents", "url": "/documents/{}"},
+    "wiki": {"source": "wiki_pages", "url": "/wiki/{}"},
+    "policy": {"source": "policies", "url": "/policies/{}"},
+    "sop": {"source": "sops", "url": "/sops/{}"},
+    "template": {"source": "templates", "url": "/templates/{}"},
 }
 
 _INTENT_KEYWORDS: dict[str, tuple[str, ...]] = {
@@ -97,6 +117,12 @@ _INTENT_KEYWORDS: dict[str, tuple[str, ...]] = {
     "goal": ("goal", "goals", "objective", "objectives", "okr", "okrs", "target", "key result"),
     "budget": ("budget", "budgets", "finance", "financial", "spend", "spending", "cost", "costs", "expense"),
     "employee": ("employee", "employees", "who", "people", "person", "member", "staff", "colleague", "team"),
+    # Slice 4D.2 — knowledge intent so /brain/answer can cite knowledge evidence
+    "knowledge": (
+        "document", "documents", "wiki", "wikis", "wiki page",
+        "policy", "policies", "sop", "sops", "template", "templates",
+        "knowledge", "kb", "guideline", "guidelines", "runbook", "runbooks",
+    ),
 }
 
 _STOPWORDS = frozenset(
@@ -630,6 +656,81 @@ async def _match_employees(
     return items
 
 
+def _knowledge_visible(access: CallerAccess, row: Any) -> bool:
+    """Downward-only knowledge visibility (bounded, project-anchored)."""
+    if access.org_wide:
+        return True
+    project_id = getattr(row, "project_id", None)
+    return project_id is not None and project_id in access.project_ids
+
+
+async def _match_knowledge_kind(
+    db: AsyncSession,
+    access: CallerAccess,
+    needles: set[str],
+    *,
+    with_recent: bool,
+    kind: str,
+    model: Any,
+) -> list[dict[str, Any]]:
+    rows = (
+        await db.execute(
+            select(model)
+            .where(
+                model.organization_id == access.organization_id,
+                model.status.in_(KNOWLEDGE_PUBLISHED),
+            )
+            .order_by(model.updated_at.desc())
+            .limit(MAX_CANDIDATES_PER_TYPE)
+        )
+    ).scalars().all()
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        if not _knowledge_visible(access, row):
+            continue
+        if _overlap(f"{row.title} {row.category or ''} {row.status}", needles):
+            items.append(
+                _evidence(kind, row, relation="matched", extra={
+                    "project_id": getattr(row, "project_id", None),
+                    "detail": row.status,
+                })
+            )
+    if not items and with_recent:
+        for row in rows[:FALLBACK_RECENT_PER_TYPE]:
+            if not _knowledge_visible(access, row):
+                continue
+            items.append(
+                _evidence(kind, row, relation="recent", extra={
+                    "project_id": getattr(row, "project_id", None),
+                    "detail": row.status,
+                })
+            )
+    return items
+
+
+_KNOWLEDGE_MODELS = {
+    "document": "Document",
+    "wiki": "WikiPage",
+    "policy": "Policy",
+    "sop": "SOP",
+    "template": "Template",
+}
+
+
+def _knowledge_matcher(kind: str, model: Any):
+    return partial(_match_knowledge_kind, kind=kind, model=model)
+
+
+async def _match_knowledge(
+    db: AsyncSession, access: CallerAccess, needles: set[str], *, with_recent: bool
+) -> list[dict[str, Any]]:
+    """Aggregate knowledge matcher for the ``knowledge`` intent."""
+    items: list[dict[str, Any]] = []
+    for kind in KNOWLEDGE_EVIDENCE_KINDS:
+        items.extend(await _MATCHERS[kind](db, access, needles, with_recent=with_recent))
+    return items
+
+
 _MATCHERS = {
     "project": _match_projects,
     "task": _match_tasks,
@@ -642,6 +743,11 @@ _MATCHERS = {
     "budget": _match_budgets,
     "employee": _match_employees,
 }
+
+for _kind in KNOWLEDGE_EVIDENCE_KINDS:
+    _module = __import__("app.models.knowledge", fromlist=[_KNOWLEDGE_MODELS[_kind]])
+    _MATCHERS[_kind] = _knowledge_matcher(_kind, getattr(_module, _KNOWLEDGE_MODELS[_kind]))
+_MATCHERS["knowledge"] = _match_knowledge
 
 
 def _relations(evidence: list[dict[str, Any]], extra: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -676,6 +782,11 @@ async def _direct_evidence(
         "scope": GovernanceScope, "approval_policy": ApprovalPolicy,
         "goal": Goal, "budget": Budget, "employee": Employee,
     }
+    for kind in KNOWLEDGE_EVIDENCE_KINDS:
+        model_map[kind] = getattr(
+            __import__("app.models.knowledge", fromlist=[_KNOWLEDGE_MODELS[kind]]),
+            _KNOWLEDGE_MODELS[kind],
+        )
     model = model_map.get(entity_type)
     if model is None:
         return []
@@ -707,6 +818,8 @@ async def _direct_evidence(
             if target_conv not in access.member_conversation_ids:
                 return []
     if entity_type == "employee" and not access.org_wide:
+        return []
+    if entity_type in KNOWLEDGE_EVIDENCE_KINDS and not _knowledge_visible(access, row):
         return []
     scope_id = None
     if entity_type == "scope":
@@ -830,6 +943,11 @@ async def resolve_accessible_ids(
             "scope": GovernanceScope, "approval_policy": ApprovalPolicy,
             "goal": Goal, "budget": Budget, "employee": Employee,
         }
+        for _kind in KNOWLEDGE_EVIDENCE_KINDS:
+            model_map[_kind] = getattr(
+                __import__("app.models.knowledge", fromlist=[_KNOWLEDGE_MODELS[_kind]]),
+                _KNOWLEDGE_MODELS[_kind],
+            )
         model = model_map[kind]
         rows = (
             await db.execute(
@@ -958,6 +1076,26 @@ async def _filter_scope_anchored(
                 row.id for row in rows
                 if row.project_id and row.project_id in access.project_ids
             }
+    elif kind in KNOWLEDGE_EVIDENCE_KINDS:
+        if kind in ("policy", "sop", "template"):
+            # No project anchor: visible to org-wide callers only.
+            return set()
+        model = getattr(
+            __import__("app.models.knowledge", fromlist=[_KNOWLEDGE_MODELS[kind]]),
+            _KNOWLEDGE_MODELS[kind],
+        )
+        rows = (
+            await db.execute(
+                select(model.id, model.project_id).where(
+                    model.organization_id == access.organization_id,
+                    model.id.in_(ids),
+                )
+            )
+        ).all()
+        visible = {
+            row.id for row in rows
+            if row.project_id and row.project_id in access.project_ids
+        }
     elif kind in ("conversation", "message"):
         if not access.member_conversation_ids:
             return set()
