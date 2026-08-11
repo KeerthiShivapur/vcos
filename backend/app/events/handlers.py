@@ -1718,3 +1718,119 @@ async def handle_messaging_member_added(db, event, payload):
         "messaging.member.added",
         {"conversation_id": conversation_id, "employee_id": employee_id},
     )
+
+
+# ---------------------------------------------------------------------------
+# company intelligence (Slice 4D.1) — change-driven consumers
+#
+# These consumers reuse the durable event bus: on an operating event they
+# perform a bounded, idempotent refresh of the affected entity's company
+# evidence (graph edges + CompanyInsight freshness). They never commit, never
+# fan out, and are safe to retry.
+# ---------------------------------------------------------------------------
+
+
+async def _company_intel_refresh(
+    db: AsyncSession, org_id: str, entity_type: str, entity_id: Optional[str],
+    message_id: Optional[str] = None, *, reason: str,
+) -> bool:
+    """Bounded context refresh for one affected entity.
+
+    Validates the entity belongs to the org, syncs its graph edges (bounded),
+    then asks the company-intel worker to bump/refresh the insight. Failures
+    are logged by the dispatcher and never break sibling handlers.
+    """
+    if not entity_id:
+        return False
+    try:
+        from app.intelligence.graph_engine import graph_engine
+        from app.workers import company_intel_worker
+
+        if entity_type == "conversation":
+            from app.models.communication import Conversation
+
+            row = await db.get(Conversation, entity_id)
+            if row is None or row.organization_id != org_id:
+                return False
+        elif entity_type == "scope":
+            from app.models.governance import GovernanceScope
+
+            row = await db.get(GovernanceScope, entity_id)
+            if row is None or row.organization_id != org_id:
+                return False
+        if entity_type in ("task", "decision", "conversation", "message"):
+            await graph_engine.sync_entity_edges(
+                db, organization_id=org_id, entity_type=entity_type, entity_id=entity_id
+            )
+        if message_id and entity_type == "conversation":
+            await graph_engine.sync_entity_edges(
+                db, organization_id=org_id, entity_type="message", entity_id=message_id
+            )
+        await company_intel_worker.refresh_entity(
+            db, organization_id=org_id,
+            entity_type=entity_type, entity_id=entity_id,
+            reason=reason,
+        )
+        return True
+    except Exception:  # noqa: BLE001 - defensive consumer
+        logger.exception("company-intel refresh failed for %s:%s", entity_type, entity_id)
+        return False
+
+
+@on("messaging.message_sent")
+@on("messaging.message_updated")
+@on("messaging.message_deleted")
+async def handle_company_intel_message_change(db, event, payload):
+    """Change-driven: a message event refreshes the bounded context of its conversation."""
+    org_id = payload.get("organization_id") or event.organization_id
+    await _company_intel_refresh(
+        db, org_id, "conversation", payload.get("conversation_id"),
+        message_id=payload.get("message_id"), reason=event.name,
+    )
+
+
+@on("messaging.conversation_created")
+@on("messaging.conversation_updated")
+@on("messaging.conversation_archived")
+@on("messaging.member_added")
+@on("messaging.member_removed")
+async def handle_company_intel_conversation_change(db, event, payload):
+    """Change-driven: conversation/membership changes refresh that conversation's context."""
+    org_id = payload.get("organization_id") or event.organization_id
+    await _company_intel_refresh(
+        db, org_id, "conversation", payload.get("conversation_id"), reason=event.name,
+    )
+
+
+@on("governance.scope.created")
+@on("governance.scope.updated")
+@on("governance.scope.deleted")
+@on("governance.assignment.created")
+@on("governance.assignment.removed")
+@on("governance.delegation.created")
+@on("governance.delegation.revoked")
+async def handle_company_intel_governance_change(db, event, payload):
+    """Change-driven: governance changes refresh the affected scope's context.
+
+    Caller access is derived live from the scope table on each request, so the
+    operator-facing refresh only keeps the bounded insight for the scope fresh.
+    """
+    org_id = payload.get("organization_id") or event.organization_id
+    scope_id = payload.get("scope_id")
+    if scope_id:
+        await _company_intel_refresh(db, org_id, "scope", scope_id, reason=event.name)
+
+
+@on("governance.policy.created")
+@on("governance.policy.updated")
+async def handle_company_intel_policy_change(db, event, payload):
+    """Change-driven: approval-policy changes refresh their scope's context."""
+    org_id = payload.get("organization_id") or event.organization_id
+    scope_id = payload.get("scope_id")
+    if not scope_id:
+        from app.models.governance import ApprovalPolicy
+
+        policy = await db.get(ApprovalPolicy, payload.get("policy_id"))
+        scope_id = policy.scope_id if policy is not None else None
+    if scope_id:
+        await _company_intel_refresh(db, org_id, "scope", scope_id, reason=event.name)

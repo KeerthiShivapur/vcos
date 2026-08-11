@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_organization, require_permission
 from app.db.database import get_db
+from app.intelligence.graph_engine import graph_engine as company_graph
 from app.kernel.organization_kernel import organization_kernel
 from app.models.organization import Organization
 from app.models.user import User
@@ -24,6 +25,17 @@ router = APIRouter(prefix="/brain", tags=["Company Brain"])
 
 class BrainAskIn(BaseModel):
     question: str
+
+
+class BrainAnswerIn(BaseModel):
+    question: str
+    entity_type: Optional[str] = None
+    entity_id: Optional[str] = None
+
+
+class BrainSyncIn(BaseModel):
+    entity_type: Optional[str] = None
+    entity_id: Optional[str] = None
 
 
 class BrainMemoryIn(BaseModel):
@@ -101,6 +113,23 @@ async def brain_ask(
     if not body.question.strip():
         raise HTTPException(status_code=422, detail="question is required")
     return await organization_kernel.ask(db, org.id, body.question)
+
+
+@router.post("/answer")
+async def brain_answer(
+    body: BrainAnswerIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4D.1 — canonical company brain answer: evidence claims the caller
+    may actually access, shaped by their governance scopes."""
+    if not body.question.strip():
+        raise HTTPException(status_code=422, detail="question is required")
+    return await organization_kernel.answer(
+        db, org.id, body.question,
+        user=user, entity_type=body.entity_type, entity_id=body.entity_id,
+    )
 
 
 @router.post("/advise")
@@ -345,6 +374,40 @@ async def brain_graph_rebuild(
     result = await organization_kernel.graph.rebuild(db, org.id)
     await db.commit()
     return result
+
+
+@router.post("/graph/relationships/sync")
+async def brain_graph_relationships_sync(
+    body: BrainSyncIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4D.1 — upsert relationship edges for one entity (bounded)."""
+    if body.entity_type and body.entity_id:
+        count = await company_graph.sync_entity_edges(
+            db, organization_id=org.id, entity_type=body.entity_type, entity_id=body.entity_id
+        )
+    else:
+        count = await company_graph.sync_recent_relationships(db, organization_id=org.id)
+    await db.commit()
+    return {"synced": count, "mode": "entity" if body.entity_id else "recent"}
+
+
+@router.get("/graph/relationships/traverse")
+async def brain_graph_relationships_traverse(
+    node_type: str,
+    node_id: str,
+    max_depth: int = Query(3, ge=1, le=8),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4D.1 — bounded BFS traversal of company relationship edges."""
+    return await company_graph.traverse(
+        db, organization_id=org.id, start_type=node_type, start_id=node_id,
+        max_depth=max_depth,
+    )
 
 
 # ----------------------------------------------------------------------- context

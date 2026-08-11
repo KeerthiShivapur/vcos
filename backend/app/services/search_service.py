@@ -7,7 +7,7 @@ messages, customers — everything.
 
 import json
 import time
-from typing import Any
+from typing import Any, Optional
 
 from sqlalchemy import exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +31,7 @@ class SearchService:
         query: str,
         user_id: str,
         limit: int = 20,
+        user: Optional[Any] = None,
     ) -> dict[str, Any]:
         started = time.perf_counter()
         q = query.strip()
@@ -209,12 +210,55 @@ class SearchService:
             await self._search_messaging(db, organization_id=organization_id, user_id=user_id, pattern=pattern, limit=limit)
         )
 
+        if user is not None:
+            results = await self._filter_accessible(
+                db, results, organization_id=organization_id, user=user
+            )
+
         return {
             "query": query,
             "results": results,
             "total": len(results),
             "took_ms": int((time.perf_counter() - started) * 1000),
         }
+
+    # ------------------------------------------------------ Slice 4D.1 scoping
+
+    _SEARCH_FILTER_KINDS = {
+        "project": "project", "task": "task", "goal": "goal", "budget": "budget",
+        "decision": "decision", "message": "message", "conversation": "conversation",
+        "scope": "scope", "approval_policy": "approval_policy", "policy": "approval_policy",
+        "person": "employee", "employee": "employee",
+    }
+
+    async def _filter_accessible(
+        self, db: AsyncSession, results: list[dict[str, Any]], *, organization_id: str, user: Any,
+    ) -> list[dict[str, Any]]:
+        """Keep only results the caller may access (bounded, indexed).
+
+        Org-wide callers are untouched (resolve_accessible_ids returns the
+        full candidate set); scope-anchored callers only see evidence from
+        their visible scope subtree.
+        """
+        from app.intelligence.company_context import resolve_accessible_ids
+
+        by_kind: dict[str, list[str]] = {}
+        for r in results:
+            kind = self._SEARCH_FILTER_KINDS.get(r.get("type"))
+            if kind:
+                by_kind.setdefault(kind, []).append(r["id"])
+        accessible: dict[str, set[str]] = {}
+        for kind, ids in by_kind.items():
+            ids = list(dict.fromkeys(ids))
+            acc = await resolve_accessible_ids(
+                db, user, organization_id=organization_id, kind=kind, ids=ids
+            )
+            accessible[kind] = set(acc)
+        return [
+            r for r in results
+            if self._SEARCH_FILTER_KINDS.get(r.get("type")) not in accessible
+            or r["id"] in accessible.get(self._SEARCH_FILTER_KINDS[r.get("type")], set())
+        ]
 
     async def _search_messaging(
         self, db: AsyncSession, *, organization_id: str, user_id: str, pattern: str, limit: int

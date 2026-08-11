@@ -23,6 +23,6 @@ async def global_search(
 ):
     return SearchResponse(
         **await search_service.search(
-            db, organization_id=org.id, query=q, user_id=user.id, limit=limit
+            db, organization_id=org.id, query=q, user_id=user.id, limit=limit, user=user
         )
     )

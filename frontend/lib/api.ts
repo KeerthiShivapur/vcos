@@ -18,6 +18,9 @@ import type {
   Attendee,
   Availability,
   Badge,
+  BrainAnswer,
+  BrainAnswerRequest,
+  BrainGraphTraversal,
   CalendarEvent,
   CalendarFeedItem,
   ChatMessage,
@@ -7627,4 +7630,28 @@ export async function activateTheme(id: string): Promise<Theme> {
 
 export async function deleteTheme(id: string): Promise<{ status: string; theme_id: string }> {
   return api(`/themes/${id}`, { method: "DELETE" });
+}
+
+
+// ------------------------------------------------------- Slice 4D.1 brain
+
+export async function brainAnswer(payload: BrainAnswerRequest): Promise<BrainAnswer> {
+  return api<BrainAnswer>("/brain/answer", { method: "POST", body: payload });
+}
+
+export async function brainGraphRelationshipSync(payload: {
+  entity_type?: string;
+  entity_id?: string;
+}): Promise<{ synced: number; mode: "entity" | "recent" }> {
+  return api("/brain/graph/relationships/sync", { method: "POST", body: payload });
+}
+
+export async function brainGraphRelationshipTraverse(
+  nodeType: string,
+  nodeId: string,
+  maxDepth = 3
+): Promise<BrainGraphTraversal> {
+  return api<BrainGraphTraversal>("/brain/graph/relationships/traverse", {
+    query: { node_type: nodeType, node_id: nodeId, max_depth: maxDepth },
+  });
 }

@@ -8,7 +8,7 @@ explanation with evidence and recommendations.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +25,23 @@ class ReasoningEngine:
     ) -> dict[str, Any]:
         """Answer any enterprise question with cross-module evidence."""
         return await network_reasoning.ask(db, organization_id, question)
+
+    async def answer(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        question: str,
+        *,
+        user: Any,
+        context: Optional[dict[str, Any]] = None,
+        entity_type: Optional[str] = None,
+        entity_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Slice 4D.1 — canonical caller-aware answer (governance-scoped claims)."""
+        return await network_reasoning.answer(
+            db, organization_id, question,
+            user=user, context=context, entity_type=entity_type, entity_id=entity_id,
+        )
 
     async def advise(
         self, db: AsyncSession, organization_id: str, question: str

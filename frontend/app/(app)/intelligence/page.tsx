@@ -93,6 +93,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { Spinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Tabs } from "@/components/ui/Tabs";
+import { CompanyBrainTab } from "./company-brain-tab";
 
 export default function IntelligencePage() {
   return (
@@ -324,6 +325,7 @@ function IntelligenceContent() {
   const tabs = useMemo(
     () => [
       { id: "overview", label: "Overview", icon: Brain },
+      { id: "brain", label: "Company Brain", icon: Sparkles },
       { id: "events", label: "Event Bus", icon: Activity, count: overview?.jobs.done ?? 0 },
       { id: "workers", label: "Workers", icon: Play },
       { id: "expertise", label: "Expertise", icon: BarChart3 },
@@ -395,6 +397,7 @@ function IntelligenceContent() {
 
         <div className="mt-5">
           {tab === "overview" && <OverviewTab overview={overview} />}
+          {tab === "brain" && <CompanyBrainTab />}
           {tab === "events" && (
             <EventsTab
               events={events}

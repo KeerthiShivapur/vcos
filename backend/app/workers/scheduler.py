@@ -118,6 +118,8 @@ WORKER_REGISTRY: list[tuple[str, int]] = [
     # Slice 4C — Governance, RBAC & Enterprise Control Foundation
     ("delegation", 300),        # expire overdue delegations (lazy deny already enforced)
     ("governance", 21600),      # escalate AI recommendations awaiting human review
+    # Slice 4D.1 — Canonical Company Intelligence & Evidence Layer
+    ("company_intel", 900),     # keep CompanyInsight freshness current for recently changed entities
 ]
 
 _tasks: list[asyncio.Task] = []

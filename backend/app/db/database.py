@@ -102,6 +102,9 @@ _POSTGRES_ALTERS: list[str] = [
     "CREATE INDEX IF NOT EXISTS ix_user_roles_scope_id ON user_roles (scope_id)",
     "ALTER TABLE approvals ADD COLUMN IF NOT EXISTS policy_id VARCHAR(32)",
     "CREATE INDEX IF NOT EXISTS ix_approvals_policy_id ON approvals (policy_id)",
+    # Slice 4D.1: change-driven company intelligence — recency index on the
+    # graph edges so the bounded sweep is proportional to recent change volume.
+    "CREATE INDEX IF NOT EXISTS ix_org_graph_edge_updated ON org_graph_edges (updated_at)",
 ]
 
 

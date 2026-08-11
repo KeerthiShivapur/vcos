@@ -113,6 +113,22 @@ class OrganizationKernel:
     async def ask(self, db: AsyncSession, organization_id: str, question: str) -> dict[str, Any]:
         return await self.ai.answer(db, organization_id, question)
 
+    async def answer(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        question: str,
+        *,
+        user: Any,
+        entity_type: Optional[str] = None,
+        entity_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Slice 4D.1 — canonical caller-aware company brain answer."""
+        return await self.reasoning.answer(
+            db, organization_id, question,
+            user=user, entity_type=entity_type, entity_id=entity_id,
+        )
+
     async def advise(self, db: AsyncSession, organization_id: str, question: str) -> dict[str, Any]:
         return await self.ai.advise(db, organization_id, question)
 

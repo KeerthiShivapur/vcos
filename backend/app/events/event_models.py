@@ -318,6 +318,10 @@ EVENT_CATALOG: dict[str, str] = {
     "messaging.message_deleted": "A message was deleted",
     "messaging.message_reaction_added": "A reaction was added to a message",
     "messaging.message_reaction_removed": "A reaction was removed from a message",
+    # --- Slice 4D.1 — canonical company intelligence & evidence layer
+    "company.intel.context_refreshed": "A governance-scoped company context was refreshed",
+    "company.intel.insight.created": "A company intelligence insight was created",
+    "company.intel.insight.updated": "A company intelligence insight was updated",
 }
 # Events that feed the expertise engine (entity employee).
 EXPERTISE_EVENTS: dict[str, tuple[float, str]] = {

@@ -19,8 +19,11 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.timeutils import utcnow
+from app.models.communication import Conversation, Message
 from app.models.employee import Employee
+from app.models.governance import GovernanceScope
 from app.models.intelligence import GraphUpdate, OrgGraphEdge
+from app.models.knowledge import Decision
 from app.models.project import Project, ProjectMember
 from app.models.task import Task
 
@@ -234,6 +237,183 @@ class GraphEngine:
                 payload={"change": "structural_rebuild", "edges": count},
             )
         return count
+
+    # ------------------------------------------- Slice 4D.1 relationship edges
+
+    async def sync_entity_edges(
+        self, db: AsyncSession, *, organization_id: str, entity_type: str, entity_id: str,
+    ) -> int:
+        """Upsert the relationship edges of one entity (bounded, indexed).
+
+        Change-driven: callers (event handlers / the company intel worker)
+        invoke this for the exact entity a change touched — never a scan.
+          task -> project        : belongs_to
+          decision -> scope      : governed_by (via the project a scope wraps)
+          conversation -> message: contains
+        """
+        count = 0
+        if entity_type == "task":
+            task = await db.get(Task, entity_id)
+            if task and task.organization_id == organization_id and task.project_id:
+                await self.upsert_edge(
+                    db, organization_id=organization_id,
+                    source_type="task", source_id=task.id,
+                    target_type="project", target_id=task.project_id,
+                    relation="belongs_to", weight=1.0, evidence="Task project relationship",
+                    record_update=False,
+                )
+                count += 1
+        elif entity_type == "decision":
+            decision = await db.get(Decision, entity_id)
+            if decision and decision.organization_id == organization_id and decision.project_id:
+                scope = (
+                    await db.execute(
+                        select(GovernanceScope.id).where(
+                            GovernanceScope.organization_id == organization_id,
+                            GovernanceScope.scope_type == "project",
+                            GovernanceScope.entity_id == decision.project_id,
+                        )
+                    )
+                ).scalars().first()
+                if scope:
+                    await self.upsert_edge(
+                        db, organization_id=organization_id,
+                        source_type="decision", source_id=decision.id,
+                        target_type="scope", target_id=scope,
+                        relation="governed_by", weight=1.0, evidence="Decision under project scope",
+                        record_update=False,
+                    )
+                    count += 1
+        elif entity_type == "conversation":
+            conversation = await db.get(Conversation, entity_id)
+            if conversation and conversation.organization_id == organization_id:
+                recent = (
+                    await db.execute(
+                        select(Message.id).where(
+                            Message.organization_id == organization_id,
+                            Message.conversation_id == conversation.id,
+                        ).order_by(Message.created_at.desc()).limit(5)
+                    )
+                ).scalars().all()
+                for message_id in recent:
+                    await self.upsert_edge(
+                        db, organization_id=organization_id,
+                        source_type="conversation", source_id=conversation.id,
+                        target_type="message", target_id=message_id,
+                        relation="contains", weight=1.0, evidence="Conversation message",
+                        record_update=False,
+                    )
+                    count += 1
+        elif entity_type == "message":
+            message = await db.get(Message, entity_id)
+            if message and message.organization_id == organization_id:
+                await self.upsert_edge(
+                    db, organization_id=organization_id,
+                    source_type="conversation", source_id=message.conversation_id,
+                    target_type="message", target_id=message.id,
+                    relation="contains", weight=1.0, evidence="Conversation message",
+                    record_update=False,
+                )
+                count += 1
+        return count
+
+    async def sync_recent_relationships(
+        self, db: AsyncSession, *, organization_id: str, each: int = 5,
+    ) -> int:
+        """Bounded recent-relationship sync used by the company intel worker."""
+        count = 0
+        task_ids = (
+            await db.execute(
+                select(Task.id)
+                .where(Task.organization_id == organization_id, Task.project_id.isnot(None))
+                .order_by(Task.updated_at.desc())
+                .limit(each)
+            )
+        ).scalars().all()
+        for task_id in task_ids:
+            count += await self.sync_entity_edges(db, organization_id=organization_id, entity_type="task", entity_id=task_id)
+        decision_ids = (
+            await db.execute(
+                select(Decision.id)
+                .where(Decision.organization_id == organization_id, Decision.project_id.isnot(None))
+                .order_by(Decision.updated_at.desc())
+                .limit(each)
+            )
+        ).scalars().all()
+        for decision_id in decision_ids:
+            count += await self.sync_entity_edges(db, organization_id=organization_id, entity_type="decision", entity_id=decision_id)
+        conversation_ids = (
+            await db.execute(
+                select(Conversation.id)
+                .where(Conversation.organization_id == organization_id)
+                .order_by(Conversation.updated_at.desc())
+                .limit(each)
+            )
+        ).scalars().all()
+        for conversation_id in conversation_ids:
+            count += await self.sync_entity_edges(db, organization_id=organization_id, entity_type="conversation", entity_id=conversation_id)
+        return count
+
+    async def traverse(
+        self, db: AsyncSession, *, organization_id: str, start_type: str, start_id: str,
+        max_depth: int = 3, max_nodes: int = 64, max_edges: int = 128,
+    ) -> dict[str, Any]:
+        """Bounded BFS traversal of the org graph from one node.
+
+        Never loads the whole graph: each hop is an indexed edge lookup on
+        (organization_id, source/target_type, source/target_id), stopped by
+        hard caps on depth, nodes and edges.
+        """
+        nodes: list[dict[str, str]] = [{"type": start_type, "id": start_id}]
+        edges: list[dict[str, Any]] = []
+        visited: set[tuple[str, str]] = {(start_type, start_id)}
+        frontier: list[tuple[str, str, int]] = [(start_type, start_id, 0)]
+        edge_seen: set[str] = set()
+        truncated = False
+        while frontier:
+            ntype, nid, depth = frontier.pop(0)
+            if depth + 1 > max_depth or len(nodes) >= max_nodes or len(edges) >= max_edges:
+                continue
+            out = (
+                await db.execute(
+                    select(OrgGraphEdge).where(
+                        OrgGraphEdge.organization_id == organization_id,
+                        OrgGraphEdge.active.is_(True),
+                        OrgGraphEdge.source_type == ntype,
+                        OrgGraphEdge.source_id == nid,
+                    ).limit(max_edges)
+                )
+            ).scalars().all()
+            incoming = (
+                await db.execute(
+                    select(OrgGraphEdge).where(
+                        OrgGraphEdge.organization_id == organization_id,
+                        OrgGraphEdge.active.is_(True),
+                        OrgGraphEdge.target_type == ntype,
+                        OrgGraphEdge.target_id == nid,
+                    ).limit(max_edges)
+                )
+            ).scalars().all()
+            for edge in list(out) + list(incoming):
+                if len(edges) >= max_edges:
+                    truncated = True
+                    continue
+                key = edge.id
+                if key in edge_seen:
+                    continue
+                edge_seen.add(key)
+                a = (edge.source_type, edge.source_id)
+                b = (edge.target_type, edge.target_id)
+                edges.append({"source_type": edge.source_type, "source_id": edge.source_id,
+                              "target_type": edge.target_type, "target_id": edge.target_id,
+                              "relation": edge.relation})
+                for node in (a, b):
+                    if node not in visited and len(nodes) < max_nodes:
+                        visited.add(node)
+                        nodes.append({"type": node[0], "id": node[1]})
+                        frontier.append((node[0], node[1], depth + 1))
+        return {"nodes": nodes, "edges": edges, "truncated": truncated,
+                "limits": {"max_depth": max_depth, "max_nodes": max_nodes, "max_edges": max_edges}}
 
     # ------------------------------------------------------------------ queries
 

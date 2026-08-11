@@ -1,5 +1,5 @@
 /**
- * VCOS TypeScript API contracts — mirror of the backend OpenAPI schemas (Phase 1).
+ * VCOS TypeScript API contracts â mirror of the backend OpenAPI schemas (Phase 1).
  */
 
 export interface Organization {
@@ -283,7 +283,7 @@ export interface PlatformInfo {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2 — People & Organization
+// Phase 2 â People & Organization
 // ---------------------------------------------------------------------------
 
 export interface EmployeeSummary {
@@ -602,7 +602,7 @@ export interface Availability {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 3 — Work Execution Engine
+// Phase 3 â Work Execution Engine
 // ---------------------------------------------------------------------------
 
 export interface Project {
@@ -1362,7 +1362,7 @@ export interface ExecutiveDashboard {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 4 — Knowledge Operating System
+// Phase 4 â Knowledge Operating System
 // ---------------------------------------------------------------------------
 
 export interface KnowledgeBase {
@@ -1683,7 +1683,7 @@ export interface WikiTreeNode {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 5 — Communication & Community
+// Phase 5 â Communication & Community
 // ---------------------------------------------------------------------------
 
 export interface Community {
@@ -2039,3 +2039,54 @@ export const POST_REACTIONS = [
   "love",
   "insightful",
 ] as const;
+
+
+// Slice 4D.1 - Canonical Company Intelligence & Evidence Layer
+
+export interface BrainAnswerRequest {
+  question: string;
+  entity_type?: string | null;
+  entity_id?: string | null;
+}
+
+export interface BrainEvidenceRef {
+  type: string;
+  id: string;
+  title: string;
+  url: string;
+}
+
+export interface BrainClaim {
+  claim: string;
+  evidence: BrainEvidenceRef[];
+  confidence: number;
+  auth_scope: { scope_ids: string[] };
+  timestamp: string;
+}
+
+export interface BrainAnswer {
+  question: string;
+  claims: BrainClaim[];
+  scope_ids: string[];
+  answered_at: string;
+}
+
+export interface BrainGraphRelationshipNode {
+  type: string;
+  id: string;
+}
+
+export interface BrainGraphRelationshipEdge {
+  source_type: string;
+  source_id: string;
+  target_type: string;
+  target_id: string;
+  relation: string;
+}
+
+export interface BrainGraphTraversal {
+  nodes: BrainGraphRelationshipNode[];
+  edges: BrainGraphRelationshipEdge[];
+  truncated: boolean;
+  limits: { max_depth: number; max_nodes: number; max_edges: number };
+}

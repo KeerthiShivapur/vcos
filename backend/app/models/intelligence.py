@@ -111,6 +111,39 @@ class OrgGraphEdge(Base, TimestampMixin):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
+class CompanyInsight(Base, TimestampMixin):
+    """Per-entity company intelligence freshness (Slice 4D.1).
+
+    One row per (organization, entity_type, entity_id): a bounded summary kept
+    fresh by change-driven consumers. The brain reads live evidence from the
+    underlying tables; this table only marks what changed, why, and when, so
+    consumers can show a knowledge-staleness signal without a full rescan.
+    """
+
+    __tablename__ = "company_insights"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "entity_type", "entity_id",
+            name="uq_company_insight_entity",
+        ),
+        Index("ix_company_insight_refresh", "organization_id", "updated_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    entity_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    entity_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    kind: Mapped[str] = mapped_column(String(40), default="context", nullable=False)
+    title: Mapped[Optional[str]] = mapped_column(String(300))
+    status: Mapped[Optional[str]] = mapped_column(String(40))
+    scope_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    reason: Mapped[Optional[str]] = mapped_column(String(200))
+    detail: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+    touched_by: Mapped[Optional[str]] = mapped_column(String(32))
+
+
 class GraphUpdate(Base, TimestampMixin):
     """Audit trail of graph mutations made by the graph worker."""
 
