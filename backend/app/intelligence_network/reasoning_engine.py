@@ -197,6 +197,7 @@ class ReasoningEngine:
         if "who knows" in lowered or "knows this" in lowered or "expert" in lowered:
             claims.extend(await self._expertise_claims(db, organization_id, question, context, scope_ids))
         claims.extend(await self._pattern_claims(db, organization_id, lowered, scope_ids, user=user))
+        claims.extend(await self._insight_claims(db, organization_id, lowered, scope_ids, user=user))
         if user is not None:
             claims.extend(
                 await self._historical_memory_claims(db, organization_id, lowered, scope_ids, user=user)
@@ -262,6 +263,67 @@ class ReasoningEngine:
                 "family": pattern.get("family"),
                 "pattern_type": pattern.get("pattern_type"),
                 "occurrence_count": pattern.get("occurrence_count"),
+            })
+        return claims
+
+    async def _insight_claims(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        lowered: str,
+        scope_ids: list[str],
+        user: Optional[Any] = None,
+    ) -> list[dict[str, Any]]:
+        """Slice 4D.5 — universal company insights in answers.
+
+        Insight questions ("what's happening in the company?", "why is my
+        project stuck?", "is anything systemic?") surface the caller's
+        visible insights — observation only, never recommendation, labeled
+        with their compositional confidence so they can never be mistaken
+        for prescriptive advice.
+        """
+        asks_insights = any(
+            trigger in lowered
+            for trigger in (
+                "what's happening", "what is happening", "whats happening",
+                "what is going on", "whats going on", "what's going on",
+                "company insight", "insight", "systemic", "overall",
+                "why is", "why are", "stuck", "happening",
+            )
+        )
+        if not asks_insights:
+            return []
+        if user is None:
+            return []
+        from app.intelligence.insight_engine import insight_engine
+
+        result = await insight_engine.list_visible(
+            db, organization_id=organization_id, user=user, limit=5
+        )
+        claims: list[dict[str, Any]] = []
+        for insight in result.get("insights", []):
+            confidence = round(float(insight.get("confidence") or 0.4), 2)
+            title = insight.get("title") or insight.get("insight_type")
+            claims.append({
+                "claim": (
+                    f"Company insight ({insight.get('insight_type')}): {title} — "
+                    f"severity {insight.get('severity')} "
+                    f"(confidence {confidence})."
+                ),
+                "evidence": [
+                    {
+                        "type": "insight",
+                        "id": insight["id"],
+                        "title": title,
+                        "url": f"/brain/insights/{insight['id']}",
+                    }
+                ],
+                "confidence": confidence,
+                "auth_scope": {"scope_ids": scope_ids},
+                "timestamp": insight.get("last_observed_at") or utcnow().isoformat(),
+                "kind": "insight",
+                "insight_type": insight.get("insight_type"),
+                "severity": insight.get("severity"),
             })
         return claims
 

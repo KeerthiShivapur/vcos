@@ -56,6 +56,7 @@ WORKER_REGISTRY: list[tuple[str, int]] = [
     ("expertise_evolve", 3600), # expertise decay + aggregate refresh
     ("workflow_intel", 3600),   # approval bottlenecks + automation chances
     ("pattern", 120),            # Slice 4D.4: change-driven pattern evaluation
+    ("insight", 120),            # Slice 4D.5: change-driven universal insight composition
     ("learning", 43200),        # lessons learned + AI memory growth
     ("insights", 86400),        # autonomous daily briefs + notifications
     ("recommendation_feed", 86400),  # personalized recommendation feeds

@@ -356,6 +356,11 @@ EVENT_CATALOG: dict[str, str] = {
     "pattern.confirmed": "A pattern was confirmed by enough evidence",
     "pattern.faded": "A pattern stopped recurring and faded",
     "pattern.resolved": "A pattern was resolved (no longer observed)",
+    # --- Slice 4D.5 — universal company insight intelligence
+    "insight.detected": "A company-level insight was first observed",
+    "insight.updated": "An insight recomposed from changed evidence",
+    "insight.faded": "An insight stopped having active support and faded",
+    "insight.resolved": "An insight was resolved (underlying evidence closed)",
 }
 # Events that feed the expertise engine (entity employee).
 EXPERTISE_EVENTS: dict[str, tuple[float, str]] = {

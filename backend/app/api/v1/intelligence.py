@@ -165,6 +165,7 @@ _WORKER_MODULES = {
     "expertise_evolve": "app.workers.expertise_evolve_worker",
     "workflow_intel": "app.workers.workflow_intel_worker",
     "pattern": "app.workers.pattern_worker",
+    "insight": "app.workers.insight_worker",
     "learning": "app.workers.learning_worker",
     "insights": "app.workers.insights_worker",
     "recommendation_feed": "app.workers.recommendation_feed_worker",

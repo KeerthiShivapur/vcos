@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_organization, require_permission
 from app.db.database import get_db
 from app.intelligence.graph_engine import graph_engine as company_graph
+from app.intelligence.insight_engine import insight_engine
 from app.intelligence.pattern_engine import pattern_engine
 from app.kernel.organization_kernel import organization_kernel
 from app.models.organization import Organization
@@ -854,4 +855,88 @@ async def brain_pattern_related(
     )
     if result is None:
         raise HTTPException(status_code=404, detail="pattern not found")
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Slice 4D.5 — universal company insights (governance-scoped, observation only)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/insights")
+async def brain_insights_list(
+    status: Optional[str] = None,
+    insight_type: Optional[str] = None,
+    severity: Optional[str] = None,
+    limit: int = Query(default=50, ge=1, le=200),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Universal company insights — governance-scoped, evidence-backed."""
+    return await insight_engine.list_visible(
+        db, organization_id=org.id, user=user,
+        limit=limit, status=status, insight_type=insight_type, severity=severity,
+    )
+
+
+@router.get("/insights/{insight_id}")
+async def brain_insight_get(
+    insight_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    result = await insight_engine.get_visible(
+        db, organization_id=org.id, user=user, insight_id=insight_id
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="insight not found")
+    return result
+
+
+@router.get("/insights/{insight_id}/evidence")
+async def brain_insight_evidence(
+    insight_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    result = await insight_engine.evidence_visible(
+        db, organization_id=org.id, user=user, insight_id=insight_id
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="insight not found")
+    return result
+
+
+@router.get("/insights/{insight_id}/history")
+async def brain_insight_history(
+    insight_id: str,
+    limit: int = Query(default=50, ge=1, le=200),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    result = await insight_engine.history_visible(
+        db, organization_id=org.id, user=user, insight_id=insight_id, limit=limit
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="insight not found")
+    return result
+
+
+@router.get("/insights/{insight_id}/related")
+async def brain_insight_related(
+    insight_id: str,
+    limit: int = Query(default=10, ge=1, le=50),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    result = await insight_engine.related_visible(
+        db, organization_id=org.id, user=user, insight_id=insight_id, limit=limit
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="insight not found")
     return result

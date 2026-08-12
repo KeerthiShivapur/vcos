@@ -31,9 +31,14 @@ import type {
   BrainMemorySearchResponse,
   BrainMemoryTimelineResponse,
   BrainPattern,
-  BrainPatternEvidenceResponse,
-  BrainPatternHistoryResponse,
-  BrainPatternRelatedResponse,
+    BrainPatternEvidenceResponse,
+    BrainPatternHistoryResponse,
+    BrainPatternRelatedResponse,
+    BrainInsight,
+    BrainInsightEvidenceResponse,
+    BrainInsightHistoryResponse,
+    BrainInsightRelatedResponse,
+    BrainInsightsListResponse,
   BrainPatternsListResponse,
   CalendarEvent,
   CalendarFeedItem,
@@ -7751,14 +7756,51 @@ export async function brainPatternRelated(
 }
 
 export async function brainPatternSetStatus(
-  patternId: string,
-  status: string
-): Promise<{ id: string; status: string }> {
-  return api(`/brain/patterns/${patternId}`, {
-    method: "PATCH",
-    body: { status },
-  });
-}
+    patternId: string,
+    status: string
+  ): Promise<{ id: string; status: string }> {
+    return api(`/brain/patterns/${patternId}`, {
+      method: "PATCH",
+      body: { status },
+    });
+  }
+
+  export async function brainInsightsList(params?: {
+    status?: string;
+    insight_type?: string;
+    severity?: string;
+    limit?: number;
+  }): Promise<BrainInsightsListResponse> {
+    return api<BrainInsightsListResponse>("/brain/insights", { query: params });
+  }
+
+  export async function brainInsightGet(insightId: string): Promise<BrainInsight> {
+    return api<BrainInsight>(`/brain/insights/${insightId}`);
+  }
+
+  export async function brainInsightEvidence(
+    insightId: string
+  ): Promise<BrainInsightEvidenceResponse> {
+    return api<BrainInsightEvidenceResponse>(`/brain/insights/${insightId}/evidence`);
+  }
+
+  export async function brainInsightHistory(
+    insightId: string,
+    params?: { limit?: number }
+  ): Promise<BrainInsightHistoryResponse> {
+    return api<BrainInsightHistoryResponse>(`/brain/insights/${insightId}/history`, {
+      query: params,
+    });
+  }
+
+  export async function brainInsightRelated(
+    insightId: string,
+    params?: { limit?: number }
+  ): Promise<BrainInsightRelatedResponse> {
+    return api<BrainInsightRelatedResponse>(`/brain/insights/${insightId}/related`, {
+      query: params,
+    });
+  }
 
 export async function brainGraphRelationshipSync(payload: {
   entity_type?: string;

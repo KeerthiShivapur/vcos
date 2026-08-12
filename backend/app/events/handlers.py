@@ -2013,3 +2013,47 @@ for _event_name in (
     "ticket.escalated",
 ):
     on(_event_name)(handle_pattern_evaluation_enqueue)
+
+
+# ---------------------------------------------------------------------------
+# Slice 4D.5 — universal company insight intelligence (change-driven)
+# ---------------------------------------------------------------------------
+
+
+async def handle_insight_evaluation_enqueue(db, event, payload):
+    """Observable events enqueue one durable insight-evaluation job.
+
+    The job runs in the insight worker (bounded FIFO batches, CAS claim); the
+    enqueue is idempotent under the (name, event_id) uniqueness constraint.
+    This handler never writes insights directly — composition runs in its own
+    worker transaction.
+    """
+    org_id = payload.get("organization_id") or event.organization_id
+    if not org_id:
+        return
+    try:
+        from app.intelligence import insight_pipeline
+
+        await insight_pipeline.enqueue_evaluation(
+            db,
+            organization_id=org_id,
+            event_id=event.id,
+            name=event.name,
+        )
+    except Exception:  # noqa: BLE001 - per-event isolation
+        logger.exception("insight evaluation enqueue failed for %s", event.name)
+
+
+for _event_name in (
+    "pattern.detected",
+    "pattern.updated",
+    "pattern.confirmed",
+    "pattern.faded",
+    "pattern.resolved",
+    "memory.recorded",
+    "decision.made",
+    "approval.requested",
+    "approval.approved",
+    "approval.rejected",
+):
+    on(_event_name)(handle_insight_evaluation_enqueue)

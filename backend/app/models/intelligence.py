@@ -423,6 +423,120 @@ class PatternEvent(Base, TimestampMixin):
     relationship: Mapped[str] = mapped_column(String(20), default="occurrence")
 
 
+# --- Slice 4D.5 — universal company insight intelligence ---------------------
+
+# Insight severity (deterministic, derived from confidence + impact).
+INSIGHT_SEVERITIES = ("info", "warning", "critical")
+# Insight lifecycle (auto-managed by the insight worker, observational only).
+INSIGHT_STATUSES = ("active", "faded", "resolved")
+# Domains the insight registry can compose across.
+INSIGHT_DOMAINS = (
+    "execution",
+    "decision",
+    "governance",
+    "communication",
+    "knowledge",
+    "organization",
+    "people",
+    "cross_domain",
+)
+
+
+class UniversalInsight(Base, TimestampMixin):
+    """Canonical company-level insight (Slice 4D.5).
+
+    The composition layer above the 4D.1-4D.4 primitives: one canonical insight
+    representation that connects patterns, memories, graph relationships,
+    decisions, approvals, dependencies, tasks and projects into a single
+    evidence-backed, governance-scoped statement about the company.
+
+    ``claim`` + ``evidence`` + ``confidence`` + ``scope`` + affected entities
+    + timestamps. No unsupported AI statements: every field is derived from
+    real rows by deterministic registry rules; ``confidence_components``
+    explains exactly why the bounded score is what it is.
+
+    Observational-only: written by the insight pipeline / worker, never by
+    API request handlers, and no operating table is ever mutated.
+    """
+
+    __tablename__ = "universal_insights"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "insight_type", "key", name="uq_universal_insight_key"
+        ),
+        Index("ix_universal_insights_org_status", "organization_id", "status"),
+        Index("ix_universal_insights_org_type", "organization_id", "insight_type"),
+        Index("ix_universal_insights_scope", "scope_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # registry key, e.g. "execution_bottleneck"
+    insight_type: Mapped[str] = mapped_column(String(60), nullable=False)
+    # natural deduplication key within (organization_id, insight_type),
+    # e.g. "project:8793b1..." — the same underlying situation always maps to
+    # the same insight row (deduplication, replay-safe).
+    key: Mapped[str] = mapped_column(String(240), nullable=False)
+    domain: Mapped[str] = mapped_column(String(30), default="cross_domain", nullable=False)
+    severity: Mapped[str] = mapped_column(String(20), default="info", nullable=False)
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    # the core, defensible statement
+    claim: Mapped[Optional[str]] = mapped_column(Text)
+    summary: Mapped[Optional[str]] = mapped_column(Text)
+    confidence: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    # compositional confidence explanation: component -> value
+    confidence_components: Mapped[Optional[dict]] = mapped_column(JSON)
+    # resolved evidence refs: [{type, id, title, relationship, occurred_at}]
+    evidence_json: Mapped[Optional[list]] = mapped_column(JSON)
+    # graph relationships consumed: [{source_type, source_id, relation, target_type, target_id}]
+    relationships_json: Mapped[Optional[list]] = mapped_column(JSON)
+    supporting_pattern_ids: Mapped[Optional[list]] = mapped_column(JSON)
+    supporting_memory_ids: Mapped[Optional[list]] = mapped_column(JSON)
+    # entities this insight is about: [{type, id, title}]
+    affected_entities: Mapped[Optional[list]] = mapped_column(JSON)
+    # governance inheritance (mirrors patterns / memories)
+    scope_type: Mapped[str] = mapped_column(String(16), default="org")
+    scope_id: Mapped[Optional[str]] = mapped_column(String(32))
+    auth_project_id: Mapped[Optional[str]] = mapped_column(String(32))
+    # active | faded | resolved (auto lifecycle)
+    status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)
+    first_observed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    last_observed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # human lifecycle notes are NOT part of 4D.5 (observation only)
+
+
+class InsightEvent(Base, TimestampMixin):
+    """Lineage link between an insight and the events that fed it (Slice 4D.5).
+
+    Exactly-once: an event may feed multiple insights, so uniqueness is per
+    ``(insight_id, event_id)``; the pipeline checks these links before
+    refreshing an insight, making evaluation idempotent and replay-safe.
+    """
+
+    __tablename__ = "insight_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "insight_id", "event_id", name="uq_insight_events_link"
+        ),
+        Index("ix_insight_events_org", "organization_id"),
+        Index("ix_insight_events_insight", "insight_id"),
+        Index("ix_insight_events_event", "event_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    insight_id: Mapped[str] = mapped_column(
+        ForeignKey("universal_insights.id", ondelete="CASCADE"), nullable=False
+    )
+    event_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    # how the event relates to the insight, e.g. "pattern.updated" | "seed"
+    relationship: Mapped[str] = mapped_column(String(40), default="seed")
+
+
 class LearningEvent(Base, TimestampMixin):
     """Lessons learned — the organization's growing memory of what works."""
 

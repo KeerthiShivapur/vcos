@@ -121,6 +121,7 @@ from app.models.intelligence import (  # noqa: F401
     DuplicateDetection,
     ExpertiseHistory,
     GraphUpdate,
+    InsightEvent,
     KnowledgeInsight,
     LearningEvent,
     OrgGraphEdge,
@@ -129,6 +130,7 @@ from app.models.intelligence import (  # noqa: F401
     RecommendationItem,
     SearchInsight,
     SearchMetric,
+    UniversalInsight,
     WorkflowInsight,
 )
 from app.models.learning_profile import (  # noqa: F401
@@ -477,6 +479,8 @@ __all__ = [
     "DuplicateDetection",
     "PatternDetection",
     "PatternEvent",
+    "UniversalInsight",
+    "InsightEvent",
     "LearningEvent",
     "DailyBrief",
     "RecommendationItem",

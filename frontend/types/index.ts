@@ -2276,11 +2276,98 @@ export interface BrainPatternHistoryResponse {
 }
 
 export interface BrainPatternRelatedResponse {
-  pattern_id: string;
-  related: Array<BrainPattern & { relation: string }>;
-}
+    pattern_id: string;
+    related: Array<BrainPattern & { relation: string }>;
+  }
 
-export interface BrainGraphRelationshipNode {
+  export type InsightType =
+    | "execution_bottleneck"
+    | "decision_bottleneck"
+    | "ownership_ambiguity"
+    | "knowledge_gap"
+    | "communication_breakdown"
+    | "organizational_bottleneck"
+    | "governance_bottleneck"
+    | "repeated_organizational_issue"
+    | "cross_domain_risk";
+
+  export type InsightSeverity = "info" | "warning" | "critical";
+  export type InsightStatus = "active" | "faded" | "resolved";
+
+  export interface BrainInsightEvidenceItem {
+    type: string;
+    id: string;
+    title?: string;
+    relationship?: string;
+    occurred_at?: string | null;
+    meta?: Record<string, unknown>;
+  }
+
+  export interface BrainInsight {
+    id: string;
+    insight_type: InsightType;
+    key?: string | null;
+    domain: string;
+    severity: InsightSeverity;
+    title: string;
+    claim?: string | null;
+    summary?: string | null;
+    confidence: number;
+    confidence_components: {
+      occurrence_strength?: number;
+      evidence_completeness?: number;
+      pattern_confidence?: number;
+      memory_corroboration?: number;
+      recency?: number;
+      weights?: Record<string, number>;
+    };
+    evidence: BrainInsightEvidenceItem[];
+    relationships: Array<Record<string, unknown>>;
+    supporting_pattern_ids: string[];
+    supporting_memory_ids: string[];
+    scope_type: string;
+    scope_id?: string | null;
+    auth_project_id?: string | null;
+    status: InsightStatus;
+    affected_entities: Array<{ type: string; id: string; title?: string }>;
+    first_observed_at?: string | null;
+    last_observed_at?: string | null;
+  }
+
+  export interface BrainInsightsListResponse {
+    insights: BrainInsight[];
+    limit: number;
+    truncated: boolean;
+    org_wide: boolean;
+  }
+
+  export interface BrainInsightEvidenceResponse {
+    insight_id: string;
+    insight_type: string;
+    evidence: BrainInsightEvidenceItem[];
+    supporting_pattern_ids: string[];
+    supporting_memory_ids: string[];
+  }
+
+  export interface BrainInsightHistoryResponse {
+    insight_id: string;
+    history: Array<{
+      event_id: string;
+      event_name: string;
+      relationship: string;
+      occurred_at?: string | null;
+    }>;
+    first_observed_at?: string | null;
+    last_observed_at?: string | null;
+    status: InsightStatus;
+  }
+
+  export interface BrainInsightRelatedResponse {
+    insight_id: string;
+    related: Array<BrainInsight & { relation: string }>;
+  }
+
+  export interface BrainGraphRelationshipNode {
   type: string;
   id: string;
 }
