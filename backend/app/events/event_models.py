@@ -350,6 +350,12 @@ EVENT_CATALOG: dict[str, str] = {
     "company.intel.context_refreshed": "A governance-scoped company context was refreshed",
     "company.intel.insight.created": "A company intelligence insight was created",
     "company.intel.insight.updated": "A company intelligence insight was updated",
+    # --- Slice 4D.4 — universal organizational pattern intelligence
+    "pattern.detected": "A repeating organizational pattern was first observed",
+    "pattern.updated": "A pattern gained a new occurrence or updated confidence",
+    "pattern.confirmed": "A pattern was confirmed by enough evidence",
+    "pattern.faded": "A pattern stopped recurring and faded",
+    "pattern.resolved": "A pattern was resolved (no longer observed)",
 }
 # Events that feed the expertise engine (entity employee).
 EXPERTISE_EVENTS: dict[str, tuple[float, str]] = {

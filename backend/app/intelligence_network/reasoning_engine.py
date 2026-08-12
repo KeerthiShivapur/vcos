@@ -196,6 +196,7 @@ class ReasoningEngine:
             claims.extend(await self._dependency_claims(db, organization_id, evidence, scope_ids))
         if "who knows" in lowered or "knows this" in lowered or "expert" in lowered:
             claims.extend(await self._expertise_claims(db, organization_id, question, context, scope_ids))
+        claims.extend(await self._pattern_claims(db, organization_id, lowered, scope_ids, user=user))
         if user is not None:
             claims.extend(
                 await self._historical_memory_claims(db, organization_id, lowered, scope_ids, user=user)
@@ -203,6 +204,65 @@ class ReasoningEngine:
 
         if not claims:
             claims = await self._overview_claims(db, organization_id, scope_ids)
+        return claims
+
+    async def _pattern_claims(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        lowered: str,
+        scope_ids: list[str],
+        user: Optional[Any] = None,
+    ) -> list[dict[str, Any]]:
+        """Slice 4D.4 — universal organizational pattern intelligence in answers.
+
+        Pattern questions ("why do delays keep happening?", "is this a
+        recurring problem?") surface evidence-backed patterns the caller may
+        actually access — never observation buffers, never hidden patterns.
+        """
+        asks_patterns = any(
+            trigger in lowered
+            for trigger in (
+                "pattern", "recurring", "repeating", "keeps", "always",
+                "bottleneck", "repeatedly", "tendency", "systemic",
+            )
+        )
+        if not asks_patterns:
+            return []
+        if user is None:
+            return []
+        from app.intelligence.pattern_engine import pattern_engine
+
+        result = await pattern_engine.list_visible(
+            db, organization_id=organization_id, user=user, limit=5
+        )
+        claims: list[dict[str, Any]] = []
+        for pattern in result.get("patterns", []):
+            confidence = round(float(pattern.get("confidence") or 0.4), 2)
+            title = pattern.get("title") or pattern.get("pattern_type")
+            claims.append({
+                "claim": (
+                    f"Recurring pattern ({pattern.get('family')}): {title} "
+                    f"— seen {pattern.get('occurrence_count')}x over "
+                    f"{pattern.get('time_window_days') or 'recent'} days, "
+                    f"lifecycle {pattern.get('status')}."
+                ),
+                "evidence": [
+                    {
+                        "type": "pattern",
+                        "id": pattern["id"],
+                        "title": title,
+                        "url": f"/brain/patterns/{pattern['id']}",
+                    }
+                ],
+                "confidence": confidence,
+                "auth_scope": {"scope_ids": scope_ids},
+                "timestamp": pattern.get("last_seen") or utcnow().isoformat(),
+                "kind": "pattern",
+                "family": pattern.get("family"),
+                "pattern_type": pattern.get("pattern_type"),
+                "occurrence_count": pattern.get("occurrence_count"),
+            })
         return claims
 
     async def _historical_memory_claims(

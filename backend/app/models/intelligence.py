@@ -20,6 +20,26 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# --- Slice 4D.4 — universal organizational pattern intelligence --------------
+
+# Pattern lifecycle (canonical ``PatternDetection.status`` values).
+PATTERN_LIFECYCLE = ("candidate", "emerging", "confirmed", "persistent", "fading", "resolved")
+# Lifecycle values that still represent an active, observable pattern.
+ACTIVE_PATTERN_STATUSES = ("candidate", "emerging", "confirmed", "persistent", "fading")
+# Legacy Phase 9 statuses still accepted for read/write compatibility.
+LEGACY_PATTERN_STATUSES = ("open", "acknowledged", "dismissed")
+
+# Pattern families (from the 4D.4 registry).
+PATTERN_FAMILIES = (
+    "execution",
+    "decision",
+    "governance",
+    "communication",
+    "knowledge",
+    "organization",
+)
+
+
 class BackgroundJob(Base, TimestampMixin):
     """A background job with retry + idempotency bookkeeping.
 
@@ -293,11 +313,24 @@ class DuplicateDetection(Base, TimestampMixin):
 
 
 class PatternDetection(Base, TimestampMixin):
-    """Repeated organizational patterns turned into insights."""
+    """Repeated organizational patterns turned into insights.
+
+    Slice 4D.4 — universal organizational pattern intelligence. Patterns are
+    change-driven (one ``pattern.evaluate`` job per significant event), carry
+    first-class evidence lineage (``evidence_json`` / ``supporting_event_ids``),
+    a configurable lifecycle (``status``: candidate -> emerging -> confirmed ->
+    persistent -> fading -> resolved), bounded confidence in [0, 1], governance
+    scope inheritance (``scope_id`` / ``scope_type`` / ``auth_project_id``) and
+    a natural key (``organization_id``, ``pattern_type``, ``key``) for
+    idempotent upsert.
+    """
 
     __tablename__ = "pattern_detections"
     __table_args__ = (
         Index("ix_patterns_org_type", "organization_id", "pattern_type"),
+        Index("ix_patterns_org_lifecycle", "organization_id", "status"),
+        Index("ix_patterns_org_last_seen", "organization_id", "last_seen"),
+        Index("ix_patterns_org_updated", "organization_id", "updated_at"),
         UniqueConstraint("organization_id", "pattern_type", "key", name="uq_pattern_key"),
     )
 
@@ -305,16 +338,89 @@ class PatternDetection(Base, TimestampMixin):
     organization_id: Mapped[str] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    pattern_type: Mapped[str] = mapped_column(String(60), nullable=False)  # repeated_delay | repeated_incident | approval_bottleneck | knowledge_gap | onboarding
+    pattern_type: Mapped[str] = mapped_column(String(60), nullable=False)  # repeated_delay | decision_reversal | approval_bottleneck | knowledge_gap | ...
     key: Mapped[str] = mapped_column(String(300), nullable=False)  # natural key for idempotent upsert
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     detail: Mapped[Optional[str]] = mapped_column(Text)
+    # --- Slice 4D.4 canonical fields ----------------------------------------
+    # Pattern family: execution | decision | governance | communication |
+    # knowledge | organization
+    family: Mapped[str] = mapped_column(String(20), default="execution", nullable=False)
+    # Human explanation of why VCOS believes this is a pattern.
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    # Lifecycle: candidate | emerging | confirmed | persistent | fading | resolved
+    # (legacy Phase 9 values open | acknowledged | resolved are still readable)
+    status: Mapped[str] = mapped_column(String(20), default="candidate", nullable=False)
+    # Observed occurrences of the pattern (the pattern's repetition count).
     count: Mapped[int] = mapped_column(Integer, default=0)
-    confidence: Mapped[float] = mapped_column(Float, default=0.5)
-    evidence: Mapped[Optional[str]] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(String(20), default="open", nullable=False)  # open | acknowledged | resolved
+    confidence: Mapped[float] = mapped_column(Float, default=0.3)
+    evidence: Mapped[Optional[str]] = mapped_column(Text)  # legacy flat evidence string
+    # Evidence lineage: [{"type": "event", "id": ..., "relationship": "occurrence"}, ...]
+    # Real VCOS objects only (task/project/decision/message/memory/event) — a
+    # pattern can always answer "why does VCOS believe this?".
+    evidence_json: Mapped[Optional[list]] = mapped_column(JSON, default=list)
+    # Affected entities: [{"type": "project", "id": ..., "title": ...}, ...]
+    entities_json: Mapped[Optional[list]] = mapped_column(JSON, default=list)
+    # Supporting organizational memory ids (Slice 4D.3 CompanyMemory).
+    supporting_memory_ids: Mapped[Optional[list]] = mapped_column(JSON, default=list)
+    # Origin events that produced the occurrences (deduplicated).
+    supporting_event_ids: Mapped[Optional[list]] = mapped_column(JSON, default=list)
+    # Organization graph edges that corroborate the pattern.
+    supporting_relationships: Mapped[Optional[list]] = mapped_column(JSON, default=list)
+    # Confidence component breakdown (evidence quality, temporal, support...).
+    detail_json: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+    # Governance scope inherited from the pattern's evidence (project-anchored).
+    scope_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    scope_type: Mapped[str] = mapped_column(String(16), default="org", nullable=False)  # org | project
+    auth_project_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    # Temporal: observation window and recurrence behaviour.
+    time_window_days: Mapped[int] = mapped_column(Integer, default=30)
+    trend: Mapped[str] = mapped_column(String(20), default="stable")  # rising | stable | fading
+    avg_interval_days: Mapped[Optional[float]] = mapped_column(Float)
+    last_evaluated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    @property
+    def pattern_key(self) -> str:
+        return self.key
+
+    @property
+    def occurrence_count(self) -> int:
+        return self.count
+
+
+class PatternEvent(Base, TimestampMixin):
+    """Lineage link between a pattern and the events that fed it (Slice 4D.4).
+
+    An event may feed multiple patterns (e.g. ``task.blocked`` contributes to
+    the project's repeated-delay pattern and the task's dependency-failure
+    pattern), so the uniqueness is per ``(pattern_id, event_id)``. The pipeline
+    checks these links before counting an occurrence, making evaluation
+    idempotent and replay-safe under the durable ``(name, event_id)`` job
+    constraint.
+    """
+
+    __tablename__ = "pattern_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "pattern_id", "event_id", name="uq_pattern_events_link"
+        ),
+        Index("ix_pattern_events_org", "organization_id"),
+        Index("ix_pattern_events_pattern", "pattern_id"),
+        Index("ix_pattern_events_event", "event_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    pattern_id: Mapped[str] = mapped_column(
+        ForeignKey("pattern_detections.id", ondelete="CASCADE"), nullable=False
+    )
+    event_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    # how the event relates to the pattern, e.g. "occurrence" | "context"
+    relationship: Mapped[str] = mapped_column(String(20), default="occurrence")
 
 
 class LearningEvent(Base, TimestampMixin):

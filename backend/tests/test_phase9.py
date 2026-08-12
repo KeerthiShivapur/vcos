@@ -359,7 +359,15 @@ async def test_pattern_detection(client, db_session):
             headers=headers,
         )
         assert response.status_code == 201, response.text
+        transitioned = await client.post(
+            f"/api/v1/tasks/{response.json()['id']}/transition",
+            json={"status": "blocked"}, headers=headers,
+        )
+        assert transitioned.status_code == 200, transitioned.text
 
+    from app.events.event_bus import event_bus
+
+    await event_bus.process_pending(db_session, limit=200)
     from app.intelligence.pattern_engine import pattern_engine
 
     found = await pattern_engine.scan(db_session, organization_id=org["organization"]["id"])

@@ -17,6 +17,7 @@ import {
   Network,
   Play,
   RefreshCw,
+  Repeat2,
   ScanSearch,
   Sparkles,
   Zap,
@@ -96,6 +97,7 @@ import { Tabs } from "@/components/ui/Tabs";
 import { CompanyBrainTab } from "./company-brain-tab";
 import { SemanticKnowledgeTab } from "./semantic-knowledge-tab";
 import { MemoryTab } from "./memory-tab";
+import { PatternTab } from "./pattern-tab";
 
 export default function IntelligencePage() {
   return (
@@ -330,6 +332,7 @@ function IntelligenceContent() {
       { id: "brain", label: "Company Brain", icon: Sparkles },
       { id: "semantic", label: "Semantic Knowledge", icon: ScanSearch },
       { id: "memory", label: "Company Memory", icon: BookOpen },
+      { id: "patterns", label: "Pattern Intelligence", icon: Repeat2, count: patterns.filter((p) => ["candidate", "emerging", "confirmed", "persistent", "fading"].includes(p.status)).length },
       { id: "events", label: "Event Bus", icon: Activity, count: overview?.jobs.done ?? 0 },
       { id: "workers", label: "Workers", icon: Play },
       { id: "expertise", label: "Expertise", icon: BarChart3 },
@@ -404,6 +407,7 @@ function IntelligenceContent() {
           {tab === "brain" && <CompanyBrainTab />}
           {tab === "semantic" && <SemanticKnowledgeTab />}
           {tab === "memory" && <MemoryTab />}
+          {tab === "patterns" && <PatternTab />}
           {tab === "events" && (
             <EventsTab
               events={events}

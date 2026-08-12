@@ -29,6 +29,7 @@ from app.core.timeutils import utcnow
 from app.events.publisher import publish_background_event
 from app.models.executive import StrategicRisk
 from app.models.intelligence import (
+    ACTIVE_PATTERN_STATUSES,
     BurnoutSignal,
     CollaborationMetric,
     DuplicateDetection,
@@ -229,7 +230,7 @@ class BackgroundRiskEngine:
             await db.execute(
                 select(PatternDetection).where(
                     PatternDetection.organization_id == organization_id,
-                    PatternDetection.status == "open",
+                    PatternDetection.status.in_(ACTIVE_PATTERN_STATUSES),
                     PatternDetection.pattern_type == "repeated_delay",
                     PatternDetection.count >= 2,
                 )

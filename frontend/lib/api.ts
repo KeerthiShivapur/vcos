@@ -30,6 +30,11 @@ import type {
   BrainMemoryRelatedResponse,
   BrainMemorySearchResponse,
   BrainMemoryTimelineResponse,
+  BrainPattern,
+  BrainPatternEvidenceResponse,
+  BrainPatternHistoryResponse,
+  BrainPatternRelatedResponse,
+  BrainPatternsListResponse,
   CalendarEvent,
   CalendarFeedItem,
   ChatMessage,
@@ -7703,6 +7708,55 @@ export async function brainMemoryRecordOutcome(
   return api<BrainMemory>(`/brain/memory/${memoryId}/outcome`, {
     method: "POST",
     body: payload,
+  });
+}
+
+
+// ------------------------------------------------------- Slice 4D.4 patterns
+
+export async function brainPatternsList(params?: {
+  pattern_type?: string;
+  status?: string;
+  limit?: number;
+}): Promise<BrainPatternsListResponse> {
+  return api<BrainPatternsListResponse>("/brain/patterns", { query: params });
+}
+
+export async function brainPatternGet(patternId: string): Promise<BrainPattern> {
+  return api<BrainPattern>(`/brain/patterns/${patternId}`);
+}
+
+export async function brainPatternEvidence(
+  patternId: string
+): Promise<BrainPatternEvidenceResponse> {
+  return api<BrainPatternEvidenceResponse>(`/brain/patterns/${patternId}/evidence`);
+}
+
+export async function brainPatternHistory(
+  patternId: string,
+  params?: { limit?: number }
+): Promise<BrainPatternHistoryResponse> {
+  return api<BrainPatternHistoryResponse>(`/brain/patterns/${patternId}/history`, {
+    query: params,
+  });
+}
+
+export async function brainPatternRelated(
+  patternId: string,
+  params?: { limit?: number }
+): Promise<BrainPatternRelatedResponse> {
+  return api<BrainPatternRelatedResponse>(`/brain/patterns/${patternId}/related`, {
+    query: params,
+  });
+}
+
+export async function brainPatternSetStatus(
+  patternId: string,
+  status: string
+): Promise<{ id: string; status: string }> {
+  return api(`/brain/patterns/${patternId}`, {
+    method: "PATCH",
+    body: { status },
   });
 }
 

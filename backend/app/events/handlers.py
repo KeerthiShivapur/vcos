@@ -1955,3 +1955,61 @@ for _event_name in (
     "customer.renewed",
 ):
     on(_event_name)(handle_memory_formation_enqueue)
+
+
+# ---------------------------------------------------------------------------
+# Slice 4D.4 — universal organizational pattern intelligence (change-driven)
+# ---------------------------------------------------------------------------
+
+
+async def handle_pattern_evaluation_enqueue(db, event, payload):
+    """Significant events enqueue a durable pattern-evaluation job.
+
+    The job runs in the pattern worker (bounded FIFO batches); the enqueue
+    itself is idempotent under the (name, event_id) uniqueness constraint.
+    This handler never writes patterns directly — the evaluation pipeline
+    runs in its own transaction, keeping the event dispatch transaction small.
+    """
+    org_id = payload.get("organization_id") or event.organization_id
+    if not org_id:
+        return
+    try:
+        from app.intelligence import pattern_pipeline
+
+        await pattern_pipeline.enqueue_evaluation(
+            db,
+            organization_id=org_id,
+            event_id=event.id,
+            name=event.name,
+        )
+    except Exception:  # noqa: BLE001 - per-event isolation
+        logger.exception("pattern evaluation enqueue failed for %s", event.name)
+
+
+for _event_name in (
+    "task.blocked",
+    "task.unblocked",
+    "task.transitioned",
+    "task.completed",
+    "task.commented",
+    "task.updated",
+    "project.started",
+    "project.paused",
+    "project.completed",
+    "project.cancelled",
+    "milestone.completed",
+    "decision.made",
+    "decision.updated",
+    "decision.executed",
+    "decision.implemented",
+    "approval.requested",
+    "approval.approved",
+    "approval.rejected",
+    "governance.assignment.created",
+    "governance.assignment.removed",
+    "governance.delegation.created",
+    "governance.delegation.revoked",
+    "employee.transferred",
+    "ticket.escalated",
+):
+    on(_event_name)(handle_pattern_evaluation_enqueue)

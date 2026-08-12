@@ -2182,7 +2182,102 @@ export interface BrainMemoryOutcomeRequest {
   entity_type?: string | null;
   entity_id?: string | null;
   outcome_type: "positive" | "negative" | "partial" | "unresolved";
-  outcome?: string | null;
+  outcome: string | null;
+}
+
+// Slice 4D.4 - Universal Organizational Pattern Intelligence
+
+export type PatternFamily =
+  | "execution"
+  | "decision"
+  | "governance"
+  | "communication"
+  | "knowledge"
+  | "organization";
+
+export type PatternLifecycle =
+  | "candidate"
+  | "emerging"
+  | "confirmed"
+  | "persistent"
+  | "fading"
+  | "resolved"
+  | "open"
+  | "acknowledged"
+  | "dismissed";
+
+export interface BrainPattern {
+  id: string;
+  pattern_type: string;
+  pattern_key: string;
+  family: PatternFamily;
+  title: string;
+  description: string | null;
+  detail: string | null;
+  status: PatternLifecycle;
+  count: number;
+  occurrence_count: number;
+  confidence: number;
+  confidence_label: string;
+  first_seen: string | null;
+  last_seen: string | null;
+  time_window_days: number;
+  scope_id: string | null;
+  scope_type: string;
+  auth_project_id: string | null;
+  entities: Array<{ type: string; id: string; title?: string }>;
+  supporting_memory_ids: string[];
+  supporting_event_ids: string[];
+  supporting_relationships: Array<Record<string, unknown>>;
+  trend: string;
+  avg_interval_days: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface BrainPatternEvidenceItem {
+  type: string;
+  id: string;
+  title?: string;
+  relationship?: string;
+  occurred_at?: string | null;
+}
+
+export interface BrainPatternsListResponse {
+  patterns: BrainPattern[];
+  limit: number;
+  truncated: boolean;
+  org_wide: boolean;
+}
+
+export interface BrainPatternEvidenceResponse {
+  pattern_id: string;
+  pattern_type: string;
+  evidence: BrainPatternEvidenceItem[];
+  supporting_memories: Array<{
+    id: string;
+    title: string;
+    memory_category: string | null;
+    fact_kind: string | null;
+    confidence: number;
+    url: string;
+  }>;
+  relationships: Array<Record<string, unknown>>;
+  entities: Array<{ type: string; id: string; title?: string }>;
+  source_events: string[];
+}
+
+export interface BrainPatternHistoryResponse {
+  pattern_id: string;
+  history: Array<{ event_id: string; event_name: string; occurred_at: string | null }>;
+  first_seen: string | null;
+  last_seen: string | null;
+  occurrence_count: number;
+}
+
+export interface BrainPatternRelatedResponse {
+  pattern_id: string;
+  related: Array<BrainPattern & { relation: string }>;
 }
 
 export interface BrainGraphRelationshipNode {

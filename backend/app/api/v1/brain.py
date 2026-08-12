@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_organization, require_permission
 from app.db.database import get_db
 from app.intelligence.graph_engine import graph_engine as company_graph
+from app.intelligence.pattern_engine import pattern_engine
 from app.kernel.organization_kernel import organization_kernel
 from app.models.organization import Organization
 from app.models.user import User
@@ -69,6 +70,10 @@ class BrainGovernanceIn(BaseModel):
     confidence: float = 0.6
     affected_systems: Optional[list[str]] = None
     requires_approval: bool = True
+
+
+class BrainPatternStatusIn(BaseModel):
+    status: str
 
 
 # ----------------------------------------------------------------- capabilities
@@ -752,4 +757,101 @@ async def brain_resilience_assess(
 ) -> dict[str, Any]:
     result = await organization_kernel.resilience.assess(db, org.id)
     await db.commit()
+    return result
+
+
+# ---------------------------------------------------------- patterns (4D.4)
+
+@router.get("/patterns")
+async def brain_patterns_list(
+    pattern_type: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = Query(default=50, ge=1, le=200),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Universal organizational patterns — governance-scoped, evidence-backed."""
+    return await pattern_engine.list_visible(
+        db, organization_id=org.id, user=user,
+        limit=limit, pattern_type=pattern_type, status=status,
+    )
+
+
+@router.get("/patterns/{pattern_id}")
+async def brain_pattern_get(
+    pattern_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    result = await pattern_engine.get_visible(
+        db, organization_id=org.id, user=user, pattern_id=pattern_id
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="pattern not found")
+    return result
+
+
+@router.patch("/patterns/{pattern_id}")
+async def brain_pattern_status(
+    pattern_id: str,
+    body: BrainPatternStatusIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    result = await pattern_engine.set_status(
+        db, organization_id=org.id, pattern_id=pattern_id, status=body.status
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="pattern not found")
+    await db.commit()
+    return result
+
+
+@router.get("/patterns/{pattern_id}/evidence")
+async def brain_pattern_evidence(
+    pattern_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    result = await pattern_engine.evidence_visible(
+        db, organization_id=org.id, user=user, pattern_id=pattern_id
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="pattern not found")
+    return result
+
+
+@router.get("/patterns/{pattern_id}/history")
+async def brain_pattern_history(
+    pattern_id: str,
+    limit: int = Query(default=50, ge=1, le=200),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    result = await pattern_engine.history_visible(
+        db, organization_id=org.id, user=user, pattern_id=pattern_id, limit=limit
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="pattern not found")
+    return result
+
+
+@router.get("/patterns/{pattern_id}/related")
+async def brain_pattern_related(
+    pattern_id: str,
+    limit: int = Query(default=10, ge=1, le=50),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    result = await pattern_engine.related_visible(
+        db, organization_id=org.id, user=user, pattern_id=pattern_id, limit=limit
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="pattern not found")
     return result

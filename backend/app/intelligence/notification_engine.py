@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.timeutils import utcnow
 from app.models.employee import Employee
 from app.models.executive import StrategicRisk
-from app.models.intelligence import BurnoutSignal, PatternDetection
+from app.models.intelligence import ACTIVE_PATTERN_STATUSES, BurnoutSignal, PatternDetection
 from app.models.notification import Notification
 from app.models.permission_helpers import users_with_permission
 from app.services.notification_service import notification_service
@@ -123,7 +123,7 @@ class NotificationEngine:
             await db.execute(
                 select(PatternDetection).where(
                     PatternDetection.organization_id == organization_id,
-                    PatternDetection.status == "open",
+                    PatternDetection.status.in_(ACTIVE_PATTERN_STATUSES),
                     PatternDetection.pattern_type == "repeated_delay",
                     PatternDetection.count >= 3,
                 )

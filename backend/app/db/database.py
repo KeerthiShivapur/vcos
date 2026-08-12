@@ -129,6 +129,29 @@ _POSTGRES_ALTERS: list[str] = [
     "CREATE INDEX IF NOT EXISTS ix_company_memory_org_category ON company_memory (organization_id, memory_category)",
     "CREATE INDEX IF NOT EXISTS ix_company_memory_org_dedupe ON company_memory (organization_id, dedupe_key)",
     "CREATE INDEX IF NOT EXISTS ix_company_memory_org_auth ON company_memory (organization_id, auth_scope, auth_project_id)",
+    # Slice 4D.4: universal organizational pattern intelligence — canonical
+    # evidence-backed fields on the existing Phase 9 pattern_detections table.
+    # (pattern_events is a new table and is created by create_all at bootstrap.)
+    "ALTER TABLE pattern_detections ADD COLUMN IF NOT EXISTS family VARCHAR(20) DEFAULT 'execution'",
+    "ALTER TABLE pattern_detections ADD COLUMN IF NOT EXISTS description TEXT",
+    "ALTER TABLE pattern_detections ADD COLUMN IF NOT EXISTS evidence_json JSON",
+    "ALTER TABLE pattern_detections ADD COLUMN IF NOT EXISTS entities_json JSON",
+    "ALTER TABLE pattern_detections ADD COLUMN IF NOT EXISTS supporting_memory_ids JSON",
+    "ALTER TABLE pattern_detections ADD COLUMN IF NOT EXISTS supporting_event_ids JSON",
+    "ALTER TABLE pattern_detections ADD COLUMN IF NOT EXISTS supporting_relationships JSON",
+    "ALTER TABLE pattern_detections ADD COLUMN IF NOT EXISTS detail_json JSON",
+    "ALTER TABLE pattern_detections ADD COLUMN IF NOT EXISTS scope_id VARCHAR(32)",
+    "ALTER TABLE pattern_detections ADD COLUMN IF NOT EXISTS scope_type VARCHAR(16) DEFAULT 'org'",
+    "ALTER TABLE pattern_detections ADD COLUMN IF NOT EXISTS auth_project_id VARCHAR(32)",
+    "ALTER TABLE pattern_detections ADD COLUMN IF NOT EXISTS time_window_days INTEGER DEFAULT 30",
+    "ALTER TABLE pattern_detections ADD COLUMN IF NOT EXISTS trend VARCHAR(20) DEFAULT 'stable'",
+    "ALTER TABLE pattern_detections ADD COLUMN IF NOT EXISTS avg_interval_days FLOAT",
+    "ALTER TABLE pattern_detections ADD COLUMN IF NOT EXISTS last_evaluated_at TIMESTAMPTZ",
+    "CREATE INDEX IF NOT EXISTS ix_patterns_org_lifecycle ON pattern_detections (organization_id, status)",
+    "CREATE INDEX IF NOT EXISTS ix_patterns_org_last_seen ON pattern_detections (organization_id, last_seen)",
+    "CREATE INDEX IF NOT EXISTS ix_patterns_org_updated ON pattern_detections (organization_id, updated_at)",
+    "CREATE INDEX IF NOT EXISTS ix_pattern_detections_scope_id ON pattern_detections (scope_id)",
+    "CREATE INDEX IF NOT EXISTS ix_pattern_detections_auth_project_id ON pattern_detections (auth_project_id)",
 ]
 
 

@@ -27,7 +27,7 @@ from app.intelligence.pattern_engine import pattern_engine
 from app.intelligence.risk_engine import background_risk_engine
 from app.intelligence.search_engine import search_engine
 from app.intelligence.workflow_engine import workflow_engine
-from app.models.intelligence import BackgroundJob
+from app.models.intelligence import ACTIVE_PATTERN_STATUSES, BackgroundJob
 from app.models.notification import Event as EventRow
 from app.models.notification import Notification
 from app.models.organization import Organization
@@ -482,8 +482,12 @@ async def update_pattern(
     db: AsyncSession = Depends(get_db),
 ):
     status = payload.get("status")
-    if status not in ("open", "acknowledged", "dismissed"):
-        raise HTTPException(status_code=422, detail="status must be open|acknowledged|dismissed")
+    allowed = ("open", "acknowledged", "dismissed") + tuple(ACTIVE_PATTERN_STATUSES) + ("resolved",)
+    if status not in allowed:
+        raise HTTPException(
+            status_code=422,
+            detail="status must be open|acknowledged|dismissed|" + "|".join(ACTIVE_PATTERN_STATUSES),
+        )
     result = await pattern_engine.set_status(
         db, organization_id=org.id, pattern_id=pattern_id, status=status
     )

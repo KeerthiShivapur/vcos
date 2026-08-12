@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.timeutils import utcnow
 from app.models.approval import Approval
 from app.models.executive import StrategicRisk
-from app.models.intelligence import DailyBrief, KnowledgeInsight, PatternDetection
+from app.models.intelligence import ACTIVE_PATTERN_STATUSES, DailyBrief, KnowledgeInsight, PatternDetection
 from app.models.employee import Employee
 from app.models.notification import Notification
 from app.models.task import Task
@@ -157,7 +157,7 @@ class InsightsEngine:
                 await db.execute(
                     select(PatternDetection).where(
                         PatternDetection.organization_id == organization_id,
-                        PatternDetection.status == "open",
+                        PatternDetection.status.in_(ACTIVE_PATTERN_STATUSES),
                     ).order_by(PatternDetection.count.desc()).limit(5)
                 )
             ).scalars().all()
