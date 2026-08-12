@@ -105,6 +105,30 @@ _POSTGRES_ALTERS: list[str] = [
     # Slice 4D.1: change-driven company intelligence — recency index on the
     # graph edges so the bounded sweep is proportional to recent change volume.
     "CREATE INDEX IF NOT EXISTS ix_org_graph_edge_updated ON org_graph_edges (updated_at)",
+    # Slice 4D.3: organizational memory automation — evidence-backed memory
+    # semantics on the existing Phase 19 company_memory table (new tables
+    # memory_events / memory_outcomes are created by create_all at bootstrap).
+    "ALTER TABLE company_memory ADD COLUMN IF NOT EXISTS memory_category VARCHAR(16) DEFAULT 'event'",
+    "ALTER TABLE company_memory ADD COLUMN IF NOT EXISTS domain VARCHAR(30) DEFAULT 'event'",
+    "ALTER TABLE company_memory ADD COLUMN IF NOT EXISTS summary TEXT",
+    "ALTER TABLE company_memory ADD COLUMN IF NOT EXISTS context_json JSON",
+    "ALTER TABLE company_memory ADD COLUMN IF NOT EXISTS evidence_json JSON",
+    "ALTER TABLE company_memory ADD COLUMN IF NOT EXISTS lesson TEXT",
+    "ALTER TABLE company_memory ADD COLUMN IF NOT EXISTS outcome TEXT",
+    "ALTER TABLE company_memory ADD COLUMN IF NOT EXISTS outcome_type VARCHAR(16)",
+    "ALTER TABLE company_memory ADD COLUMN IF NOT EXISTS confidence FLOAT DEFAULT 0.3",
+    "ALTER TABLE company_memory ADD COLUMN IF NOT EXISTS fact_kind VARCHAR(16) DEFAULT 'fact'",
+    "ALTER TABLE company_memory ADD COLUMN IF NOT EXISTS source_event_ids JSON",
+    "ALTER TABLE company_memory ADD COLUMN IF NOT EXISTS dedupe_key VARCHAR(255)",
+    "ALTER TABLE company_memory ADD COLUMN IF NOT EXISTS auth_scope VARCHAR(16) DEFAULT 'org'",
+    "ALTER TABLE company_memory ADD COLUMN IF NOT EXISTS auth_project_id VARCHAR(32)",
+    "ALTER TABLE company_memory ADD COLUMN IF NOT EXISTS auth_scope_id VARCHAR(32)",
+    "ALTER TABLE company_memory ADD COLUMN IF NOT EXISTS status VARCHAR(16) DEFAULT 'active'",
+    "ALTER TABLE company_memory ADD COLUMN IF NOT EXISTS supersedes_id VARCHAR(32)",
+    "ALTER TABLE company_memory ADD COLUMN IF NOT EXISTS related_memory_ids JSON",
+    "CREATE INDEX IF NOT EXISTS ix_company_memory_org_category ON company_memory (organization_id, memory_category)",
+    "CREATE INDEX IF NOT EXISTS ix_company_memory_org_dedupe ON company_memory (organization_id, dedupe_key)",
+    "CREATE INDEX IF NOT EXISTS ix_company_memory_org_auth ON company_memory (organization_id, auth_scope, auth_project_id)",
 ]
 
 

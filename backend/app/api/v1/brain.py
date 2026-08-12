@@ -313,7 +313,165 @@ async def brain_memory_record(
     return row
 
 
-# --------------------------------------------------------------------- timeline
+# ------------------------------------------------------------------ 4D.3 memory
+#
+# Slice 4D.3 canonical surface: evidence-backed organizational memory under
+# governance. Static routes are declared before /memory/{memory_id} so path
+# matching stays unambiguous.
+
+class BrainMemorySearchIn(BaseModel):
+    question: str
+    limit: int = 10
+
+
+class BrainMemoryOutcomeIn(BaseModel):
+    entity_type: Optional[str] = None
+    entity_id: Optional[str] = None
+    outcome_type: str = "positive"  # positive | negative | partial | unresolved
+    outcome: Optional[str] = None
+
+
+@router.get("/memory/feed")
+async def brain_memory_feed(
+    memory_category: Optional[str] = None,
+    status: str = Query(default="active"),
+    limit: int = Query(default=50, ge=1, le=100),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4D.3 — memory feed: the caller's visible organizational memory."""
+    from app.memory.memory_store import feed as memory_feed
+
+    return await memory_feed(
+        db,
+        organization_id=org.id,
+        user=user,
+        memory_category=memory_category,
+        status=status,
+        limit=limit,
+    )
+
+
+@router.post("/memory/search")
+async def brain_memory_search(
+    body: BrainMemorySearchIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4D.3 — semantic historical retrieval ("have we seen this before?")."""
+    if not body.question.strip():
+        raise HTTPException(status_code=422, detail="question is required")
+    from app.memory.memory_store import search as memory_search
+
+    return await memory_search(
+        db,
+        organization_id=org.id,
+        user=user,
+        query=body.question,
+        limit=body.limit or 10,
+    )
+
+
+@router.get("/memory/timeline")
+async def brain_memory_timeline(
+    limit: int = Query(default=50, ge=1, le=100),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4D.3 — episode-style company history with forming events."""
+    from app.memory.memory_store import timeline as memory_timeline
+
+    return await memory_timeline(
+        db,
+        organization_id=org.id,
+        user=user,
+        limit=limit,
+    )
+
+
+@router.get("/memory/{memory_id}")
+async def brain_memory_get(
+    memory_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4D.3 — one memory with its evidence lineage and context snapshot."""
+    from app.memory.memory_store import get as memory_get
+
+    result = await memory_get(db, organization_id=org.id, user=user, memory_id=memory_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="memory not found")
+    return result
+
+
+@router.get("/memory/{memory_id}/evidence")
+async def brain_memory_evidence(
+    memory_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4D.3 — why VCOS believes this memory (resolved evidence refs)."""
+    from app.memory.memory_store import evidence as memory_evidence
+
+    result = await memory_evidence(db, organization_id=org.id, user=user, memory_id=memory_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="memory not found")
+    return result
+
+
+@router.get("/memory/{memory_id}/related")
+async def brain_memory_related(
+    memory_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4D.3 — semantically related memories (governance-filtered)."""
+    from app.memory.memory_store import related as memory_related
+
+    result = await memory_related(db, organization_id=org.id, user=user, memory_id=memory_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="memory not found")
+    return result
+
+
+@router.post("/memory/{memory_id}/outcome")
+async def brain_memory_outcome(
+    memory_id: str,
+    body: BrainMemoryOutcomeIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4D.3 — record an observed outcome for a memory (feedback loop).
+
+    The memory layer only records the observation; no operating entity changes.
+    """
+    from app.models.company_memory import OUTCOME_TYPES_VALID
+
+    if body.outcome_type not in OUTCOME_TYPES_VALID:
+        raise HTTPException(status_code=422, detail=f"invalid outcome_type: {body.outcome_type}")
+    from app.memory.memory_store import record_outcome
+
+    result = await record_outcome(
+        db,
+        organization_id=org.id,
+        user=user,
+        memory_id=memory_id,
+        entity_type=body.entity_type,
+        entity_id=body.entity_id,
+        outcome_type=body.outcome_type,
+        outcome=body.outcome,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="memory not found")
+    await db.commit()
+    return result
 
 @router.get("/timeline")
 async def brain_timeline_list(

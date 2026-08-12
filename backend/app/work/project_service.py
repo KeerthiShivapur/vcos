@@ -46,7 +46,7 @@ class ProjectService:
                 await self._validate_ref(db, organization_id, key, data[key])
         project = Project(
             organization_id=organization_id,
-            code=data.get("code") or f"PRJ-{utcnow().strftime('%y%m%d%H%M%S')}",
+            code=data.get("code") or f"PRJ-{utcnow().strftime('%y%m%d%H%M%S')}{utcnow().microsecond // 1000:03d}",
             name=data["name"],
             description=data.get("description"),
             status=data.get("status", "draft"),

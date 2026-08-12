@@ -176,6 +176,7 @@ _WORKER_MODULES = {
     "assessment": "app.workers.assessment_worker",
     "company_intel": "app.workers.company_intel_worker",
     "indexing": "app.workers.indexing_worker",
+    "memory_formation": "app.workers.memory_formation_worker",
 }
 
 

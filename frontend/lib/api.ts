@@ -23,6 +23,13 @@ import type {
   BrainGraphTraversal,
   BrainKnowledgeSearchRequest,
   BrainKnowledgeSearchResponse,
+  BrainMemory,
+  BrainMemoryEvidenceResponse,
+  BrainMemoryFeedResponse,
+  BrainMemoryOutcomeRequest,
+  BrainMemoryRelatedResponse,
+  BrainMemorySearchResponse,
+  BrainMemoryTimelineResponse,
   CalendarEvent,
   CalendarFeedItem,
   ChatMessage,
@@ -7645,6 +7652,55 @@ export async function brainKnowledgeSearch(
   payload: BrainKnowledgeSearchRequest
 ): Promise<BrainKnowledgeSearchResponse> {
   return api<BrainKnowledgeSearchResponse>("/brain/knowledge/search", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+
+// ------------------------------------------------------- Slice 4D.3 memory
+
+export async function brainMemoryFeed(params?: {
+  memory_category?: string;
+  status?: string;
+  limit?: number;
+}): Promise<BrainMemoryFeedResponse> {
+  return api<BrainMemoryFeedResponse>("/brain/memory/feed", { query: params });
+}
+
+export async function brainMemorySearch(payload: {
+  question: string;
+  limit?: number;
+}): Promise<BrainMemorySearchResponse> {
+  return api<BrainMemorySearchResponse>("/brain/memory/search", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export async function brainMemoryTimeline(params?: {
+  limit?: number;
+}): Promise<BrainMemoryTimelineResponse> {
+  return api<BrainMemoryTimelineResponse>("/brain/memory/timeline", { query: params });
+}
+
+export async function brainMemoryGet(memoryId: string): Promise<BrainMemory> {
+  return api<BrainMemory>(`/brain/memory/${memoryId}`);
+}
+
+export async function brainMemoryEvidence(memoryId: string): Promise<BrainMemoryEvidenceResponse> {
+  return api<BrainMemoryEvidenceResponse>(`/brain/memory/${memoryId}/evidence`);
+}
+
+export async function brainMemoryRelated(memoryId: string): Promise<BrainMemoryRelatedResponse> {
+  return api<BrainMemoryRelatedResponse>(`/brain/memory/${memoryId}/related`);
+}
+
+export async function brainMemoryRecordOutcome(
+  memoryId: string,
+  payload: BrainMemoryOutcomeRequest
+): Promise<BrainMemory> {
+  return api<BrainMemory>(`/brain/memory/${memoryId}/outcome`, {
     method: "POST",
     body: payload,
   });

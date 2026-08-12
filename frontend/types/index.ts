@@ -2108,6 +2108,83 @@ export interface BrainKnowledgeSearchResponse {
   truncated: boolean;
 }
 
+
+// Slice 4D.3 - Organizational Memory Automation
+
+export interface BrainMemoryEvidenceItem {
+  type: string;
+  id: string;
+  relationship: string;
+  title?: string;
+  url?: string;
+  occurred_at?: string | null;
+  resolved?: boolean;
+}
+
+export interface BrainMemory {
+  id: string;
+  memory_type: string;
+  memory_category: string;
+  domain: string | null;
+  title: string;
+  summary: string | null;
+  content: string | null;
+  lesson: string | null;
+  outcome: string | null;
+  outcome_type: string | null;
+  confidence: number;
+  fact_kind: string | null;
+  importance: string;
+  entity_type: string | null;
+  entity_id: string | null;
+  occurred_at: string | null;
+  auth_scope: string;
+  auth_project_id: string | null;
+  status: string;
+  supersedes_id: string | null;
+  source_event_ids: string[];
+  related_memory_ids: string[];
+  evidence: BrainMemoryEvidenceItem[];
+  context: Record<string, unknown>;
+  source_event: string | null;
+  tags: string[];
+  created_at: string | null;
+}
+
+export interface BrainMemoryFeedResponse {
+  memories: BrainMemory[];
+}
+
+export interface BrainMemorySearchResponse {
+  memories: BrainMemory[];
+  matched: number;
+}
+
+export interface BrainMemoryTimelineEpisode extends BrainMemory {
+  episode_events: string[];
+}
+
+export interface BrainMemoryTimelineResponse {
+  episodes: BrainMemoryTimelineEpisode[];
+}
+
+export interface BrainMemoryEvidenceResponse {
+  memory: BrainMemory;
+  evidence: BrainMemoryEvidenceItem[];
+}
+
+export interface BrainMemoryRelatedResponse {
+  memory: BrainMemory;
+  related: BrainMemory[];
+}
+
+export interface BrainMemoryOutcomeRequest {
+  entity_type?: string | null;
+  entity_id?: string | null;
+  outcome_type: "positive" | "negative" | "partial" | "unresolved";
+  outcome?: string | null;
+}
+
 export interface BrainGraphRelationshipNode {
   type: string;
   id: string;

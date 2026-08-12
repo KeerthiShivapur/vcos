@@ -101,6 +101,8 @@ export const PERMISSIONS = {
   THEME_MANAGE: "theme:manage",
   GOVERNANCE_READ: "governance:read",
   GOVERNANCE_MANAGE: "governance:manage",
+  BRAIN_READ: "brain:read",
+  BRAIN_MANAGE: "brain:manage",
 } as const;
 
 export type PermissionCode = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

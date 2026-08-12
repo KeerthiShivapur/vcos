@@ -95,6 +95,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Tabs } from "@/components/ui/Tabs";
 import { CompanyBrainTab } from "./company-brain-tab";
 import { SemanticKnowledgeTab } from "./semantic-knowledge-tab";
+import { MemoryTab } from "./memory-tab";
 
 export default function IntelligencePage() {
   return (
@@ -328,6 +329,7 @@ function IntelligenceContent() {
       { id: "overview", label: "Overview", icon: Brain },
       { id: "brain", label: "Company Brain", icon: Sparkles },
       { id: "semantic", label: "Semantic Knowledge", icon: ScanSearch },
+      { id: "memory", label: "Company Memory", icon: BookOpen },
       { id: "events", label: "Event Bus", icon: Activity, count: overview?.jobs.done ?? 0 },
       { id: "workers", label: "Workers", icon: Play },
       { id: "expertise", label: "Expertise", icon: BarChart3 },
@@ -401,6 +403,7 @@ function IntelligenceContent() {
           {tab === "overview" && <OverviewTab overview={overview} />}
           {tab === "brain" && <CompanyBrainTab />}
           {tab === "semantic" && <SemanticKnowledgeTab />}
+          {tab === "memory" && <MemoryTab />}
           {tab === "events" && (
             <EventsTab
               events={events}

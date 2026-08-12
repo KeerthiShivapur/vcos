@@ -120,6 +120,8 @@ WORKER_REGISTRY: list[tuple[str, int]] = [
     ("governance", 21600),      # escalate AI recommendations awaiting human review
     # Slice 4D.1 — Canonical Company Intelligence & Evidence Layer
     ("company_intel", 900),     # keep CompanyInsight freshness current for recently changed entities
+    # Slice 4D.3 — Organizational Memory Automation
+    ("memory_formation", 300),  # change-driven memory formation from significant events
 ]
 
 _tasks: list[asyncio.Task] = []

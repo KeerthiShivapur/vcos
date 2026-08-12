@@ -40,6 +40,13 @@ _INTENT_NOISE = frozenset(
 
 _CLAIM_CONFIDENCE = {"matched": 0.85, "direct": 0.9, "recent": 0.65}
 
+# Slice 4D.3 — question shapes that ask about organizational history.
+_HISTORY_TRIGGERS = (
+    "before", "again", "previously", "last time", "similar", "experience",
+    "experienced", "history", "learned", "lesson", "remember", "happened",
+    "prior", "past", "like this",
+)
+
 
 def _claim_text(item: dict[str, Any]) -> str:
     title = item["title"]
@@ -150,7 +157,7 @@ class ReasoningEngine:
                 entity_type=entity_type,
                 entity_id=entity_id,
             )
-        claims = await self._claims_from_context(db, organization_id, question, context)
+        claims = await self._claims_from_context(db, organization_id, question, context, user=user)
         return {
             "question": question,
             "claims": claims,
@@ -176,6 +183,7 @@ class ReasoningEngine:
         organization_id: str,
         question: str,
         context: dict[str, Any],
+        user: Optional[Any] = None,
     ) -> list[dict[str, Any]]:
         evidence = context.get("evidence", [])
         scope_ids = context.get("scope_ids", [])
@@ -188,9 +196,86 @@ class ReasoningEngine:
             claims.extend(await self._dependency_claims(db, organization_id, evidence, scope_ids))
         if "who knows" in lowered or "knows this" in lowered or "expert" in lowered:
             claims.extend(await self._expertise_claims(db, organization_id, question, context, scope_ids))
+        if user is not None:
+            claims.extend(
+                await self._historical_memory_claims(db, organization_id, lowered, scope_ids, user=user)
+            )
 
         if not claims:
             claims = await self._overview_claims(db, organization_id, scope_ids)
+        return claims
+
+    async def _historical_memory_claims(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        lowered: str,
+        scope_ids: list[str],
+        *,
+        user: Any,
+    ) -> list[dict[str, Any]]:
+        """Slice 4D.3 — historical experiences/lessons in brain answers.
+
+        History questions ("have we experienced something like this before?")
+        retrieve evidence-backed memories the caller may actually access. The
+        resulting claims are explicitly labeled as historical memory (with
+        fact kind, outcome and confidence) so they can never be mistaken for
+        current facts.
+        """
+        asks_history = any(trigger in lowered for trigger in _HISTORY_TRIGGERS)
+        asks_delay = any(word in lowered for word in ("delayed", "blocked", "slowing"))
+        if not (asks_history or asks_delay):
+            return []
+        from app.memory.memory_store import search as memory_search
+
+        result = await memory_search(
+            db,
+            organization_id=organization_id,
+            user=user,
+            query=lowered,
+            limit=3 if asks_history else 2,
+        )
+        claims: list[dict[str, Any]] = []
+        now = utcnow()
+        for memory in result.get("memories", []):
+            category = memory.get("memory_category")
+            kind = memory.get("fact_kind")
+            title = memory.get("title") or "recorded experience"
+            if category == "lesson":
+                text = f"Lesson learned previously: {title}"
+            elif category == "outcome":
+                text = (
+                    f"Previously recorded outcome ({memory.get('outcome_type')}): {title}"
+                )
+            else:
+                text = f"Historical experience: {title}"
+            claims.append({
+                "claim": text,
+                "evidence": [
+                    {
+                        "type": "memory",
+                        "id": memory["id"],
+                        "title": title,
+                        "url": f"/brain/memory/{memory['id']}",
+                    }
+                ],
+                "confidence": round(float(memory.get("confidence") or 0.6), 2),
+                "auth_scope": {"scope_ids": scope_ids},
+                "timestamp": memory.get("occurred_at") or now.isoformat(),
+                "kind": kind,
+                "memory_category": category,
+                "outcome_type": memory.get("outcome_type"),
+            })
+        if not claims and asks_delay:
+            claims.append({
+                "claim": "No similar historical experience is recorded for this situation",
+                "evidence": [],
+                "confidence": 0.5,
+                "auth_scope": {"scope_ids": scope_ids},
+                "timestamp": now.isoformat(),
+                "kind": "observation",
+                "memory_category": "event",
+            })
         return claims
 
     async def _dependency_claims(

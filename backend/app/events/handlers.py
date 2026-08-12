@@ -1900,3 +1900,58 @@ async def handle_semantic_knowledge_delete(db, event, payload):
 
 for _event_name in _KNOWLEDGE_DELETE_EVENTS:
     on(_event_name)(handle_semantic_knowledge_delete)
+
+
+# ---------------------------------------------------------------------------
+# Slice 4D.3 — organizational memory automation (change-driven formation)
+# ---------------------------------------------------------------------------
+
+
+async def handle_memory_formation_enqueue(db, event, payload):
+    """Significant events enqueue a durable memory-formation job.
+
+    The job runs in the memory formation worker (bounded FIFO batches); the
+    enqueue itself is idempotent under the (name, event_id) uniqueness
+    constraint. This handler never writes memory directly — the pipeline runs
+    in its own transaction, keeping the event dispatch transaction small.
+    """
+    org_id = payload.get("organization_id") or event.organization_id
+    if not org_id:
+        return
+    try:
+        from app.memory import formation
+
+        await formation.enqueue_formation(
+            db,
+            organization_id=org_id,
+            event_id=event.id,
+            name=event.name,
+        )
+    except Exception:  # noqa: BLE001 - per-event isolation
+        logger.exception("memory formation enqueue failed for %s", event.name)
+
+
+for _event_name in (
+    "task.blocked",
+    "task.unblocked",
+    "task.completed",
+    "task.commented",
+    "project.started",
+    "project.paused",
+    "project.completed",
+    "project.cancelled",
+    "milestone.completed",
+    "decision.made",
+    "decision.executed",
+    "decision.implemented",
+    "approval.approved",
+    "approval.rejected",
+    "policy.approved",
+    "document.published",
+    "wiki.published",
+    "sop.published",
+    "template.published",
+    "ticket.escalated",
+    "customer.renewed",
+):
+    on(_event_name)(handle_memory_formation_enqueue)
