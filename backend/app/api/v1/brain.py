@@ -363,6 +363,102 @@ async def brain_knowledge_search(
     )
 
 
+# ------------------------------------------------------- 4E.1 canonical model
+
+class BrainReconcileIn(BaseModel):
+    kind: Optional[str] = None
+    limit: int = 20
+
+
+@router.get("/knowledge")
+async def brain_knowledge_registry(
+    limit: int = Query(12, ge=1, le=25),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.1 — governed canonical knowledge registry map.
+
+    The universal ingestion contract surface: canonical sources with their
+    lifecycle, authority and freshness, bounded and filtered to what the
+    caller may access before exposure.
+    """
+    from app.knowledge.canonical_service import canonical_engine
+
+    return await canonical_engine.registry(db, organization_id=org.id, user=user, limit=limit)
+
+
+@router.get("/knowledge/sources/{source_type}/{source_id}")
+async def brain_knowledge_source(
+    source_type: str,
+    source_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.1 — one canonical source with its claims and evidence.
+
+    Temporal truth is preserved: superseded claims stay visible with
+    valid_to + superseded_by (what was true vs what is true now).
+    Hidden sources return 404 — governance constrains retrieval itself.
+    """
+    from app.knowledge.canonical_service import canonical_engine
+
+    result = await canonical_engine.source_detail(
+        db, organization_id=org.id,
+        source_type=source_type, source_id=source_id, user=user,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="knowledge source not found")
+    return result
+
+
+@router.get("/knowledge/claims")
+async def brain_knowledge_claims(
+    limit: int = Query(10, ge=1, le=25),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.1 — recent canonical claims across accessible sources."""
+    from app.knowledge.canonical_service import canonical_engine
+
+    return await canonical_engine.recent_claims(db, organization_id=org.id, user=user, limit=limit)
+
+
+@router.get("/knowledge/topics")
+async def brain_knowledge_topics(
+    limit: int = Query(20, ge=1, le=25),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.1 — canonical topic registry seeding entity resolution."""
+    from app.knowledge.canonical_service import canonical_engine
+
+    return await canonical_engine.topics(db, organization_id=org.id, user=user, limit=limit)
+
+
+@router.post("/knowledge/reconcile")
+async def brain_knowledge_reconcile(
+    body: BrainReconcileIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.1 — bounded on-demand canonical resync (recovery only).
+
+    Normal flow is event-driven; this exists for schema changes and manual
+    corrections and is hard-capped so it can never become a full-org scan.
+    """
+    from app.knowledge.canonical_service import canonical_engine
+
+    return await canonical_engine.reconcile(
+        db, organization_id=org.id,
+        kind=body.kind, limit=body.limit or 20,
+    )
+
+
 @router.post("/advise")
 async def brain_advise(
     body: BrainAskIn,

@@ -2057,3 +2057,60 @@ for _event_name in (
     "approval.rejected",
 ):
     on(_event_name)(handle_insight_evaluation_enqueue)
+
+
+# ---------------------------------------------------------------------------
+# Slice 4E.1 � canonical knowledge ingestion (event-driven, exact-once)
+# ---------------------------------------------------------------------------
+# The universal ingestion contract reacts to existing durable events: every
+# knowledge object mutation (create / update / restore / approve / decide)
+# reconciles exactly one canonical KnowledgeSource row plus its claims,
+# evidence and topics. Re-processing the same content is a no-op.
+# ---------------------------------------------------------------------------
+
+
+@on("document.created")
+@on("document.updated")
+@on("document.restored")
+@on("document.published")
+@on("wiki.created")
+@on("wiki.updated")
+@on("wiki.restored")
+@on("wiki.published")
+@on("policy.created")
+@on("policy.updated")
+@on("policy.restored")
+@on("policy.approved")
+@on("sop.created")
+@on("sop.updated")
+@on("sop.restored")
+@on("sop.published")
+@on("template.created")
+@on("template.updated")
+@on("template.restored")
+@on("template.published")
+@on("decision.created")
+@on("decision.updated")
+@on("decision.made")
+async def handle_canonical_knowledge_ingest(db, event, payload):
+    """Keep the canonical knowledge model in sync with the object it stores."""
+    org_id = payload.get("organization_id") or event.organization_id
+    entity_type = payload.get("entity_type")
+    if entity_type not in ("document", "wiki", "policy", "sop", "template", "decision"):
+        entity_type = event.name.split(".")[0]
+        if entity_type not in ("document", "wiki", "policy", "sop", "template", "decision"):
+            return
+    entity_id = (
+        payload.get("entity_id")
+        or payload.get("id")
+        or payload.get(f"{entity_type}_id")
+    )
+    if not entity_id:
+        return
+    from app.knowledge.canonical_service import canonical_engine
+
+    await canonical_engine.ingest(
+        db, organization_id=org_id,
+        entity_type=entity_type, entity_id=entity_id,
+        event_name=event.name,
+    )
