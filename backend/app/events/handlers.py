@@ -2114,3 +2114,38 @@ async def handle_canonical_knowledge_ingest(db, event, payload):
         entity_type=entity_type, entity_id=entity_id,
         event_name=event.name,
     )
+
+
+# ---------------------------------------------------------------------------
+# Slice 4E.2 — universal knowledge ingestion (one contract for all activity)
+# ---------------------------------------------------------------------------
+# The canonical model is fed by the SAME durable events the rest of the org
+# already emits — messages, tasks, meetings, memories and patterns speak one
+# internal language via canonical_engine.ingest_event. One event, many
+# consumers; no new emission sites. Noise never becomes knowledge; governance
+# scope and source identity are preserved; replays are exact-once.
+# ---------------------------------------------------------------------------
+
+
+@on("messaging.message_sent")
+@on("task.created")
+@on("task.updated")
+@on("task.transitioned")
+@on("task.blocked")
+@on("task.completed")
+@on("task.unblocked")
+@on("task.deleted")
+@on("meeting.created")
+@on("meeting.updated")
+@on("meeting.started")
+@on("meeting.ended")
+@on("meeting.completed")
+@on("memory.recorded")
+@on("pattern.detected")
+@on("pattern.updated")
+@on("pattern.confirmed")
+async def handle_universal_knowledge_ingest(db, event, payload):
+    """Funnel meaningful company activity into the canonical knowledge model."""
+    from app.knowledge.canonical_service import canonical_engine
+
+    await canonical_engine.ingest_event(db, event=event, payload=payload)
