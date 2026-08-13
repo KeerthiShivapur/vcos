@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_organization, require_permission
 from app.db.database import get_db
+from app.intelligence.company_brain import MAX_TIMELINE
 from app.intelligence.graph_engine import graph_engine as company_graph
 from app.intelligence.insight_engine import insight_engine
 from app.intelligence.pattern_engine import pattern_engine
@@ -33,6 +34,7 @@ class BrainAnswerIn(BaseModel):
     question: str
     entity_type: Optional[str] = None
     entity_id: Optional[str] = None
+    conversation_id: Optional[str] = None
 
 
 class BrainSyncIn(BaseModel):
@@ -203,15 +205,128 @@ async def brain_answer(
     patterns (4D.4), memories (4D.3), insights (4D.5) and semantic knowledge
     (4D.2) — plus related entities, a deterministic summary, a bounded
     confidence and observability metrics. Additive to the 4D.1 contract.
+
+    Slice 4D.7 — conversation_id enables follow-up continuity: the anchor
+    entity of the conversation is inherited when the question does not name
+    one, and the turn is persisted for the next utterance. 404 when the
+    conversation does not belong to this caller/tenant.
     """
     if not body.question.strip():
         raise HTTPException(status_code=422, detail="question is required")
     from app.intelligence.company_brain import company_brain
 
-    return await company_brain.answer(
+    result = await company_brain.answer(
         db, org.id, body.question,
         user=user, entity_type=body.entity_type, entity_id=body.entity_id,
+        conversation_id=body.conversation_id,
     )
+    if result is None:
+        raise HTTPException(status_code=404, detail="conversation not found")
+    if result.get("conversation"):
+        await db.commit()  # persist the answered turn
+    return result
+
+
+# Slice 4D.7 — conversational continuity (observation artifact, owner-scoped)
+
+
+class BrainConversationCreateIn(BaseModel):
+    pass
+
+
+@router.post("/conversations")
+async def brain_conversation_create(
+    body: BrainConversationCreateIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Create a conversation (session record) for the caller."""
+    from app.intelligence.brain_conversation import create_conversation
+
+    result = await create_conversation(
+        db, organization_id=org.id, user_id=user.id
+    )
+    await db.commit()
+    return result
+
+
+@router.get("/conversations")
+async def brain_conversation_list(
+    limit: int = Query(default=20, ge=1, le=50),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """The caller's own conversation records (bounded, owner-scoped)."""
+    from app.intelligence.brain_conversation import list_conversations
+
+    conversations = await list_conversations(
+        db, organization_id=org.id, user_id=user.id, limit=limit
+    )
+    return {"conversations": conversations, "count": len(conversations)}
+
+
+@router.get("/conversations/{conversation_id}")
+async def brain_conversation_get(
+    conversation_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """One conversation with its turns; 404 when not the caller's own."""
+    from app.intelligence.brain_conversation import get_conversation
+
+    result = await get_conversation(
+        db, organization_id=org.id, user_id=user.id, conversation_id=conversation_id
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="conversation not found")
+    return result
+
+
+@router.get("/timeline/unified")
+async def brain_timeline_unified(
+    entity_type: Optional[str] = None,
+    entity_id: Optional[str] = None,
+    limit: int = Query(default=MAX_TIMELINE, ge=1, le=100),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4D.7 — unified, evidence-backed company timeline.
+
+    Every entry references a real row (memory/pattern/insight/project
+    timeline) the caller may access; bounded and governance-filtered before
+    exposure. Mirrors the narrative of the previous events at 4D.3.
+    """
+    from app.intelligence.company_brain import company_brain
+
+    result = await company_brain.timeline(
+        db, org.id, user=user,
+        entity_type=entity_type, entity_id=entity_id,
+        limit=min(limit, MAX_TIMELINE),
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="entity not found")
+    return result
+
+
+@router.get("/what-changed")
+async def brain_what_changed(
+    days: int = Query(default=7, ge=1, le=30),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4D.7 — what changed (governed digest, persona-aware).
+
+    Org-wide callers see the canonical kernel digest; scoped callers see
+    only their visible scope's activity. Bounded by construction.
+    """
+    from app.intelligence.company_brain import company_brain
+
+    return await company_brain.what_changed(db, org.id, user=user, days=days)
 
 
 class BrainKnowledgeSearchIn(BaseModel):

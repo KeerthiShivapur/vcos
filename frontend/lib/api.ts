@@ -20,6 +20,7 @@ import type {
   Badge,
   BrainAnswer,
   BrainAnswerRequest,
+  BrainConversation,
   BrainEvidenceResponse,
   BrainGraphTraversal,
   BrainKnowledgeSearchRequest,
@@ -32,16 +33,18 @@ import type {
   BrainMemorySearchResponse,
   BrainMemoryTimelineResponse,
   BrainPattern,
-    BrainPatternEvidenceResponse,
-    BrainPatternHistoryResponse,
-    BrainPatternRelatedResponse,
-    BrainInsight,
-    BrainInsightEvidenceResponse,
-BrainInsightHistoryResponse,
-    BrainInsightRelatedResponse,
-    BrainInsightsListResponse,
-    BrainRelatedResponse,
-    BrainUnifiedOverview,
+  BrainPatternEvidenceResponse,
+  BrainPatternHistoryResponse,
+  BrainPatternRelatedResponse,
+  BrainInsight,
+  BrainInsightEvidenceResponse,
+  BrainInsightHistoryResponse,
+  BrainInsightRelatedResponse,
+  BrainInsightsListResponse,
+  BrainRelatedResponse,
+  BrainTimelineResponse,
+  BrainUnifiedOverview,
+  BrainWhatChanged,
   BrainPatternsListResponse,
   CalendarEvent,
   CalendarFeedItem,
@@ -7659,6 +7662,39 @@ export async function deleteTheme(id: string): Promise<{ status: string; theme_i
 
 export async function brainAnswer(payload: BrainAnswerRequest): Promise<BrainAnswer> {
   return api<BrainAnswer>("/brain/answer", { method: "POST", body: payload });
+}
+
+// Slice 4D.7 - unified company brain surface
+
+export async function brainTimelineUnified(params?: {
+  entity_type?: string;
+  entity_id?: string;
+  limit?: number;
+}): Promise<BrainTimelineResponse> {
+  return api<BrainTimelineResponse>("/brain/timeline/unified", { query: params });
+}
+
+export async function brainWhatChanged(params?: {
+  days?: number;
+}): Promise<BrainWhatChanged> {
+  return api<BrainWhatChanged>("/brain/what-changed", { query: params });
+}
+
+export async function brainConversationCreate(): Promise<BrainConversation> {
+  return api<BrainConversation>("/brain/conversations", { method: "POST", body: {} });
+}
+
+export async function brainConversationList(params?: {
+  limit?: number;
+}): Promise<{ conversations: BrainConversation[]; count: number }> {
+  return api<{ conversations: BrainConversation[]; count: number }>(
+    "/brain/conversations",
+    { query: params }
+  );
+}
+
+export async function brainConversationGet(conversationId: string): Promise<BrainConversation> {
+  return api<BrainConversation>(`/brain/conversations/${conversationId}`);
 }
 
 export async function brainOverview(): Promise<BrainUnifiedOverview> {

@@ -131,3 +131,51 @@ async def test_history_followup_connects_current_to_memory(client, db_session_fa
     first_ids = {m["id"] for m in first["memories"]}
     followup_ids = {m["id"] for m in followup["memories"]}
     assert first_ids & followup_ids
+
+
+# Slice 4D.7 — composition through the unified answer: pattern + insight +
+# memory + knowledge + graph + timeline + chain + next questions in one call.
+
+
+async def test_4d7_one_answer_composes_every_unified_projector(client, db_session_factory):
+    org, headers, proj, task_ids = await _rich_scenario(client, db_session_factory, "p4d7_comp7@test.co")
+
+    answer = (
+        await client.post(
+            "/api/v1/brain/answer",
+            json={
+                "question": "why is this project behind?",
+                "entity_type": "project",
+                "entity_id": proj["id"],
+            },
+            headers=headers,
+        )
+    ).json()
+
+    # canonical claim layers (context + dependency) remain
+    assert answer["claims"]
+    assert any(("project", proj["id"]) in {("project", e.get("id")) for e in c["evidence"]} for c in answer["claims"])
+    # 4D.7 unified timeline is anchored to the project
+    assert answer.get("timeline")
+    assert any(e["kind"] == "project_timeline" for e in answer["timeline"]) or any(
+        e["kind"] == "memory" for e in answer["timeline"]
+    )
+    # reasoning chain + next questions ride along
+    assert answer.get("reasoning_chain")
+    assert answer.get("recommended_next_questions")
+    # related projections reference real rows
+    for key in ("related_patterns", "related_memories", "related_insights"):
+        for item in answer.get(key, []):
+            assert item["id"] and item["url"]
+    # sources consulted includes the producers that actually participated
+    assert {"context"} <= set(answer["sources_consulted"])
+
+    # unified timeline endpoint for the same project agrees on the anchor realm
+    unified = (
+        await client.get(
+            "/api/v1/brain/timeline/unified",
+            params={"entity_type": "project", "entity_id": proj["id"]},
+            headers=headers,
+        )
+    ).json()
+    assert unified["entity"]["id"] == proj["id"]

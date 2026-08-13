@@ -195,7 +195,12 @@ class ReasoningEngine:
         if "delayed" in lowered or "blocked" in lowered or "slowing" in lowered:
             claims.extend(await self._dependency_claims(db, organization_id, evidence, scope_ids))
         if "who knows" in lowered or "knows this" in lowered or "expert" in lowered:
-            claims.extend(await self._expertise_claims(db, organization_id, question, context, scope_ids))
+            # Slice 4D.7 — governed expertise: employee evidence is org-wide
+            # only (company_context never resolves employees for scoped
+            # callers), so expertise claims are emitted for org-wide callers
+            # alone. Scoped callers reason over what they can access.
+            if context.get("org_wide"):
+                claims.extend(await self._expertise_claims(db, organization_id, question, context, scope_ids))
         claims.extend(await self._pattern_claims(db, organization_id, lowered, scope_ids, user=user))
         claims.extend(await self._insight_claims(db, organization_id, lowered, scope_ids, user=user))
         if user is not None:

@@ -335,6 +335,7 @@ from app.models.strategy_report import StrategyReport  # noqa: F401
 from app.models.executive_intelligence import ExecutiveIntelligence  # noqa: F401
 from app.models.ai_governance import GovernanceRecommendation  # noqa: F401
 from app.models.resilience_plan import ResiliencePlan  # noqa: F401
+from app.models.brain import BrainConversation, BrainConversationTurn  # noqa: F401
 
 __all__ = [
     "Organization",
@@ -679,4 +680,6 @@ __all__ = [
     "ExecutiveIntelligence",
     "GovernanceRecommendation",
     "ResiliencePlan",
+    "BrainConversation",
+    "BrainConversationTurn",
 ]

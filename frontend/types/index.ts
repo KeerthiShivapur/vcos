@@ -2047,6 +2047,7 @@ export interface BrainAnswerRequest {
   question: string;
   entity_type?: string | null;
   entity_id?: string | null;
+  conversation_id?: string | null;
 }
 
 export interface BrainEvidenceRef {
@@ -2087,6 +2088,115 @@ export interface BrainAnswer {
     evidence_count: number;
     answer_claim_count: number;
     governance_filtered_count: number;
+    // Slice 4D.7 - unified brain surface additions
+    timeline_entries?: number;
+    reasoning_chain_steps?: number;
+    recommended_next_questions?: number;
+  };
+  // Slice 4D.7 - unified company brain surface additions
+  conversation?: BrainConversationRef;
+  persona?: BrainPersona;
+  timeline?: BrainTimelineEntry[];
+  recommended_next_questions?: string[];
+  reasoning_chain?: BrainReasoningChainStep[];
+  related_patterns?: BrainRelatedProjection[];
+  related_memories?: BrainRelatedProjection[];
+  related_insights?: BrainRelatedProjection[];
+  what_changed?: BrainWhatChanged;
+}
+
+export interface BrainConversationRef {
+  id: string;
+  turn: number;
+}
+
+export interface BrainPersona {
+  org_wide: boolean;
+  visible_project_count: number;
+  visible_scope_count: number;
+}
+
+export interface BrainTimelineEntry {
+  kind: "memory" | "pattern" | "insight" | "project_timeline";
+  id: string;
+  title: string;
+  url: string;
+  occurred_at?: string | null;
+  confidence?: number | null;
+}
+
+export interface BrainReasoningChainStep {
+  step: number;
+  label: string;
+  claim: string;
+  evidence: BrainEvidenceRef[];
+  confidence: number;
+}
+
+export interface BrainRelatedProjection {
+  id: string;
+  title: string;
+  confidence: number;
+  url: string;
+  pattern_type?: string | null;
+  memory_category?: string | null;
+  insight_type?: string | null;
+}
+
+export interface BrainWhatChangedCategory {
+  category: string;
+  count: number;
+  items?: {
+    type: string;
+    id: string;
+    title: string;
+    url: string;
+    timestamp?: string | null;
+  }[];
+}
+
+export interface BrainWhatChanged {
+  since: string;
+  days: number;
+  org_wide: boolean;
+  categories: BrainWhatChangedCategory[];
+}
+
+export interface BrainConversation {
+  id: string;
+  organization_id: string;
+  user_id: string;
+  turn_count: number;
+  last_anchor_type?: string | null;
+  last_anchor_id?: string | null;
+  last_anchor_title?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  turns?: BrainConversationTurn[];
+}
+
+export interface BrainConversationTurn {
+  id: string;
+  conversation_id: string;
+  question: string;
+  summary?: string | null;
+  anchor_type?: string | null;
+  anchor_id?: string | null;
+  anchor_title?: string | null;
+  created_at?: string | null;
+}
+
+export interface BrainTimelineResponse {
+  timeline: BrainTimelineEntry[];
+  count: number;
+  limit: number;
+  entity: { type: string; id: string; title?: string | null } | null;
+  scope: { org_wide: boolean };
+  generated_at: string;
+  metrics: {
+    brain_query: string;
+    timeline_entries: number;
+    sources_consulted: number;
   };
 }
 

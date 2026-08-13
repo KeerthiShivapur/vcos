@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import timedelta
 from typing import Any, Optional
 
 from sqlalchemy import String, cast, or_, select
@@ -46,6 +47,17 @@ EVIDENCE_LINK_LIMIT = 5
 EVIDENCE_CANDIDATES = 30
 RELATED_GRAPH_CANDIDATES = 30
 RELATED_LIMIT = 8
+
+# Slice 4D.7 bounds — unified timeline / reasoning / follow-up.
+MAX_TIMELINE = 50
+MAX_ANSWER_TIMELINE = 6
+MAX_NEXT_QUESTIONS = 3
+MAX_CHAIN_STEPS = 6
+MAX_OWNERSHIP_CLAIMS = 2
+MAX_WHAT_CHANGED_CATEGORIES = 6
+MAX_WHAT_CHANGED_ITEMS = 20
+MAX_CHANGED_QUERY_RESULTS = 50
+MAX_CHANGED_DAYS = 30
 
 # Entity kinds /brain/evidence and /brain/related can resolve directly. Every
 # other kind (pattern/insight/memory) delegates to its governed engine.
@@ -102,9 +114,10 @@ class CompanyBrain:
     def _route(self, question: str, entity_type: Optional[str] = None) -> dict[str, bool]:
         """Deterministic source routing — the user never picks a subsystem.
 
-        Broad company questions consult insights + patterns; entity and
-        delay-shaped questions add memory; knowledge-shaped questions add
-        semantic retrieval. Every consulted source stays governed + bounded.
+        Routing considers both the question shape *and* the resolved context
+        (entity anchor): a follow-up that inherits an anchor consults the
+        entity-flavored sources even when it carries no project keywords, so
+        the routing is context-aware, not keyword-only.
         """
         lowered = (question or "").lower()
         project_flavored = (
@@ -114,7 +127,11 @@ class CompanyBrain:
         delay_flavored = any(
             t in lowered for t in ("delayed", "delay", "blocked", "behind", "slow", "stuck", "overdue")
         )
-        history_flavored = delay_flavored or any(t in lowered for t in _HISTORY_TRIGGERS)
+        change_flavored = any(
+            t in lowered
+            for t in ("changed", "this week", "this month", "since", "recent", "what happened")
+        )
+        history_flavored = delay_flavored or change_flavored or any(t in lowered for t in _HISTORY_TRIGGERS)
         knowledge_flavored = any(t in lowered for t in _KNOWLEDGE_TRIGGERS)
         company_flavored = any(t in lowered for t in _COMPANY_TRIGGERS)
         return {
@@ -123,6 +140,37 @@ class CompanyBrain:
             "memory": history_flavored,
             "knowledge": knowledge_flavored,
         }
+
+    def _who_flavored(self, question: str) -> bool:
+        lowered = (question or "").lower()
+        return any(
+            t in lowered
+            for t in (
+                "who owns", "who is responsible", "who knows", "assigned to",
+                "owner of", "who should", "who's", "whos", "in charge of",
+                "who is working on", "who leads",
+            )
+        )
+
+    def _why_flavored(self, question: str) -> bool:
+        lowered = (question or "").lower()
+        return any(
+            t in lowered
+            for t in (
+                "why", "delayed", "delay", "blocked", "blocking", "behind",
+                "stuck", "slow", "slowing", "overdue", "causing",
+            )
+        )
+
+    def _change_flavored(self, question: str) -> bool:
+        lowered = (question or "").lower()
+        return any(
+            t in lowered
+            for t in (
+                "what changed", "what's changed", "whats changed", "this week",
+                "this month", "recent", "since", "what happened", "digest",
+            )
+        )
 
     # ----------------------------------------------------------------- answer
 
@@ -136,17 +184,46 @@ class CompanyBrain:
         entity_type: Optional[str] = None,
         entity_id: Optional[str] = None,
         section_limit: int = ANSWER_SECTION_LIMIT,
-    ) -> dict[str, Any]:
+        conversation_id: Optional[str] = None,
+    ) -> Optional[dict[str, Any]]:
         """One governed answer composed from every relevant intelligence source.
 
         Additive to the 4D.1 contract: the canonical ``claims`` are produced
         by the reasoning engine (unchanged), then unified sections are
         attached — patterns, memories, insights, knowledge and related
         entities, each governed and bounded.
+
+        Slice 4D.7 — conversation continuity: when ``conversation_id`` is
+        given, a follow-up question that does not name an entity inherits the
+        conversation's anchor (the user never repeats it). The answered turn
+        is persisted so the next question can anchor again. Returns None when
+        the conversation is not found or belongs to another tenant/owner.
         """
         started = time.perf_counter()
         from app.intelligence.company_context import build_context
         from app.intelligence_network.reasoning_engine import reasoning_engine
+
+        conversation = None
+        if conversation_id:
+            from app.intelligence.brain_conversation import (
+                get_conversation,
+                resolve_anchor,
+            )
+
+            conversation = await get_conversation(
+                db,
+                organization_id=organization_id,
+                user_id=user.id,
+                conversation_id=conversation_id,
+                include_turns=False,
+            )
+            if conversation is None:
+                return None
+            if not (entity_type and entity_id):
+                anchor = await resolve_anchor(db, conversation_id=conversation_id)
+                if anchor:
+                    entity_type = anchor["type"]
+                    entity_id = anchor["id"]
 
         context = await build_context(
             db, user, question,
@@ -270,6 +347,36 @@ class CompanyBrain:
 
         related_entities = self._related_from_context(context, limit=ANSWER_RELATED_LIMIT)
 
+        # Slice 4D.7 — persona-aware scope: the caller's rule, not a label.
+        persona = await self._persona_scope(db, organization_id, user, context)
+
+        # Primary entity the question is about (governed evidence only).
+        primary = self._primary_entity(context, entity_type, entity_id)
+
+        # Evidence-backed unified timeline (governed, bounded).
+        timeline = await self._timeline_for_answer(
+            db, organization_id, user, primary,
+            patterns=patterns, insights=insights, memories=memories,
+        )
+        recommended_next = self._recommended_next_questions(
+            question, primary, route, claims, persona
+        )
+        reasoning_chain = self._reasoning_chain(question, claims) if self._why_flavored(question) else []
+
+        related_patterns, related_memories, related_insights = [], [], []
+        if primary is not None:
+            related_patterns, related_memories, related_insights = (
+                await self._related_projections(
+                    db, organization_id, user, primary["type"], primary["id"]
+                )
+            )
+
+        what_changed: Optional[dict[str, Any]] = None
+        if self._change_flavored(question):
+            what_changed = await self._what_changed_data(
+                db, organization_id, user, days=7, persona=persona
+            )
+
         claim_confidences = [c.get("confidence") for c in claims if isinstance(c.get("confidence"), (int, float))]
         confidence = round(
             sum(claim_confidences) / len(claim_confidences), 3
@@ -281,7 +388,8 @@ class CompanyBrain:
             "brain_query org=%s sources=%s claims=%d evidence=%d duration_ms=%d",
             organization_id, ",".join(sorted(sources)), len(claims), evidence_count, elapsed_ms,
         )
-        return {
+
+        answer: dict[str, Any] = {
             # 4D.1 canonical keys (unchanged meaning)
             "question": question,
             "claims": claims,
@@ -296,7 +404,7 @@ class CompanyBrain:
             "insights": insights,
             "knowledge": knowledge,
             "sources_consulted": sorted(sources),
-            "scope": {"org_wide": context.get("org_wide", False)},
+            "scope": {"org_wide": persona.get("org_wide", False)},
             "generated_at": utcnow().isoformat(),
             "metrics": {
                 "brain_query": "answer",
@@ -307,6 +415,53 @@ class CompanyBrain:
                 "governance_filtered_count": governance_filtered,
             },
         }
+        # Slice 4D.7 additive keys
+        if conversation is not None:
+            answer["conversation"] = {
+                "id": conversation["id"],
+                "turn": conversation["turn_count"] + 1,
+            }
+        answer["persona"] = {
+            "org_wide": persona.get("org_wide", False),
+            "visible_project_count": persona.get("visible_project_count", 0),
+            "visible_scope_count": persona.get("visible_scope_count", 0),
+        }
+        if timeline:
+            answer["timeline"] = timeline
+        if recommended_next:
+            answer["recommended_next_questions"] = recommended_next
+        if reasoning_chain:
+            answer["reasoning_chain"] = reasoning_chain
+        if related_patterns or related_memories or related_insights:
+            answer["related_patterns"] = related_patterns
+            answer["related_memories"] = related_memories
+            answer["related_insights"] = related_insights
+        if what_changed is not None:
+            answer["what_changed"] = what_changed
+        answer["metrics"].update({
+            "timeline_entries": len(timeline),
+            "reasoning_chain_steps": len(reasoning_chain),
+            "recommended_next_questions": len(recommended_next),
+        })
+
+        if conversation is not None:
+            from app.intelligence.brain_conversation import append_turn
+
+            anchor_title = None
+            if primary is not None:
+                anchor_title = primary.get("title")
+            elif entity_type and entity_id:
+                anchor_title = entity_id
+            await append_turn(
+                db,
+                conversation_id=conversation["id"],
+                question=question,
+                summary=summary,
+                anchor_type=entity_type,
+                anchor_id=entity_id,
+                anchor_title=anchor_title,
+            )
+        return answer
 
     def _summarize(
         self,
@@ -334,6 +489,441 @@ class CompanyBrain:
             parts.append(f"knowledge: {item.get('title')}")
         return " · ".join(p for p in parts if p)[:500] or "No evidence within your access."
 
+    # ------------------------------------------------------- 4D.7 persona & follow-up
+
+    async def _persona_scope(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        user: Any,
+        context: dict[str, Any],
+    ) -> dict[str, Any]:
+        """The caller's governance persona — counts from the canonical resolver.
+
+        The same question produces different reasoning for different callers
+        because the evidence they may see differs; the persona describes that
+        rule (org-wide vs scoped) with bounded counts of what they can see.
+        """
+        from app.intelligence.company_context import resolve_caller_access
+
+        access = await resolve_caller_access(
+            db, organization_id=organization_id, user=user
+        )
+        org_wide = context.get("org_wide", access.org_wide)
+        return {
+            "org_wide": org_wide,
+            "visible_project_count": len(access.project_ids),
+            "visible_scope_count": len(access.visible_scope_ids),
+            "member_conversation_count": len(access.member_conversation_ids),
+            "employee_id": access.employee_id,
+        }
+
+    def _primary_entity(
+        self,
+        context: dict[str, Any],
+        entity_type: Optional[str],
+        entity_id: Optional[str],
+    ) -> Optional[dict[str, Any]]:
+        """The entity the question is about, from governed context evidence only.
+
+        Prefers the explicit anchor; otherwise the first project/task/decision
+        the context resolved. Never fabricated — always a real evidence item.
+        """
+        if entity_type and entity_id:
+            for item in context.get("evidence", []):
+                if item.get("type") == entity_type and item.get("id") == entity_id:
+                    return {
+                        "type": entity_type,
+                        "id": entity_id,
+                        "title": item.get("title"),
+                    }
+            return {"type": entity_type, "id": entity_id, "title": entity_id}
+        for item in context.get("evidence", []):
+            if item.get("type") in ("project", "task", "decision") and item.get("id"):
+                return {
+                    "type": item["type"],
+                    "id": item["id"],
+                    "title": item.get("title"),
+                }
+        return None
+
+    async def _timeline_for_answer(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        user: Any,
+        primary: Optional[dict[str, Any]],
+        *,
+        patterns: list[dict[str, Any]],
+        insights: list[dict[str, Any]],
+        memories: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Evidence-backed "what happened" for the answer (bounded, governed).
+
+        Composed from the governed sections already retrieved for this answer
+        plus (for a project anchor) that project's timeline rows — every
+        entry references a real row via its id/url. Nothing is scanned.
+        """
+        entries: list[dict[str, Any]] = []
+        for item in memories:
+            entries.append({
+                "kind": "memory",
+                "id": item["id"],
+                "title": item["title"],
+                "url": f"/brain/memory/{item['id']}",
+                "occurred_at": item.get("occurred_at"),
+                "confidence": item.get("confidence"),
+            })
+        for item in patterns:
+            entries.append({
+                "kind": "pattern",
+                "id": item["id"],
+                "title": item["title"],
+                "url": f"/brain/patterns/{item['id']}",
+                "occurred_at": item.get("last_seen"),
+                "confidence": item.get("confidence"),
+            })
+        for item in insights:
+            entries.append({
+                "kind": "insight",
+                "id": item["id"],
+                "title": item["title"],
+                "url": f"/brain/insights/{item['id']}",
+                "occurred_at": item.get("last_observed_at"),
+                "confidence": item.get("confidence"),
+            })
+        if primary is not None and primary["type"] == "project":
+            from app.intelligence.company_context import resolve_accessible_ids
+            from app.models.project import ProjectTimeline
+
+            visible = await resolve_accessible_ids(
+                db, user, organization_id=organization_id,
+                kind="project", ids=[primary["id"]],
+            )
+            if visible:
+                rows = (
+                    await db.execute(
+                        select(ProjectTimeline)
+                        .where(
+                            ProjectTimeline.organization_id == organization_id,
+                            ProjectTimeline.project_id == primary["id"],
+                        )
+                        .order_by(ProjectTimeline.occurred_at.desc())
+                        .limit(MAX_ANSWER_TIMELINE)
+                    )
+                ).scalars().all()
+                for row in rows:
+                    entries.append({
+                        "kind": "project_timeline",
+                        "id": row.id,
+                        "title": row.title,
+                        "url": f"/projects/{row.project_id}",
+                        "occurred_at": row.occurred_at.isoformat() if row.occurred_at else None,
+                        "confidence": 0.8,
+                    })
+        entries.sort(key=lambda e: e.get("occurred_at") or "", reverse=True)
+        return entries[:MAX_ANSWER_TIMELINE]
+
+    def _recommended_next_questions(
+        self,
+        question: str,
+        primary: Optional[dict[str, Any]],
+        route: dict[str, bool],
+        claims: list[dict[str, Any]],
+        persona: dict[str, Any],
+    ) -> list[str]:
+        """Deterministic follow-up suggestions, bounded, never mutations.
+
+        Suggestions are observation-shaped ("who knows", "has this happened",
+        "what changed") and always reference what the caller can already see.
+        """
+        lowered = (question or "").lower()
+        suggestions: list[str] = []
+        if primary is not None:
+            title = primary.get("title") or primary["id"]
+            suggestions.append(f"Who knows most about {title}?")
+            suggestions.append(f"Has this happened before with {title}?")
+            suggestions.append(f"What changed with {title} this week?")
+        else:
+            suggestions.append("What changed this week?")
+            if persona.get("org_wide"):
+                suggestions.append("Who knows most about this?")
+            if route.get("memory"):
+                suggestions.append("Has this happened before?")
+            else:
+                suggestions.append("What needs attention in the company?")
+        if any(c.get("kind") == "insight" for c in claims):
+            suggestions.append("What should I know about the company?")
+        # Never suggest the question that was just asked.
+        deduped: list[str] = []
+        for suggestion in suggestions:
+            if suggestion.lower() in lowered or suggestion in deduped:
+                continue
+            deduped.append(suggestion)
+            if len(deduped) >= MAX_NEXT_QUESTIONS:
+                break
+        return deduped
+
+    def _reasoning_chain(
+        self, question: str, claims: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Causal "why" chain — deterministic ordering of evidence-backed claims.
+
+        Steps are drawn only from the claims already produced for this answer
+        (each with its own evidence trail); the chain orders them as
+        situation -> causes -> signals -> history. Bounded.
+        """
+        situation = [c for c in claims if c.get("kind") in (None, "observation") and c.get("evidence")]
+        dependencies = [c for c in claims if "dependenc" in c.get("claim", "").lower()]
+        signals = [c for c in claims if c.get("kind") == "insight"]
+        patterns = [c for c in claims if c.get("kind") == "pattern"]
+        history = [c for c in claims if c.get("kind") in ("memory", "experience", "lesson", "outcome")]
+
+        chain: list[dict[str, Any]] = []
+        for group, label in (
+            (situation, "Current state"),
+            (dependencies, "Dependency pressure"),
+            (signals, "Systemic signal"),
+            (patterns, "Recurring pattern"),
+            (history, "Historical precedent"),
+        ):
+            for claim in group:
+                if len(chain) >= MAX_CHAIN_STEPS:
+                    break
+                chain.append({
+                    "step": len(chain) + 1,
+                    "label": label,
+                    "claim": claim.get("claim", ""),
+                    "evidence": claim.get("evidence", []),
+                    "confidence": round(float(claim.get("confidence") or 0.5), 3),
+                })
+            if len(chain) >= MAX_CHAIN_STEPS:
+                break
+        return chain
+
+    async def _related_projections(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        user: Any,
+        entity_type: str,
+        entity_id: str,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+        """Cross-source projections anchored to one entity (governed, bounded).
+
+        The same linked-pattern/insight/memory retrieval the evidence drawer
+        uses, capped small for answer embedding.
+        """
+        limit = ANSWER_SECTION_LIMIT
+        patterns = await self._linked_patterns(
+            db, organization_id, user, entity_type, entity_id, limit
+        )
+        insights = await self._linked_insights(
+            db, organization_id, user, entity_type, entity_id, limit
+        )
+        memories = await self._linked_memories(
+            db, organization_id, user, entity_type, entity_id, limit
+        )
+        return (
+            [
+                {
+                    "id": p["id"],
+                    "title": p.get("title") or p.get("pattern_type"),
+                    "pattern_type": p.get("pattern_type"),
+                    "confidence": round(float(p.get("confidence") or 0.0), 3),
+                    "url": f"/brain/patterns/{p['id']}",
+                }
+                for p in patterns
+            ],
+            [
+                {
+                    "id": m["id"],
+                    "title": m.get("title") or m.get("summary"),
+                    "memory_category": m.get("memory_category"),
+                    "confidence": round(float(m.get("confidence") or 0.0), 3),
+                    "url": f"/brain/memory/{m['id']}",
+                }
+                for m in memories
+            ],
+            [
+                {
+                    "id": i["id"],
+                    "title": i.get("title"),
+                    "insight_type": i.get("insight_type"),
+                    "confidence": round(float(i.get("confidence") or 0.0), 3),
+                    "url": f"/brain/insights/{i['id']}",
+                }
+                for i in insights
+            ],
+        )
+
+    async def _what_changed_data(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        user: Any,
+        *,
+        days: int,
+        persona: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """Governed "what changed" digest — bounded, persona-aware.
+
+        Org-wide callers see the canonical kernel digest. Scoped callers see
+        only their visible scope's activity (projects, tasks, decisions,
+        member conversations, memories) — never another scope's numbers.
+        """
+        from app.intelligence.company_context import resolve_caller_access
+
+        access = await resolve_caller_access(
+            db, organization_id=organization_id, user=user
+        )
+        days = max(1, min(days, MAX_CHANGED_DAYS))
+        since = utcnow() - timedelta(days=days)
+        categories: list[dict[str, Any]] = []
+
+        from app.models.knowledge import Decision
+        from app.models.task import Task
+        from app.memory.memory_store import feed as memory_feed
+
+        if access.org_wide:
+            from app.kernel.context_engine import context_engine
+
+            digest = await context_engine.digest(db, organization_id, days=days)
+            new_tasks = digest.get("new_tasks", 0) or 0
+            new_memories = digest.get("new_memories", 0) or 0
+            new_documents = digest.get("new_documents", 0) or 0
+            new_meetings = digest.get("new_meetings", 0) or 0
+            categories.append({"category": "new_tasks", "count": new_tasks})
+            categories.append({"category": "new_documents", "count": new_documents})
+            categories.append({"category": "new_meetings", "count": new_meetings})
+            categories.append({"category": "new_memories", "count": new_memories})
+            events = digest.get("events", [])[:MAX_WHAT_CHANGED_ITEMS]
+            if events:
+                categories.append({
+                    "category": "events",
+                    "count": len(events),
+                    "items": [
+                        {
+                            "type": "event",
+                            "id": e.get("id"),
+                            "title": e.get("name"),
+                            "url": f"/brain/events?name={e.get('name', '')}",
+                            "timestamp": e.get("created_at"),
+                        }
+                        for e in events
+                    ],
+                })
+        else:
+            project_ids = list(access.project_ids)[:MAX_CHANGED_QUERY_RESULTS]
+            if project_ids:
+                new_tasks = (
+                    await db.execute(
+                        select(Task).where(
+                            Task.organization_id == organization_id,
+                            Task.project_id.in_(project_ids),
+                            Task.created_at >= since,
+                        ).limit(MAX_WHAT_CHANGED_ITEMS + 1)
+                    )
+                ).scalars().all()
+                new_decisions = (
+                    await db.execute(
+                        select(Decision).where(
+                            Decision.organization_id == organization_id,
+                            Decision.project_id.in_(project_ids),
+                            Decision.created_at >= since,
+                        ).limit(MAX_WHAT_CHANGED_ITEMS + 1)
+                    )
+                ).scalars().all()
+                categories.append({
+                    "category": "new_tasks",
+                    "count": len(new_tasks),
+                    "items": [
+                        {
+                            "type": "task",
+                            "id": t.id,
+                            "title": t.title,
+                            "url": f"/tasks/{t.id}",
+                            "timestamp": t.created_at.isoformat() if t.created_at else None,
+                        }
+                        for t in new_tasks[:MAX_WHAT_CHANGED_ITEMS]
+                    ],
+                })
+                categories.append({
+                    "category": "new_decisions",
+                    "count": len(new_decisions),
+                    "items": [
+                        {
+                            "type": "decision",
+                            "id": d.id,
+                            "title": d.title,
+                            "url": f"/decisions/{d.id}",
+                            "timestamp": d.created_at.isoformat() if d.created_at else None,
+                        }
+                        for d in new_decisions[:MAX_WHAT_CHANGED_ITEMS]
+                    ],
+                })
+            memories = (await memory_feed(
+                db, organization_id=organization_id, user=user, limit=MAX_WHAT_CHANGED_ITEMS
+            )).get("memories", [])
+            recent_memories = [
+                m for m in memories
+                if (m.get("occurred_at") or "") >= since.isoformat()
+            ][:MAX_WHAT_CHANGED_ITEMS]
+            if recent_memories:
+                categories.append({
+                    "category": "new_memories",
+                    "count": len(recent_memories),
+                    "items": [
+                        {
+                            "type": "memory",
+                            "id": m["id"],
+                            "title": m.get("title") or m.get("summary"),
+                            "url": f"/brain/memory/{m['id']}",
+                            "timestamp": m.get("occurred_at"),
+                        }
+                        for m in recent_memories
+                    ],
+                })
+            if access.member_conversation_ids:
+                from app.models.communication import Message
+
+                rows = (
+                    await db.execute(
+                        select(Message)
+                        .where(
+                            Message.organization_id == organization_id,
+                            Message.conversation_id.in_(access.member_conversation_ids),
+                            Message.created_at >= since,
+                            Message.deleted.is_(False),
+                        )
+                        .order_by(Message.created_at.desc())
+                        .limit(MAX_WHAT_CHANGED_ITEMS)
+                    )
+                ).scalars().all()
+                if rows:
+                    categories.append({
+                        "category": "conversation_activity",
+                        "count": len(rows),
+                        "items": [
+                            {
+                                "type": "message",
+                                "id": m.id,
+                                "title": (m.content or "")[:120],
+                                "url": f"/messaging/messages/{m.id}",
+                                "timestamp": m.created_at.isoformat() if m.created_at else None,
+                            }
+                            for m in rows
+                        ],
+                    })
+
+        categories = categories[:MAX_WHAT_CHANGED_CATEGORIES]
+        return {
+            "since": since.isoformat(),
+            "days": days,
+            "org_wide": access.org_wide,
+            "categories": categories,
+        }
+
     def _related_from_context(self, context: dict[str, Any], limit: int) -> list[dict[str, Any]]:
         """Related entities from the governed context evidence (bounded)."""
         related: list[dict[str, Any]] = []
@@ -355,7 +945,219 @@ class CompanyBrain:
                 break
         return related
 
-    # --------------------------------------------------------------- overview
+    # ---------------------------------------------------------------- overview
+
+    async def timeline(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        *,
+        user: Any,
+        entity_type: Optional[str] = None,
+        entity_id: Optional[str] = None,
+        limit: int = MAX_TIMELINE,
+    ) -> Optional[dict[str, Any]]:
+        """Unified, evidence-backed company timeline (governed, bounded).
+
+        When anchored to an entity, entries are filtered to that entity's
+        scope (project timeline rows + linked intelligence). Returns None when
+        the anchor is not resolvable under the caller's access.
+        """
+        from app.intelligence.company_context import resolve_caller_access
+
+        access = await resolve_caller_access(
+            db, organization_id=organization_id, user=user
+        )
+        limit = max(1, min(limit, MAX_TIMELINE))
+        primary = None
+        if entity_type and entity_id:
+            resolved = await self._resolve_entity(
+                db, organization_id, user, source_type=entity_type, source_id=entity_id
+            )
+            if resolved is None:
+                return None
+            primary = {"type": entity_type, "id": entity_id, "title": resolved.get("title")}
+
+        entries: list[dict[str, Any]] = []
+        per_source = max(2, limit // 3)
+
+        if primary is not None and primary["type"] == "project":
+            from app.models.project import ProjectTimeline
+
+            rows = (
+                await db.execute(
+                    select(ProjectTimeline)
+                    .where(
+                        ProjectTimeline.organization_id == organization_id,
+                        ProjectTimeline.project_id == primary["id"],
+                    )
+                    .order_by(ProjectTimeline.occurred_at.desc())
+                    .limit(limit)
+                )
+            ).scalars().all()
+            for row in rows:
+                entries.append({
+                    "kind": "project_timeline",
+                    "id": row.id,
+                    "title": row.title,
+                    "url": f"/projects/{row.project_id}",
+                    "occurred_at": row.occurred_at.isoformat() if row.occurred_at else None,
+                    "confidence": 0.8,
+                })
+        elif primary is not None and primary["type"] == "task":
+            from app.intelligence.company_context import resolve_accessible_ids
+            from app.models.project import ProjectTimeline
+
+            visible = await resolve_accessible_ids(
+                db, user, organization_id=organization_id, kind="task", ids=[primary["id"]]
+            )
+            if visible:
+                from app.models.task import Task
+
+                task = await db.get(Task, primary["id"])
+                if task and task.project_id and (
+                    access.org_wide or task.project_id in access.project_ids
+                ):
+                    rows = (
+                        await db.execute(
+                            select(ProjectTimeline)
+                            .where(
+                                ProjectTimeline.organization_id == organization_id,
+                                ProjectTimeline.project_id == task.project_id,
+                            )
+                            .order_by(ProjectTimeline.occurred_at.desc())
+                            .limit(limit)
+                        )
+                    ).scalars().all()
+                    for row in rows:
+                        entries.append({
+                            "kind": "project_timeline",
+                            "id": row.id,
+                            "title": row.title,
+                            "url": f"/projects/{task.project_id}",
+                            "occurred_at": row.occurred_at.isoformat() if row.occurred_at else None,
+                            "confidence": 0.8,
+                        })
+
+        from app.intelligence.insight_engine import insight_engine
+        from app.intelligence.pattern_engine import pattern_engine
+        from app.memory.memory_store import feed as memory_feed
+
+        memories = (await memory_feed(
+            db, organization_id=organization_id, user=user, limit=per_source
+        )).get("memories", [])
+        patterns = (await pattern_engine.list_visible(
+            db, organization_id=organization_id, user=user, limit=per_source
+        )).get("patterns", [])
+        insights = (await insight_engine.list_visible(
+            db, organization_id=organization_id, user=user,
+            limit=per_source, status="active",
+        )).get("insights", [])
+
+        memory_ids = {m["id"] for m in memories}
+        pattern_ids = {p["id"] for p in patterns}
+        insight_ids = {i["id"] for i in insights}
+
+        for item in memories:
+            if primary is None or self._timeline_entry_matches(item, primary, "memory"):
+                entries.append({
+                    "kind": "memory",
+                    "id": item["id"],
+                    "title": item.get("title") or item.get("summary"),
+                    "url": f"/brain/memory/{item['id']}",
+                    "occurred_at": item.get("occurred_at"),
+                    "confidence": round(float(item.get("confidence") or 0.0), 3),
+                })
+        for item in patterns:
+            if primary is None or self._timeline_entry_matches(item, primary, "pattern"):
+                entries.append({
+                    "kind": "pattern",
+                    "id": item["id"],
+                    "title": item.get("title") or item.get("pattern_type"),
+                    "url": f"/brain/patterns/{item['id']}",
+                    "occurred_at": item.get("last_seen"),
+                    "confidence": round(float(item.get("confidence") or 0.0), 3),
+                })
+        for item in insights:
+            if primary is None or self._timeline_entry_matches(item, primary, "insight"):
+                entries.append({
+                    "kind": "insight",
+                    "id": item["id"],
+                    "title": item.get("title"),
+                    "url": f"/brain/insights/{item['id']}",
+                    "occurred_at": item.get("last_observed_at"),
+                    "confidence": round(float(item.get("confidence") or 0.0), 3),
+                })
+
+        seen: set[tuple[str, str]] = set()
+        deduped: list[dict[str, Any]] = []
+        for entry in entries:
+            key = (entry["kind"], entry["id"])
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(entry)
+        deduped.sort(key=lambda e: e.get("occurred_at") or "", reverse=True)
+        entries = deduped[:limit]
+
+        return {
+            "timeline": entries,
+            "count": len(entries),
+            "limit": limit,
+            "entity": primary,
+            "scope": {"org_wide": access.org_wide},
+            "generated_at": utcnow().isoformat(),
+            "metrics": {
+                "brain_query": "timeline",
+                "timeline_entries": len(entries),
+                "sources_consulted": 4,
+            },
+        }
+
+    @staticmethod
+    def _timeline_entry_matches(
+        item: dict[str, Any], primary: dict[str, Any], kind: str
+    ) -> bool:
+        entity_id = primary["id"]
+        if kind == "memory":
+            return (
+                item.get("entity_id") == entity_id
+                or item.get("auth_project_id") == entity_id
+                or item.get("auth_scope_id") == entity_id
+            )
+        if kind == "pattern":
+            return (
+                item.get("auth_project_id") == entity_id
+                or any(
+                    e.get("id") == entity_id
+                    for e in (item.get("evidence") or [])
+                )
+            )
+        return (
+            item.get("auth_project_id") == entity_id
+            or item.get("scope_id") == entity_id
+            or any(
+                e.get("id") == entity_id
+                for e in (item.get("evidence") or [])
+                if e.get("type") in ("project", "task", "decision")
+            )
+        )
+
+    async def what_changed(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        *,
+        user: Any,
+        days: int = 7,
+    ) -> dict[str, Any]:
+        """What changed — governed, persona-aware digest (bounded)."""
+        persona = await self._persona_scope(
+            db, organization_id, user, {"org_wide": False}
+        )
+        return await self._what_changed_data(
+            db, organization_id, user, days=days, persona=persona
+        )
 
     async def overview(
         self,
