@@ -45,15 +45,25 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-async def _claim_batch(db, *, limit: int) -> list[BackgroundJob]:
-    """Atomic claim of the oldest queued evaluation jobs (CAS on status)."""
+async def _claim_batch(
+    db, *, limit: int, organization_id: Optional[str] = None
+) -> list[BackgroundJob]:
+    """Atomic claim of the oldest queued evaluation jobs (CAS on status).
+
+    Claims are scoped to one organization when an on-demand run supplies an
+    ``organization_id`` (tenant-isolated FIFO); the scheduler runs without a
+    scope and drains globally.
+    """
+    conditions = [
+        BackgroundJob.name == insight_pipeline.EVALUATE_JOB,
+        BackgroundJob.status == "queued",
+    ]
+    if organization_id:
+        conditions.append(BackgroundJob.organization_id == organization_id)
     jobs = (
         await db.execute(
             select(BackgroundJob)
-            .where(
-                BackgroundJob.name == insight_pipeline.EVALUATE_JOB,
-                BackgroundJob.status == "queued",
-            )
+            .where(*conditions)
             .order_by(BackgroundJob.created_at.asc())
             .limit(limit)
         )
@@ -99,19 +109,24 @@ async def _reclaim_stale_running(db) -> int:
     return result.rowcount or 0
 
 
-async def _adopt_orphan_events(db) -> int:
+async def _adopt_orphan_events(
+    db, *, organization_id: Optional[str] = None
+) -> int:
     """Enqueue evaluation jobs for observable events that have none.
 
     Bounded: only the oldest unprocessed observable events are considered,
     and events already owned by a job (or already evaluated) are skipped.
     """
+    conditions = [
+        EventRow.processed_at.is_(None),
+        EventRow.name.in_(insight_pipeline.TRIGGER_EVENTS),
+    ]
+    if organization_id:
+        conditions.append(EventRow.organization_id == organization_id)
     events = (
         await db.execute(
             select(EventRow)
-            .where(
-                EventRow.processed_at.is_(None),
-                EventRow.name.in_(insight_pipeline.TRIGGER_EVENTS),
-            )
+            .where(*conditions)
             .order_by(EventRow.occurred_at.asc())
             .limit(ADOPT_CANDIDATES)
         )
@@ -196,13 +211,11 @@ async def run_once(
     processed = 0
     try:
         await _reclaim_stale_running(session)
-        batch = await _claim_batch(session, limit=limit)
-        if organization_id:
-            batch = [job for job in batch if job.organization_id == organization_id]
+        batch = await _claim_batch(session, limit=limit, organization_id=organization_id)
         for job in batch:
             await _process_job(session, job)
             processed += 1
-        await _adopt_orphan_events(session)
+        await _adopt_orphan_events(session, organization_id=organization_id)
         await insight_pipeline.evaluate_fading(
             session, organization_id=organization_id, limit=FADE_SWEEP_LIMIT
         )

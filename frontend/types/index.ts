@@ -2069,6 +2069,122 @@ export interface BrainAnswer {
   claims: BrainClaim[];
   scope_ids: string[];
   answered_at: string;
+  // Slice 4D.6 - unified company brain additions
+  summary: string;
+  confidence: number;
+  related_entities: BrainRelatedEntity[];
+  patterns: BrainAnswerSectionPattern[];
+  memories: BrainAnswerSectionMemory[];
+  insights: BrainAnswerSectionInsight[];
+  knowledge: BrainAnswerSectionKnowledge[];
+  sources_consulted: string[];
+  scope: { org_wide: boolean };
+  generated_at: string;
+  metrics: {
+    brain_query: string;
+    brain_query_duration_ms: number;
+    sources_consulted: number;
+    evidence_count: number;
+    answer_claim_count: number;
+    governance_filtered_count: number;
+  };
+}
+
+export interface BrainRelatedEntity {
+  type: string;
+  id: string;
+  title: string;
+  relation?: string;
+  url?: string;
+}
+
+export interface BrainAnswerSectionPattern {
+  id: string;
+  title: string;
+  pattern_type: string;
+  family?: string | null;
+  occurrence_count?: number;
+  confidence: number;
+  status?: string | null;
+  last_seen?: string | null;
+  url: string;
+}
+
+export interface BrainAnswerSectionInsight {
+  id: string;
+  title: string;
+  insight_type?: string | null;
+  severity?: string | null;
+  confidence: number;
+  status?: string | null;
+  last_observed_at?: string | null;
+  url: string;
+}
+
+export interface BrainAnswerSectionMemory {
+  id: string;
+  title: string;
+  memory_category?: string | null;
+  fact_kind?: string | null;
+  confidence: number;
+  occurred_at?: string | null;
+  url: string;
+}
+
+export interface BrainAnswerSectionKnowledge {
+  source_type?: string | null;
+  id: string;
+  title: string;
+  snippet?: string | null;
+  score: number;
+  url: string;
+}
+
+export interface BrainEvidenceLink {
+  type: "pattern" | "insight" | "memory" | "knowledge";
+  id: string;
+  title: string;
+  relationship: string;
+  url: string;
+  timestamp?: string | null;
+}
+
+export interface BrainEvidenceResponse {
+  source: BrainRelatedEntity & Record<string, unknown>;
+  evidence: BrainEvidenceLink[];
+  related_entities: BrainRelatedEntity[];
+  links: { patterns: number; insights: number; memories: number; knowledge: number };
+  limit: number;
+  generated_at: string;
+}
+
+export interface BrainRelatedResponse {
+  source: BrainRelatedEntity & Record<string, unknown>;
+  related: BrainRelatedEntity[];
+  limit: number;
+  truncated: boolean;
+  generated_at: string;
+}
+
+export interface BrainAttentionItem {
+  source: "insight" | "pattern" | "memory";
+  id: string;
+  title: string;
+  detail?: string | null;
+  confidence: number;
+  url: string;
+}
+
+export interface BrainUnifiedOverview {
+  attention: BrainAttentionItem[];
+  recent_intelligence: {
+    insights: { count: number; latest: Record<string, unknown>[]; truncated: boolean };
+    patterns: { count: number; latest: Record<string, unknown>[]; truncated: boolean };
+    memories: { count: number; latest: Record<string, unknown>[]; truncated: boolean };
+  };
+  scope: { org_wide: boolean };
+  generated_at: string;
+  metrics?: { brain_query?: string; brain_query_duration_ms?: number; sources_consulted?: number };
 }
 
 

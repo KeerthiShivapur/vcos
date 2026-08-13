@@ -427,7 +427,7 @@ class ReasoningEngine:
         return [{
             "claim": f"{rows} task dependencies exist across {len(project_ids)} project(s)",
             "evidence": [
-                {"type": "task", "id": pid, "title": pid, "url": f"/projects/{pid}"}
+                {"type": "project", "id": pid, "title": pid, "url": f"/projects/{pid}"}
                 for pid in project_ids[:3]
             ],
             "confidence": 0.7,

@@ -95,7 +95,75 @@ async def brain_overview(
     user: User = Depends(require_permission("brain:read")),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    return await organization_kernel.overview(db, org.id)
+    """Slice 4D.6 — unified company brain overview.
+
+    The living company view above stays, and the response is extended
+    additively with governed, bounded sections: what needs attention (active
+    insights, recurring patterns, recent memories) and recent company
+    intelligence per source — only what the caller may actually access.
+    """
+    from app.intelligence.company_brain import company_brain
+
+    base = await organization_kernel.overview(db, org.id)
+    unified = await company_brain.overview(db, org.id, user=user)
+    base.update(unified)
+    return base
+
+
+# Slice 4D.6 — cross-source evidence drawer + related view (governed, bounded)
+
+
+@router.get("/evidence/{source_type}/{source_id}")
+async def brain_evidence(
+    source_type: str,
+    source_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+    link_limit: int = Query(5, ge=1, le=10),
+) -> dict[str, Any]:
+    """Why are these pieces of intelligence connected?
+
+    Resolves one governed source object and links the existing intelligence
+    that references it (patterns, insights, memories, knowledge, graph
+    neighbors). Restricted evidence is never retrieved, so it can never leak.
+    """
+    from app.intelligence.company_brain import company_brain
+
+    result = await company_brain.evidence(
+        db, org.id, user=user,
+        source_type=source_type, source_id=source_id,
+        link_limit=link_limit,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="evidence not found")
+    return result
+
+
+@router.get("/related/{source_type}/{source_id}")
+async def brain_related(
+    source_type: str,
+    source_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(8, ge=1, le=20),
+) -> dict[str, Any]:
+    """Concise, governed relationship view of one source object.
+
+    Graph neighbors plus cross-source intelligence anchored to the entity —
+    bounded and visibility-filtered before exposure.
+    """
+    from app.intelligence.company_brain import company_brain
+
+    result = await company_brain.related(
+        db, org.id, user=user,
+        source_type=source_type, source_id=source_id,
+        limit=limit,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="related not found")
+    return result
 
 
 @router.get("/state")
@@ -128,11 +196,19 @@ async def brain_answer(
     user: User = Depends(require_permission("brain:read")),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Slice 4D.1 — canonical company brain answer: evidence claims the caller
-    may actually access, shaped by their governance scopes."""
+    """Slice 4D.6 — unified company brain answer.
+
+    The canonical 4D.1 claims (evidence-backed, governance-scoped) are
+    composed with governed, bounded sections from every relevant source —
+    patterns (4D.4), memories (4D.3), insights (4D.5) and semantic knowledge
+    (4D.2) — plus related entities, a deterministic summary, a bounded
+    confidence and observability metrics. Additive to the 4D.1 contract.
+    """
     if not body.question.strip():
         raise HTTPException(status_code=422, detail="question is required")
-    return await organization_kernel.answer(
+    from app.intelligence.company_brain import company_brain
+
+    return await company_brain.answer(
         db, org.id, body.question,
         user=user, entity_type=body.entity_type, entity_id=body.entity_id,
     )

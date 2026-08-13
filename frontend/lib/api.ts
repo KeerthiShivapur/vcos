@@ -20,6 +20,7 @@ import type {
   Badge,
   BrainAnswer,
   BrainAnswerRequest,
+  BrainEvidenceResponse,
   BrainGraphTraversal,
   BrainKnowledgeSearchRequest,
   BrainKnowledgeSearchResponse,
@@ -36,9 +37,11 @@ import type {
     BrainPatternRelatedResponse,
     BrainInsight,
     BrainInsightEvidenceResponse,
-    BrainInsightHistoryResponse,
+BrainInsightHistoryResponse,
     BrainInsightRelatedResponse,
     BrainInsightsListResponse,
+    BrainRelatedResponse,
+    BrainUnifiedOverview,
   BrainPatternsListResponse,
   CalendarEvent,
   CalendarFeedItem,
@@ -7656,6 +7659,26 @@ export async function deleteTheme(id: string): Promise<{ status: string; theme_i
 
 export async function brainAnswer(payload: BrainAnswerRequest): Promise<BrainAnswer> {
   return api<BrainAnswer>("/brain/answer", { method: "POST", body: payload });
+}
+
+export async function brainOverview(): Promise<BrainUnifiedOverview> {
+  return api<BrainUnifiedOverview>("/brain/overview");
+}
+
+export async function brainEvidence(
+  sourceType: string,
+  sourceId: string,
+  params?: { link_limit?: number }
+): Promise<BrainEvidenceResponse> {
+  return api<BrainEvidenceResponse>(`/brain/evidence/${sourceType}/${sourceId}`, { query: params });
+}
+
+export async function brainRelated(
+  sourceType: string,
+  sourceId: string,
+  params?: { limit?: number }
+): Promise<BrainRelatedResponse> {
+  return api<BrainRelatedResponse>(`/brain/related/${sourceType}/${sourceId}`, { query: params });
 }
 
 export async function brainKnowledgeSearch(

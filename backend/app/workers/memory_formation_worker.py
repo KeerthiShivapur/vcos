@@ -43,15 +43,25 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-async def _claim_batch(db, *, limit: int) -> list[BackgroundJob]:
-    """Atomic claim of the oldest queued formation jobs (CAS on status)."""
+async def _claim_batch(
+    db, *, limit: int, organization_id: Optional[str] = None
+) -> list[BackgroundJob]:
+    """Atomic claim of the oldest queued formation jobs (CAS on status).
+
+    Claims are scoped to one organization when an on-demand run supplies an
+    ``organization_id`` (tenant-isolated FIFO); the scheduler runs without a
+    scope and drains globally.
+    """
+    conditions = [
+        BackgroundJob.name == formation.FORMATION_JOB,
+        BackgroundJob.status == "queued",
+    ]
+    if organization_id:
+        conditions.append(BackgroundJob.organization_id == organization_id)
     jobs = (
         await db.execute(
             select(BackgroundJob)
-            .where(
-                BackgroundJob.name == formation.FORMATION_JOB,
-                BackgroundJob.status == "queued",
-            )
+            .where(*conditions)
             .order_by(BackgroundJob.created_at.asc())
             .limit(limit)
         )
@@ -97,19 +107,24 @@ async def _reclaim_stale_running(db) -> int:
     return result.rowcount or 0
 
 
-async def _adopt_orphan_events(db) -> int:
+async def _adopt_orphan_events(
+    db, *, organization_id: Optional[str] = None
+) -> int:
     """Enqueue formation jobs for significant events that have none.
 
     Bounded: only the oldest unprocessed significant events are considered,
     and events already owned by a job (or already fed a memory) are skipped.
     """
+    conditions = [
+        EventRow.processed_at.is_(None),
+        EventRow.name.in_(formation.SIGNIFICANT_EVENTS),
+    ]
+    if organization_id:
+        conditions.append(EventRow.organization_id == organization_id)
     events = (
         await db.execute(
             select(EventRow)
-            .where(
-                EventRow.processed_at.is_(None),
-                EventRow.name.in_(formation.SIGNIFICANT_EVENTS),
-            )
+            .where(*conditions)
             .order_by(EventRow.occurred_at.asc())
             .limit(ADOPT_CANDIDATES)
         )
@@ -171,7 +186,11 @@ async def _process_job(db, job: BackgroundJob) -> None:
             job.next_retry_at = now + timedelta(seconds=30 * job.attempts)
 
 
-async def run_once(db: Optional[object] = None, limit: int = MAX_BATCH) -> int:
+async def run_once(
+    db: Optional[object] = None,
+    limit: int = MAX_BATCH,
+    organization_id: Optional[str] = None,
+) -> int:
     """One bounded pass: claim + process formation jobs, adopt orphan events.
 
     Returns the number of formation jobs processed (not adopted events).
@@ -181,11 +200,11 @@ async def run_once(db: Optional[object] = None, limit: int = MAX_BATCH) -> int:
     processed = 0
     try:
         await _reclaim_stale_running(session)
-        batch = await _claim_batch(session, limit=limit)
+        batch = await _claim_batch(session, limit=limit, organization_id=organization_id)
         for job in batch:
             await _process_job(session, job)
             processed += 1
-        await _adopt_orphan_events(session)
+        await _adopt_orphan_events(session, organization_id=organization_id)
         await session.commit()
     finally:
         if owns_session:

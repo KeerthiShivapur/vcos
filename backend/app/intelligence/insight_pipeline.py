@@ -363,7 +363,7 @@ async def _collect_neighborhood(
             {
                 "id": dep.id,
                 "task_id": dep.task_id,
-                "depends_on": dep.depends_on,
+                "depends_on": dep.depends_on_task_id,
             }
             for dep in dep_rows
         ]

@@ -215,7 +215,10 @@ async def run_worker(
 
     module = importlib.import_module(module_name)
     try:
-        if "db" in inspect.signature(module.run_once).parameters:
+        signature = inspect.signature(module.run_once)
+        if "organization_id" in signature.parameters:
+            count = await module.run_once(db=db, organization_id=org.id)
+        elif "db" in signature.parameters:
             count = await module.run_once(db=db)
         else:
             count = await module.run_once()
