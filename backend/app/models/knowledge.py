@@ -582,6 +582,17 @@ class KnowledgeClaim(Base):
     superseded_by: Mapped[Optional[str]] = mapped_column(String(32), index=True)
     source_type: Mapped[str] = mapped_column(String(32), nullable=False)
     source_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    # Slice 4E.3 — cross-source understanding: synthesized claims are anchored
+    # to a canonical topic and carry their relationship graph (supporting and
+    # contradicting claim ids, related entities) plus last_seen so a refresh
+    # with unchanged evidence is never treated as new knowledge.
+    topic_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("knowledge_topics.id", ondelete="SET NULL"), index=True
+    )
+    supporting_claim_ids_json: Mapped[Optional[str]] = mapped_column(Text)
+    contradicting_claim_ids_json: Mapped[Optional[str]] = mapped_column(Text)
+    related_entities_json: Mapped[Optional[str]] = mapped_column(Text)
+    last_seen: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), index=True)
     created_by: Mapped[Optional[str]] = mapped_column(String(32))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)

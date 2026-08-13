@@ -152,6 +152,16 @@ _POSTGRES_ALTERS: list[str] = [
     "CREATE INDEX IF NOT EXISTS ix_patterns_org_updated ON pattern_detections (organization_id, updated_at)",
     "CREATE INDEX IF NOT EXISTS ix_pattern_detections_scope_id ON pattern_detections (scope_id)",
     "CREATE INDEX IF NOT EXISTS ix_pattern_detections_auth_project_id ON pattern_detections (auth_project_id)",
+    # Slice 4E.3: universal knowledge understanding — cross-source relationship
+    # columns on the existing 4E.1 knowledge_claims table (synthesis claims are
+    # topic-anchored claims with supporting/contradicting claim links).
+    "ALTER TABLE knowledge_claims ADD COLUMN IF NOT EXISTS topic_id VARCHAR(32)",
+    "ALTER TABLE knowledge_claims ADD COLUMN IF NOT EXISTS supporting_claim_ids_json TEXT",
+    "ALTER TABLE knowledge_claims ADD COLUMN IF NOT EXISTS contradicting_claim_ids_json TEXT",
+    "ALTER TABLE knowledge_claims ADD COLUMN IF NOT EXISTS related_entities_json TEXT",
+    "ALTER TABLE knowledge_claims ADD COLUMN IF NOT EXISTS last_seen TIMESTAMPTZ",
+    "CREATE INDEX IF NOT EXISTS ix_knowledge_claims_topic ON knowledge_claims (organization_id, topic_id)",
+    "CREATE INDEX IF NOT EXISTS ix_knowledge_claims_last_seen ON knowledge_claims (organization_id, last_seen)",
 ]
 
 

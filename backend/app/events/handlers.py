@@ -2117,10 +2117,10 @@ async def handle_canonical_knowledge_ingest(db, event, payload):
 
 
 # ---------------------------------------------------------------------------
-# Slice 4E.2 — universal knowledge ingestion (one contract for all activity)
+# Slice 4E.2 ï¿½ universal knowledge ingestion (one contract for all activity)
 # ---------------------------------------------------------------------------
 # The canonical model is fed by the SAME durable events the rest of the org
-# already emits — messages, tasks, meetings, memories and patterns speak one
+# already emits ï¿½ messages, tasks, meetings, memories and patterns speak one
 # internal language via canonical_engine.ingest_event. One event, many
 # consumers; no new emission sites. Noise never becomes knowledge; governance
 # scope and source identity are preserved; replays are exact-once.
@@ -2148,4 +2148,16 @@ async def handle_universal_knowledge_ingest(db, event, payload):
     """Funnel meaningful company activity into the canonical knowledge model."""
     from app.knowledge.canonical_service import canonical_engine
 
-    await canonical_engine.ingest_event(db, event=event, payload=payload)
+    result = await canonical_engine.ingest_event(db, event=event, payload=payload)
+    if result.get("status") != "ok":
+        return
+    # 4E.3 â€” keep the topics this source touched synthesized: bounded,
+    # idempotent and inside the same transaction as the ingest.
+    from app.knowledge.synthesis_engine import synthesis_engine
+
+    await synthesis_engine.synthesize_for_source(
+        db,
+        organization_id=result.get("organization_id") or payload.get("organization_id") or event.organization_id,
+        source_type=result["entity_type"],
+        source_id=result["entity_id"],
+    )

@@ -11,6 +11,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_organization, require_permission
@@ -20,6 +21,7 @@ from app.intelligence.graph_engine import graph_engine as company_graph
 from app.intelligence.insight_engine import insight_engine
 from app.intelligence.pattern_engine import pattern_engine
 from app.kernel.organization_kernel import organization_kernel
+from app.models.knowledge import KnowledgeTopic
 from app.models.organization import Organization
 from app.models.user import User
 
@@ -457,6 +459,161 @@ async def brain_knowledge_reconcile(
         db, organization_id=org.id,
         kind=body.kind, limit=body.limit or 20,
     )
+
+
+class BrainEvidenceIn(BaseModel):
+    question: str
+
+
+# ---------------------------------------------------------------------------
+# Slice 4E.3 — universal knowledge understanding & synthesis
+# ---------------------------------------------------------------------------
+
+
+@router.get("/knowledge/topics/{topic_name}/state")
+async def brain_knowledge_topic_state(
+    topic_name: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.3 — the state of a topic: the current understanding, active
+    problems, recent decisions, patterns, contradictions and evolution —
+    assembled only from evidence the caller may see."""
+    from app.knowledge.synthesis_engine import synthesis_engine
+
+    result = await synthesis_engine.topic_state(
+        db, organization_id=org.id, topic_name=topic_name, user=user
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="topic not found")
+    return result
+
+
+@router.get("/knowledge/topics/{topic_name}/current-state")
+async def brain_knowledge_topic_current(
+    topic_name: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.3 — knowledge snapshot: what the topic means right now, the
+    latest authoritative statement, evidence counts and freshness."""
+    from app.knowledge.synthesis_engine import synthesis_engine
+
+    result = await synthesis_engine.current_state(
+        db, organization_id=org.id, topic_name=topic_name, user=user
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="topic not found")
+    return result
+
+
+@router.get("/knowledge/topics/{topic_name}/timeline")
+async def brain_knowledge_topic_timeline(
+    topic_name: str,
+    limit: int = Query(30, ge=1, le=100),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.3 — how the company's understanding of the topic developed."""
+    from app.knowledge.synthesis_engine import synthesis_engine
+
+    result = await synthesis_engine.timeline(
+        db, organization_id=org.id, topic_name=topic_name, user=user, limit=limit
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="topic not found")
+    return result
+
+
+@router.get("/knowledge/topics/{topic_name}/contradictions")
+async def brain_knowledge_topic_contradictions(
+    topic_name: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.3 — facet conflicts among the topic's active evidence and how
+    each was resolved (authority, then valid_from)."""
+    from app.knowledge.synthesis_engine import synthesis_engine
+
+    result = await synthesis_engine.contradictions(
+        db, organization_id=org.id, topic_name=topic_name, user=user
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="topic not found")
+    return result
+
+
+@router.get("/knowledge/topics/{topic_name}/evidence")
+async def brain_knowledge_topic_evidence(
+    topic_name: str,
+    question: str = Query(..., min_length=2),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.3 — an evidence-backed answer: a deterministic statement plus
+    the exact evidence chain (citations, never opinions)."""
+    from app.knowledge.synthesis_engine import synthesis_engine
+
+    result = await synthesis_engine.evidence_answer(
+        db, organization_id=org.id, topic_name=topic_name,
+        question=question, user=user,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="topic not found")
+    return result
+
+
+@router.post("/knowledge/topics/{topic_name}/synthesize")
+async def brain_knowledge_topic_synthesize(
+    topic_name: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.3 — force one deterministic synthesis pass for a topic
+    (idempotent). Normal flow is event-driven; this is for recovery."""
+    from app.knowledge.synthesis_engine import synthesis_engine
+
+    topic = (
+        await db.execute(
+            select(KnowledgeTopic).where(
+                KnowledgeTopic.organization_id == org.id,
+                KnowledgeTopic.name == topic_name,
+            )
+        )
+    ).scalar_one_or_none()
+    if topic is None:
+        raise HTTPException(status_code=404, detail="topic not found")
+    result = await synthesis_engine.synthesize_topic(
+        db, organization_id=org.id, topic_id=topic.id, user=user
+    )
+    await db.commit()
+    return result
+
+
+@router.get("/knowledge/claims/{claim_id}")
+async def brain_knowledge_claim(
+    claim_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.3 — one claim with its full relationship graph: supporting and
+    contradicting claims, related entities, supersession, evidence citations.
+    Hidden claims return 404 — governance constrains retrieval itself."""
+    from app.knowledge.synthesis_engine import synthesis_engine
+
+    result = await synthesis_engine.claim_detail(
+        db, organization_id=org.id, claim_id=claim_id, user=user
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="claim not found")
+    return result
 
 
 @router.post("/advise")
