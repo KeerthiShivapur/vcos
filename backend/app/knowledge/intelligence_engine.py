@@ -1,0 +1,1743 @@
+"""Slice 4E.4 — Knowledge Intelligence Engine.
+
+4E.1-4E.3 build the canonical knowledge substrate: sources -> claims ->
+topics -> one synthesized understanding per topic. 4E.4 turns that
+substrate into intelligence — what the company's knowledge MEANS:
+
+    4.4.1 discovery          give meaning to a question ("why are enterprise
+                             customers delaying renewals?") by connecting
+                             observed evidence across the organization,
+    4.4.2 relationships      traverse the knowledge graph with typed edges
+                             (supported_by / affected / based_on / concerns),
+    4.4.3 change + impact    what changed in our understanding, and who else
+                             is affected when a piece of knowledge changes,
+    4.4.4 gaps               missing evidence, stale knowledge, unresolved
+                             contradictions, missing ownership, undocumented
+                             processes,
+    4.4.5 timeline           (already surfaced by 4E.3; re-exposed here for
+                             the universal query surface),
+    4.4.6 confidence +       every number can be explained factor by factor;
+       ownership + health    one topic's accountable owner; the 7-bar
+                             organizational knowledge health,
+    4.4.7 recommendations    deterministic, evidence-backed, persisted
+                             exactly-once and auto-resolved when the
+                             condition clears,
+    4.4.8 universal query    one surface: natural questions route to the
+                             right intelligence and only the evidence the
+                             caller may see.
+
+Design laws (mirroring 4E.1-4E.3, per the 4E.4 contract):
+* deterministic first — no LLM invents an organizational fact anywhere here,
+* governance is inherited: no intelligence may be more permissive than the
+  evidence used to produce it. Every read resolves caller access BEFORE
+  assembly and never fetches what the caller cannot see; a topic with no
+  visible evidence is indistinguishable from a missing topic,
+* one canonical brain: this engine REUSES the 4E.3 substrate (evidence
+  collection, contradiction detection, synthesis claims, visibility) — there
+  are no competing pipelines,
+* exact-once: recommendations are keyed by stable fingerprints; replays
+  never duplicate and conditions that clear are resolved, not re-created,
+* change-driven, bounded: no full-org rescans — every candidate fetch is an
+  indexed organization-scoped query with a hard limit.
+"""
+
+import hashlib
+import json
+import logging
+import re
+from datetime import timedelta
+from typing import Any, Optional
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.timeutils import ensure_aware
+from app.intelligence.company_context import CallerAccess, resolve_caller_access, tokens
+from app.knowledge.canonical_service import (
+    _AUTHORITY_LABELS,
+    _load_provenance,
+    now_utc,
+)
+from app.knowledge.synthesis_engine import (
+    _AUTHORITY_NORM,
+    _json_loads,
+    _snippet,
+    extract_facets,
+    synthesis_engine,
+)
+from app.models.knowledge import (
+    KnowledgeClaim,
+    KnowledgeEvidence,
+    KnowledgeRecommendation,
+    KnowledgeRelation,
+    KnowledgeSource,
+    KnowledgeTopic,
+)
+
+logger = logging.getLogger("vcos.knowledge.intelligence")
+
+# ---------------------------------------------------------------------------
+# bounds — every read and every write is hard-capped
+# ---------------------------------------------------------------------------
+
+_MAX_TOPICS_SCAN = 100         # topics considered by org-wide intelligence
+_MAX_CLAIM_SCAN = 400          # candidate claims loaded per intelligence pass
+_MAX_DISCOVERY = 10            # discovery results
+_MAX_CHANGES = 20              # change-intelligence results
+_MAX_IMPACT_ENTITIES = 60      # impacted entities (graph neighbors)
+_MAX_IMPACT_CLAIMS = 40        # dependent knowledge claims quoted
+_MAX_NEIGHBORS = 40            # relationship traversal bound
+_MAX_GAPS_PER_KIND = 8         # gaps per kind
+_MAX_GAPS = 30                 # total gaps surfaced
+_MAX_RECOMMENDATIONS = 25      # recommendation rows evaluated / surfaced
+_MAX_ANSWER_EVIDENCE = 12      # citations in an intelligence answer
+
+_DOCUMENT_FAMILIES = frozenset({"document", "wiki", "policy", "sop", "template"})
+_PROCESS_FAMILIES = frozenset({"pattern", "task", "meeting"})
+
+# freshness buckets shared by health/gaps
+_FRESH_OK = frozenset({"very_high", "high", "medium"})
+
+# intent routing for the universal knowledge query (deterministic keywords)
+_INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
+    ("changes", ("what changed", "since", "changed in our understanding", "when did", "evolution")),
+    ("impact", ("impact", "affected", "affect", "what else", "depends on", "dependent")),
+    ("gaps", ("don't know", "don t know", "missing", "gaps", "stale", "outdated", "unverified", "undocumented")),
+    ("contradictions", ("uncertain", "uncertainty", "conflict", "contradict", "inconsistent")),
+    ("ownership", ("who owns", "owner of", "accountable for")),
+    ("health", ("health", "healthy", "how are we doing")),
+    ("recommendations", ("recommend", "should we", "improve", "prioritize")),
+]
+
+_CHANGE_SIGNAL = re.compile(
+    r"\b(changed|moved|delayed|postponed|rescheduled|increased|decreased|"
+    r"launched|released|approved|rejected|cancelled|extended|paused|resumed|"
+    r"rolled out|rollout|signed|hired|frozen|unfrozen)\b",
+    re.IGNORECASE,
+)
+
+
+def _clean_topic_name(name: Optional[str]) -> Optional[str]:
+    """Keyword-derived topics can carry JSON punctuation from their source
+    (e.g. '"renewal"' or '["renewal"') — surface the name as a plain word."""
+    if not name:
+        return name
+    name = str(name).strip()
+    if len(name) >= 2 and name[0] == '"' and name[-1] == '"':
+        name = name[1:-1]
+    if len(name) >= 2 and name[0] == "[" and name[-1] == '"':
+        name = name[1:-1]
+    name = name.strip()
+    return name[:120] or None
+
+
+def _utcnow_iso() -> str:
+    return now_utc().isoformat()
+
+
+def _stem_overlap(a: set[str], b: set[str]) -> bool:
+    """Deterministic inflection-aware token overlap.
+
+    Exact token matches win; otherwise tokens sharing a 5+ character prefix
+    (renewals ~ renewal, delays ~ delay, migrating ~ migration) count as the
+    same concept — plural/singular/tense without any stemmer.
+    """
+    if not a or not b:
+        return False
+    if a & b:
+        return True
+    a_long = [t for t in a if len(t) >= 5]
+    b_long = [t for t in b if len(t) >= 5]
+    for left in a_long:
+        for right in b_long:
+            if left[:5] == right[:5]:
+                return True
+    return False
+
+
+def _matched_query_tokens(query_tokens: set[str], claim_tokens: set[str]) -> list[str]:
+    exact = sorted(query_tokens & claim_tokens, key=str.lower)
+    if exact:
+        return exact
+    extra = []
+    for left in sorted(query_tokens, key=str.lower):
+        if len(left) < 5:
+            continue
+        if any(len(right) >= 5 and left[:5] == right[:5] for right in claim_tokens):
+            extra.append(left)
+    return extra
+
+
+def _fingerprint(kind: str, *parts: str) -> str:
+    digest = hashlib.sha256(("|".join((kind, *parts))).encode("utf-8")).hexdigest()
+    return digest[:80]
+
+
+# ---------------------------------------------------------------------------
+# shared scan: ONE bounded pass over the org's knowledge, per caller
+# ---------------------------------------------------------------------------
+
+
+class IntelligenceEngine:
+    async def _access(self, db: AsyncSession, *, organization_id: str, user: Any) -> CallerAccess:
+        if user is None:
+            return CallerAccess(
+                organization_id=organization_id,
+                user_id="system",
+                employee_id=None,
+                org_wide=True,
+            )
+        return await resolve_caller_access(db, organization_id=organization_id, user=user)
+
+    async def _topic_by_name(
+        self, db: AsyncSession, *, organization_id: str, topic_name: str
+    ) -> Optional[KnowledgeTopic]:
+        return (
+            await db.execute(
+                select(KnowledgeTopic).where(
+                    KnowledgeTopic.organization_id == organization_id,
+                    KnowledgeTopic.name == topic_name,
+                )
+            )
+        ).scalar_one_or_none()
+
+    async def _topics_by_ids(
+        self, db: AsyncSession, *, organization_id: str, topic_ids: list[str]
+    ) -> dict[str, KnowledgeTopic]:
+        if not topic_ids:
+            return {}
+        rows = (
+            await db.execute(
+                select(KnowledgeTopic).where(
+                    KnowledgeTopic.organization_id == organization_id,
+                    KnowledgeTopic.id.in_(topic_ids),
+                    KnowledgeTopic.status == "active",
+                )
+            )
+        ).scalars().all()
+        return {t.id: t for t in rows}
+
+    async def _scan_topics(
+        self,
+        db: AsyncSession,
+        *,
+        organization_id: str,
+        access: CallerAccess,
+        include_superseded: bool = False,
+        limit: int = _MAX_TOPICS_SCAN,
+    ) -> dict[str, dict[str, Any]]:
+        """One governed pass over the org's topics -> visible evidence claims.
+
+        Mirrors the 4E.3 evidence law (name + aliases, provenance visibility,
+        authority x freshness ranking) but in a single bounded fetch so
+        org-wide intelligence never degrades into N topic queries.
+        """
+        topics = list(
+            (
+                await db.execute(
+                    select(KnowledgeTopic)
+                    .where(
+                        KnowledgeTopic.organization_id == organization_id,
+                        KnowledgeTopic.status == "active",
+                    )
+                    .order_by(KnowledgeTopic.updated_at.desc())
+                    .limit(limit)
+                )
+            ).scalars().all()
+        )
+        if not topics:
+            return {}
+        candidates = list(
+            (
+                await db.execute(
+                    select(KnowledgeClaim)
+                    .where(
+                        KnowledgeClaim.organization_id == organization_id,
+                        KnowledgeClaim.claim_type != "synthesis",
+                    )
+                    .order_by(KnowledgeClaim.valid_from.desc())
+                    .limit(_MAX_CLAIM_SCAN)
+                )
+            ).scalars().all()
+        )
+        sources = list(
+            (
+                await db.execute(
+                    select(KnowledgeSource).where(
+                        KnowledgeSource.organization_id == organization_id,
+                        KnowledgeSource.source_type.in_({c.subject_type for c in candidates}),
+                    )
+                )
+            ).scalars().all()
+        )
+        by_source: dict[tuple[str, str], KnowledgeSource] = {
+            (s.source_type, s.source_id): s for s in sources
+        }
+        out: dict[str, dict[str, Any]] = {}
+        for topic in topics:
+            aliases = [a.lower() for a in _json_loads(topic.aliases_json, []) if a]
+            needles = {topic.name.lower(), *aliases}
+            scored: list[tuple[float, KnowledgeClaim]] = []
+            for claim in candidates:
+                if not include_superseded and claim.status == "superseded":
+                    continue
+                source = by_source.get((claim.subject_type, claim.subject_id))
+                if source is None:
+                    continue
+                provenance = _load_provenance(source.provenance_json)
+                if not synthesis_engine._visible(access, provenance):
+                    continue
+                text = (
+                    f"{source.title} {claim.object_text} "
+                    f"{provenance.get('category') or ''} {provenance.get('keywords') or ''}"
+                ).lower()
+                if not any(needle in text for needle in needles):
+                    continue
+                mention = 1.0
+                if not any(needle in claim.object_text.lower() for needle in needles) and \
+                   not any(needle in (source.title or "").lower() for needle in needles):
+                    mention = 0.6
+                relevance = (
+                    _AUTHORITY_NORM.get(claim.authority_level, 0.25)
+                    * (0.4 + 0.6 * (source.freshness_score or 0) / 100.0)
+                    * mention
+                )
+                scored.append((relevance, claim))
+            scored.sort(key=lambda item: (-item[0], ensure_aware(item[1].valid_from)))
+            if scored:
+                out[topic.id] = {
+                    "topic": topic,
+                    "claims": [c for _, c in scored[:_MAX_CLAIM_SCAN]],
+                    "sources": by_source,
+                }
+        return out
+
+    async def _synthesis_current_claim(
+        self,
+        db: AsyncSession,
+        *,
+        organization_id: str,
+        topic_id: str,
+        access: CallerAccess,
+    ) -> Optional[KnowledgeClaim]:
+        claims = [
+            c for c in await synthesis_engine._synthesis_claims(
+                db, organization_id=organization_id, topic_id=topic_id
+            )
+            if c.status != "superseded"
+            and await synthesis_engine._claim_visible(
+                db, organization_id=organization_id, claim=c, access=access
+            )
+        ]
+        if not claims:
+            return None
+        if len(claims) == 1:
+            return claims[0]
+        return max(claims, key=lambda c: ensure_aware(c.valid_from))
+
+    async def _synthesis_evolution(
+        self,
+        db: AsyncSession,
+        *,
+        organization_id: str,
+        topic_id: str,
+        access: CallerAccess,
+    ) -> list[KnowledgeClaim]:
+        return [
+            c for c in await synthesis_engine._synthesis_claims(
+                db, organization_id=organization_id, topic_id=topic_id
+            )
+            if await synthesis_engine._claim_visible(
+                db, organization_id=organization_id, claim=c, access=access
+            )
+        ]
+
+    # ------------------------------------------------------------------
+    # 4.4.1 — knowledge discovery
+    # ------------------------------------------------------------------
+
+    async def discover(
+        self,
+        db: AsyncSession,
+        *,
+        organization_id: str,
+        query: str,
+        user: Any,
+        limit: int = _MAX_DISCOVERY,
+        in_families: Optional[list[str]] = None,
+    ) -> dict[str, Any]:
+        """Give meaning to a question: rank topics by evidence match, then
+        return each topic's observed evidence, synthesized understanding,
+        confidence and citation chain — only from visible evidence."""
+        access = await self._access(db, organization_id=organization_id, user=user)
+        query_tokens = tokens(query)
+        families = frozenset(in_families or [])
+
+        scanned = await self._scan_topics(
+            db, organization_id=organization_id, access=access
+        )
+        ranked: list[tuple[float, dict[str, Any]]] = []
+        for topic_id, entry in scanned.items():
+            topic = entry["topic"]
+            claims = entry["claims"]
+            source_map = entry["sources"]
+            matched: list[dict[str, Any]] = []
+            for claim in claims:
+                source = source_map.get((claim.subject_type, claim.subject_id))
+                hay = f"{source.title if source else ''} {claim.object_text} {topic.name}"
+                claim_tokens = tokens(hay)
+                if not _stem_overlap(query_tokens, claim_tokens):
+                    continue
+                if families and claim.subject_type not in families:
+                    continue
+                matched.append(
+                    {
+                        "claim_id": claim.id,
+                        "subject_type": claim.subject_type,
+                        "subject_id": claim.subject_id,
+                        "excerpt": _snippet(claim.object_text, 200),
+                        "source_title": source.title if source else None,
+                        "authority_level": claim.authority_level,
+                        "valid_from": ensure_aware(claim.valid_from).isoformat(),
+                        "matched_tokens": _matched_query_tokens(query_tokens, claim_tokens)[:8],
+                    }
+                )
+            if not matched:
+                continue
+            current = await self._synthesis_current_claim(
+                db, organization_id=organization_id, topic_id=topic_id, access=access
+            )
+            families_present = {m["subject_type"] for m in matched}
+            authority = max((m["authority_level"] for m in matched), default=1)
+            score = (
+                0.5 * min(1.0, len(matched) / 5.0)
+                + 0.25 * _AUTHORITY_NORM.get(authority, 0.25)
+                + 0.25 * min(1.0, len(families_present) / 3.0)
+            )
+            ranked.append(
+                (
+                    score,
+                    {
+                        "topic": topic,
+                        "matched": matched,
+                        "families": sorted(families_present),
+                        "current": current,
+                        "authority": authority,
+                    },
+                )
+            )
+        ranked.sort(key=lambda item: -item[0])
+        limit = max(1, min(limit, _MAX_DISCOVERY))
+        results: list[dict[str, Any]] = []
+        for score, entry in ranked[:limit]:
+            current = entry["current"]
+            results.append(
+                {
+                    "topic": {"id": entry["topic"].id, "name": _clean_topic_name(entry["topic"].name)},
+                    "score": round(score, 3),
+                    "statement": current.object_text if current else None,
+                    "claim_id": current.id if current else None,
+                    "confidence": current.confidence if current else None,
+                    "authority": entry["authority"],
+                    "families": entry["families"],
+                    "evidence": entry["matched"][:_MAX_ANSWER_EVIDENCE],
+                }
+            )
+        return {
+            "query": query,
+            "intent": "discovery",
+            "total": len(results),
+            "answers": results,
+            "scope": "org" if access.org_wide else "project",
+            "generated_at": _utcnow_iso(),
+        }
+
+    # ------------------------------------------------------------------
+    # 4.4.2 — relationship (graph) intelligence
+    # ------------------------------------------------------------------
+
+    async def relationships(
+        self,
+        db: AsyncSession,
+        *,
+        organization_id: str,
+        entity_type: str,
+        entity_id: str,
+        user: Any,
+        limit: int = _MAX_NEIGHBORS,
+    ) -> Optional[dict[str, Any]]:
+        """Typed graph view of one entity: every edge (either direction) and
+        each neighbor's canonical claims + the topics they speak about."""
+        access = await self._access(db, organization_id=organization_id, user=user)
+        edges = list(
+            (
+                await db.execute(
+                    select(KnowledgeRelation).where(
+                        KnowledgeRelation.organization_id == organization_id,
+                        (
+                            (KnowledgeRelation.source_type == entity_type)
+                            & (KnowledgeRelation.source_id == entity_id)
+                        )
+                        | (
+                            (KnowledgeRelation.target_type == entity_type)
+                            & (KnowledgeRelation.target_id == entity_id)
+                        ),
+                    ).order_by(KnowledgeRelation.created_at.desc())
+                    .limit(limit * 3)
+                )
+            ).scalars().all()
+        )
+        neighbors: dict[tuple[str, str], dict[str, Any]] = {}
+        for edge in edges:
+            if (edge.source_type, edge.source_id) == (entity_type, entity_id):
+                key = (edge.target_type, edge.target_id)
+                direction, relation = "outgoing", edge.relation_type
+            else:
+                key = (edge.source_type, edge.source_id)
+                direction, relation = "incoming", edge.relation_type
+            if key == (entity_type, entity_id):
+                continue
+            entry = neighbors.setdefault(
+                key, {"type": key[0], "id": key[1], "title": None, "relations": []}
+            )
+            entry["relations"].append(
+                {"relation": relation, "direction": direction, "edge_id": edge.id}
+            )
+        topic_edges = list(
+            (
+                await db.execute(
+                    select(KnowledgeRelation).where(
+                        KnowledgeRelation.organization_id == organization_id,
+                        KnowledgeRelation.source_type == entity_type,
+                        KnowledgeRelation.source_id == entity_id,
+                        KnowledgeRelation.target_type == "topic",
+                    )
+                )
+            ).scalars().all()
+        )
+        if topic_edges:
+            topic_ids_here = [e.target_id for e in topic_edges]
+            peer_edges = list(
+                (
+                    await db.execute(
+                        select(KnowledgeRelation).where(
+                            KnowledgeRelation.organization_id == organization_id,
+                            KnowledgeRelation.target_type == "topic",
+                            KnowledgeRelation.target_id.in_(topic_ids_here),
+                        )
+                        .order_by(KnowledgeRelation.created_at.desc())
+                        .limit(_MAX_NEIGHBORS * 3)
+                    )
+                ).scalars().all()
+            )
+            topic_names = {t.id: t.name for t in (await self._topics_by_ids(db, organization_id=organization_id, topic_ids=topic_ids_here)).values()}
+            for edge in peer_edges:
+                key = (edge.source_type, edge.source_id)
+                if key == (entity_type, entity_id):
+                    continue
+                entry = neighbors.setdefault(
+                    key, {"type": key[0], "id": key[1], "title": None, "relations": []}
+                )
+                entry["relations"].append(
+                    {
+                        "relation": "concerns",
+                        "direction": "via_topic",
+                        "edge_id": edge.id,
+                        "topic": topic_names.get(edge.target_id),
+                    }
+                )
+        if not neighbors:
+            return {
+                "entity": {"type": entity_type, "id": entity_id},
+                "total": 0,
+                "neighbors": [],
+            }
+
+        ordered_keys = sorted(neighbors, key=lambda k: (k[0], k[1]))[:limit]
+        source_rows = list(
+            (
+                await db.execute(
+                    select(KnowledgeSource).where(
+                        KnowledgeSource.organization_id == organization_id,
+                        KnowledgeSource.source_type.in_({k[0] for k in ordered_keys}),
+                        KnowledgeSource.source_id.in_({k[1] for k in ordered_keys}),
+                    )
+                )
+            ).scalars().all()
+        )
+        source_map = {(s.source_type, s.source_id): s for s in source_rows}
+        claim_rows = list(
+            (
+                await db.execute(
+                    select(KnowledgeClaim).where(
+                        KnowledgeClaim.organization_id == organization_id,
+                        KnowledgeClaim.claim_type != "synthesis",
+                    )
+                    .order_by(KnowledgeClaim.valid_from.desc())
+                    .limit(_MAX_CLAIM_SCAN)
+                )
+            ).scalars().all()
+        )
+        claims_by_source: dict[tuple[str, str], list[KnowledgeClaim]] = {}
+        for claim in claim_rows:
+            claims_by_source.setdefault((claim.subject_type, claim.subject_id), []).append(claim)
+        neighbor_topic_edges = (
+            await db.execute(
+                select(KnowledgeRelation).where(
+                    KnowledgeRelation.organization_id == organization_id,
+                    KnowledgeRelation.target_type == "topic",
+                    KnowledgeRelation.source_id.in_({k[1] for k in ordered_keys}),
+                ).limit(_MAX_NEIGHBORS * 8)
+            )
+        ).scalars().all()
+        topic_names = {
+            t.id: t.name
+            for t in (
+                await self._topics_by_ids(
+                    db,
+                    organization_id=organization_id,
+                    topic_ids=[e.target_id for e in neighbor_topic_edges],
+                )
+            ).values()
+        }
+        topics_by_key: dict[tuple[str, str], list[str]] = {}
+        for edge in neighbor_topic_edges:
+            name = topic_names.get(edge.target_id)
+            if not name:
+                continue
+            topics_by_key.setdefault((edge.source_type, edge.source_id), []).append(name)
+
+        neighbors_out: list[dict[str, Any]] = []
+        for key in ordered_keys:
+            source = source_map.get(key)
+            if source is not None and not synthesis_engine._visible(
+                access, _load_provenance(source.provenance_json)
+            ):
+                continue
+            claims = claims_by_source.get(key, [])
+            visible_claims = []
+            for claim in claims[:8]:
+                claim_source = source_map.get((claim.subject_type, claim.subject_id))
+                if claim_source is not None and not synthesis_engine._visible(
+                    access, _load_provenance(claim_source.provenance_json)
+                ):
+                    continue
+                visible_claims.append(synthesis_engine._claim_shape(claim))
+            neighbors_out.append(
+                {
+                    "type": key[0],
+                    "id": key[1],
+                    "title": source.title if source else neighbors[key]["title"],
+                    "relations": neighbors[key]["relations"],
+                    "claims": visible_claims,
+                    "topics": sorted(set(topics_by_key.get(key, []))),
+                }
+            )
+        return {
+            "entity": {"type": entity_type, "id": entity_id},
+            "total": len(neighbors_out),
+            "neighbors": neighbors_out,
+            "scope": "org" if access.org_wide else "project",
+        }
+
+    # ------------------------------------------------------------------
+    # 4.4.3 — change intelligence
+    # ------------------------------------------------------------------
+
+    async def changes(
+        self,
+        db: AsyncSession,
+        *,
+        organization_id: str,
+        user: Any,
+        days: int = 7,
+        limit: int = _MAX_CHANGES,
+    ) -> dict[str, Any]:
+        """What changed in our understanding recently: for every topic whose
+        current understanding (or evidence) moved inside the window, show
+        old -> new, at what time, and which source families forced it."""
+        access = await self._access(db, organization_id=organization_id, user=user)
+        days = max(1, min(days, 365))
+        cutoff = ensure_aware(now_utc()) - timedelta(days=days)
+        limit = max(1, min(limit, _MAX_CHANGES))
+
+        scanned = await self._scan_topics(
+            db, organization_id=organization_id, access=access,
+            include_superseded=True,
+        )
+        results: list[dict[str, Any]] = []
+        for topic_id, entry in scanned.items():
+            topic = entry["topic"]
+            evolution = await self._synthesis_evolution(
+                db, organization_id=organization_id, topic_id=topic_id, access=access
+            )
+            recent_evidence = [
+                c for c in entry["claims"]
+                if ensure_aware(c.valid_from) >= cutoff
+            ]
+            events: list[dict[str, Any]] = []
+            families = sorted({c.subject_type for c in recent_evidence})
+            if recent_evidence:
+                source_map = entry["sources"]
+                newest_claim = max(
+                    recent_evidence, key=lambda c: ensure_aware(c.valid_from)
+                )
+                source = source_map.get(
+                    (newest_claim.subject_type, newest_claim.subject_id)
+                )
+                events.append(
+                    {
+                        "kind": "new_evidence",
+                        "at": ensure_aware(newest_claim.valid_from).isoformat(),
+                        "family": newest_claim.subject_type,
+                        "statement": _snippet(newest_claim.object_text, 220),
+                        "source_title": source.title if source else None,
+                        "claim_id": newest_claim.id,
+                    }
+                )
+            for index, claim in enumerate(evolution):
+                if ensure_aware(claim.valid_from) < cutoff:
+                    continue
+                prior = evolution[index - 1] if index > 0 else None
+                change_signal = bool(_CHANGE_SIGNAL.search(claim.object_text)) or (
+                    prior is not None and prior.object_text != claim.object_text
+                )
+                if not change_signal:
+                    continue
+                events.append(
+                    {
+                        "kind": "understanding",
+                        "at": ensure_aware(claim.valid_from).isoformat(),
+                        "from": _snippet(prior.object_text, 400) if prior else None,
+                        "to": _snippet(claim.object_text, 400),
+                        "claim_id": claim.id,
+                        "supersedes_claim_id": prior.id if prior else None,
+                    }
+                )
+            if not events:
+                continue
+            events.sort(key=lambda e: e["at"])
+            results.append(
+                {
+                    "topic": {"id": topic.id, "name": _clean_topic_name(topic.name)},
+                    "families": families,
+                    "events": events[-6:],
+                }
+            )
+        results.sort(
+            key=lambda r: max(
+                (e["at"] for e in r["events"]), key=lambda stamp: stamp
+            ),
+            reverse=True,
+        )
+        return {
+            "window_days": days,
+            "total": len(results),
+            "topic_changes": results[:limit],
+            "scope": "org" if access.org_wide else "project",
+        }
+
+    # ------------------------------------------------------------------
+    # 4.4.3 — impact analysis
+    # ------------------------------------------------------------------
+
+    async def impact(
+        self,
+        db: AsyncSession,
+        *,
+        organization_id: str,
+        topic_name: str,
+        user: Any,
+    ) -> Optional[dict[str, Any]]:
+        """If this knowledge changes, what else changes? Answers by walking
+        the entity set behind a topic and the typed edges that anchor it, plus
+        dependent knowledge claims that quote the same facts."""
+        topic = await self._topic_by_name(
+            db, organization_id=organization_id, topic_name=topic_name
+        )
+        if topic is None:
+            return None
+        access = await self._access(db, organization_id=organization_id, user=user)
+        evidence = await synthesis_engine._collect_evidence(
+            db, organization_id=organization_id, topic=topic, access=access
+        )
+        if not evidence:
+            return None
+
+        entity_keys = {
+            (c.subject_type, c.subject_id) for c in evidence
+        } | {("topic", topic.id)}
+        neighbors: dict[tuple[str, str], list[str]] = {}
+        batch = list(entity_keys)[:_MAX_IMPACT_ENTITIES]
+        for etype, eid in batch:
+            edges = list(
+                (
+                    await db.execute(
+                        select(KnowledgeRelation).where(
+                            KnowledgeRelation.organization_id == organization_id,
+                            (
+                                (KnowledgeRelation.source_type == etype)
+                                & (KnowledgeRelation.source_id == eid)
+                            )
+                            | (
+                                (KnowledgeRelation.target_type == etype)
+                                & (KnowledgeRelation.target_id == eid)
+                            ),
+                        ).limit(_MAX_IMPACT_ENTITIES)
+                    )
+                ).scalars().all()
+            )
+            for edge in edges:
+                if (edge.source_type, edge.source_id) == (etype, eid):
+                    key = (edge.target_type, edge.target_id)
+                else:
+                    key = (edge.source_type, edge.source_id)
+                if key in entity_keys:
+                    continue
+                neighbors.setdefault(key, []).append(edge.relation_type)
+
+        source_map = await synthesis_engine._sources_for(
+            db, organization_id=organization_id, claims=evidence
+        )
+        dependent: list[dict[str, Any]] = []
+        needles = {topic.name.lower(), *(a.lower() for a in _json_loads(topic.aliases_json, []))}
+        candidates = list(
+            (
+                await db.execute(
+                    select(KnowledgeClaim)
+                    .where(
+                        KnowledgeClaim.organization_id == organization_id,
+                        KnowledgeClaim.claim_type != "synthesis",
+                        KnowledgeClaim.status != "superseded",
+                    )
+                    .order_by(KnowledgeClaim.valid_from.desc())
+                    .limit(_MAX_CLAIM_SCAN)
+                )
+            ).scalars().all()
+        )
+        dep_sources = list(
+            (
+                await db.execute(
+                    select(KnowledgeSource).where(
+                        KnowledgeSource.organization_id == organization_id,
+                        KnowledgeSource.source_type.in_({c.subject_type for c in candidates}),
+                    )
+                )
+            ).scalars().all()
+        )
+        dep_source_map = {(s.source_type, s.source_id): s for s in dep_sources}
+        for claim in candidates:
+            source = dep_source_map.get((claim.subject_type, claim.subject_id))
+            if source is None or not synthesis_engine._visible(
+                access, _load_provenance(source.provenance_json)
+            ):
+                continue
+            hay = f"{source.title} {claim.object_text}".lower()
+            if not any(needle in hay for needle in needles):
+                continue
+            dependent.append(
+                {
+                    "claim_id": claim.id,
+                    "subject_type": claim.subject_type,
+                    "subject_id": claim.subject_id,
+                    "statement": _snippet(claim.object_text, 220),
+                    "source_title": source.title,
+                    "authority_level": claim.authority_level,
+                    "valid_from": ensure_aware(claim.valid_from).isoformat(),
+                    "in_topic_evidence": (claim.subject_type, claim.subject_id) in entity_keys,
+                }
+            )
+        dependent.sort(key=lambda d: (-d["authority_level"], d["valid_from"]))
+        dependent = dependent[:_MAX_IMPACT_CLAIMS]
+
+        family_count: dict[str, int] = {}
+        impacted: list[dict[str, Any]] = []
+        for key, relations in neighbors.items():
+            family_count[key[0]] = family_count.get(key[0], 0) + 1
+            impacted.append(
+                {
+                    "type": key[0],
+                    "id": key[1],
+                    "relations": sorted(set(relations)),
+                }
+            )
+        impacted = impacted[:_MAX_IMPACT_ENTITIES]
+
+        sources_evidence = [
+            {
+                "type": c.subject_type,
+                "id": c.subject_id,
+                "title": (
+                    source_map.get((c.subject_type, c.subject_id)).title
+                    if source_map.get((c.subject_type, c.subject_id)) else None
+                ),
+                "excerpt": _snippet(c.object_text, 200),
+                "authority_level": c.authority_level,
+            }
+            for c in evidence[:_MAX_ANSWER_EVIDENCE]
+        ]
+        aliases = _json_loads(topic.aliases_json, [])
+        return {
+            "topic": {"id": topic.id, "name": _clean_topic_name(topic.name), "aliases": aliases},
+            "evidence": {
+                "total": len(evidence),
+                "sources": sources_evidence,
+            },
+            "affected": {
+                "total": len(impacted),
+                "by_family": {
+                    family: {
+                        "count": family_count[family],
+                        "entities": [
+                            {"id": x["id"], "relations": x["relations"]}
+                            for x in impacted if x["type"] == family
+                        ],
+                    }
+                    for family in sorted(family_count)
+                },
+            },
+            "dependent_knowledge": {
+                "total": len(dependent),
+                "claims": dependent,
+            },
+            "scope": "org" if access.org_wide else "project",
+        }
+
+    # ------------------------------------------------------------------
+    # 4.4.4 — gap & uncertainty intelligence
+    # ------------------------------------------------------------------
+
+    async def gaps(
+        self,
+        db: AsyncSession,
+        *,
+        organization_id: str,
+        user: Any,
+        limit: int = _MAX_GAPS,
+    ) -> dict[str, Any]:
+        """What the company doesn't know it doesn't know: stale authoritative
+        knowledge, unresolved conflicts, undocumented processes, knowledge
+        without an accountable owner."""
+        access = await self._access(db, organization_id=organization_id, user=user)
+        scanned = await self._scan_topics(
+            db, organization_id=organization_id, access=access
+        )
+        gaps: list[dict[str, Any]] = []
+
+        for topic_id, entry in scanned.items():
+            topic = entry["topic"]
+            claims = entry["claims"]
+            source_map = entry["sources"]
+            active = [c for c in claims if c.status != "superseded"]
+            if not active:
+                continue
+            families = {c.subject_type for c in active}
+            contradictions = synthesis_engine._detect_contradictions(active)
+            latest_authority = max((c.authority_level for c in active), default=1)
+            newest_source = max(
+                (source_map.get((c.subject_type, c.subject_id)) for c in active),
+                key=lambda s: ensure_aware(s.source_updated_at)
+                if s and s.source_updated_at else now_utc(),
+                default=None,
+            )
+            freshness = newest_source.freshness_label if newest_source else "stale"
+
+            if latest_authority >= 4 and freshness not in _FRESH_OK:
+                gaps.append(
+                    {
+                        "kind": "stale",
+                        "topic": {"id": topic.id, "name": _clean_topic_name(topic.name)},
+                        "reason": (
+                            f"authoritative knowledge ({_AUTHORITY_LABELS.get(latest_authority)}) "
+                            f"is {freshness} — last verified "
+                            f"{ensure_aware(newest_source.last_verified_at).date().isoformat() if newest_source and newest_source.last_verified_at else 'never'}"
+                        ),
+                        "confidence": 0.85 if freshness == "stale" else 0.7,
+                        "severity": "high" if freshness == "stale" else "medium",
+                        "authority_level": latest_authority,
+                        "evidence": len(active),
+                    }
+                )
+
+            unresolved = [
+                p for p in contradictions if p["resolution"] == "newer valid_from"
+            ]
+            if unresolved:
+                pair = unresolved[0]
+                gaps.append(
+                    {
+                        "kind": "contradiction",
+                        "topic": {"id": topic.id, "name": _clean_topic_name(topic.name)},
+                        "reason": (
+                            f"{pair['facet_label']} {pair['value_a']} vs {pair['value_b']} — "
+                            f"equal authority, resolved by recency; the loser may be stale"
+                        ),
+                        "confidence": 0.7,
+                        "severity": "medium",
+                        "pair_ids": [pair["claim_a"], pair["claim_b"]],
+                        "evidence": len(active),
+                    }
+                )
+
+            patterns = any(c.subject_type == "pattern" for c in active)
+            documented = bool(families & _DOCUMENT_FAMILIES)
+            if patterns and not documented:
+                gaps.append(
+                    {
+                        "kind": "undocumented_process",
+                        "topic": {"id": topic.id, "name": _clean_topic_name(topic.name)},
+                        "reason": (
+                            "repeated observations signal an operational process "
+                            "that has no documented procedure (no document, wiki, "
+                            "policy, sop or template evidence)"
+                        ),
+                        "confidence": 0.75,
+                        "severity": "medium",
+                        "evidence": len(active),
+                    }
+                )
+
+            if latest_authority >= 3 and len(families) == 1 and not families & _DOCUMENT_FAMILIES:
+                gaps.append(
+                    {
+                        "kind": "thin_evidence",
+                        "topic": {"id": topic.id, "name": _clean_topic_name(topic.name)},
+                        "reason": (
+                            f"understanding rests on a single family ({sorted(families)[0]}) "
+                            "with no cross-validation"
+                        ),
+                        "confidence": 0.6,
+                        "severity": "low",
+                        "evidence": len(active),
+                    }
+                )
+        gaps.sort(key=lambda g: (g["severity"] != "high", g["severity"] != "medium", g["confidence"]))
+        gaps = gaps[: min(limit, _MAX_GAPS)]
+        kinds = sorted({g["kind"] for g in gaps})
+        return {
+            "total": len(gaps),
+            "kinds": kinds,
+            "gaps": gaps,
+            "shortage_total": len([
+                g for g in gaps if g["kind"] == "stale"
+            ]),
+            "scope": "org" if access.org_wide else "project",
+        }
+
+    # ------------------------------------------------------------------
+    # 4.4.6 — explainable confidence
+    # ------------------------------------------------------------------
+
+    async def confidence(
+        self,
+        db: AsyncSession,
+        *,
+        organization_id: str,
+        claim_id: str,
+        user: Any,
+    ) -> Optional[dict[str, Any]]:
+        """Why a claim is as confident as it is: authority, evidence strength,
+        corroboration, agreement, consistency minus contradiction, and the
+        penalties (staleness, conflicts) — every factor explained."""
+        claim = (
+            await db.execute(
+                select(KnowledgeClaim).where(
+                    KnowledgeClaim.organization_id == organization_id,
+                    KnowledgeClaim.id == claim_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if claim is None:
+            return None
+        access = await self._access(db, organization_id=organization_id, user=user)
+        if not await synthesis_engine._claim_visible(
+            db, organization_id=organization_id, claim=claim, access=access
+        ):
+            return None
+        evidence_rows = list(
+            (
+                await db.execute(
+                    select(KnowledgeEvidence).where(
+                        KnowledgeEvidence.organization_id == organization_id,
+                        KnowledgeEvidence.claim_id == claim.id,
+                    ).limit(_MAX_ANSWER_EVIDENCE * 2)
+                )
+            ).scalars().all()
+        )
+        keys = {(e.source_type, e.source_id) for e in evidence_rows}
+        if claim.subject_type != "topic":
+            keys.add((claim.subject_type, claim.subject_id))
+        sources = await synthesis_engine._sources_for_map(db, organization_id, keys)
+        freshness_values = [
+            s.freshness_score or 0 for s in sources.values() if s.freshness_score is not None
+        ]
+        newest_freshness = max(freshness_values, default=0) / 100.0
+        contradicted = [e for e in evidence_rows if e.role == "contradicted"]
+        auth_norm = _AUTHORITY_NORM.get(claim.authority_level, 0.25)
+        evidence_count = len(evidence_rows)
+        corroboration = min(1.0, evidence_count / 3.0)
+        n_agree = max(0, evidence_count - len(contradicted))
+        agreement = n_agree / evidence_count if evidence_rows else 0.0
+        consistency = max(0.0, 1.0 - len(contradicted) / max(1, evidence_count))
+        source_diversity = min(1.0, len({e.source_type for e in evidence_rows}) / 3.0)
+        staleness_penalty = 0.0 if newest_freshness >= 0.4 else (0.4 - newest_freshness)
+        stale_label = "no" if newest_freshness >= 0.4 else "yes"
+
+        factors = [
+            {
+                "name": "authority",
+                "value": round(auth_norm, 3),
+                "weight": 0.35,
+                "sign": "+",
+                "detail": f"{_AUTHORITY_LABELS.get(claim.authority_level, 'unverified')} source ({claim.authority_level})",
+            },
+            {
+                "name": "evidence strength",
+                "value": round(corroboration, 3),
+                "weight": 0.25,
+                "sign": "+",
+                "detail": f"{len(evidence_rows)} supporting evidence rows",
+            },
+            {
+                "name": "freshness",
+                "value": round(newest_freshness, 3),
+                "weight": 0.25,
+                "sign": "+",
+                "detail": f"newest source freshness {stale_label}",
+            },
+            {
+                "name": "agreement",
+                "value": round(agreement, 3),
+                "weight": 0.15,
+                "sign": "+",
+                "detail": f"{n_agree}/{len(evidence_rows)} rows agree",
+            },
+            {
+                "name": "consistency",
+                "value": round(consistency, 3),
+                "weight": 0.0,
+                "sign": "+",
+                "detail": f"{len(contradicted)} contradicting rows",
+            },
+            {
+                "name": "source diversity",
+                "value": round(source_diversity, 3),
+                "weight": 0.0,
+                "sign": "+",
+                "detail": f"{len({e.source_type for e in evidence_rows})} distinct source families",
+            },
+            {
+                "name": "staleness penalty",
+                "value": round(staleness_penalty, 3),
+                "weight": 0.0,
+                "sign": "-",
+                "detail": "applied when freshness < 0.4",
+            },
+        ]
+        computed = round(
+            0.35 * auth_norm
+            + 0.25 * newest_freshness
+            + 0.25 * min(1.0, sum(1 for _ in evidence_rows) / 3.0)
+            + 0.15 * agreement,
+            3,
+        )
+        return {
+            "claim_id": claim.id,
+            "confidence": computed,
+            "recorded_confidence": claim.confidence,
+            "factors": factors,
+            "explanation": (
+                f"Confidence {computed} = 0.35*authority({auth_norm:.2f}) "
+                f"+ 0.25*freshness({newest_freshness:.2f}) "
+                f"+ 0.25*evidence strength + 0.15*agreement — "
+                f"penalized by {len(contradicted)} contradiction(s) and "
+                f"{'staleness' if stale_label == 'yes' else 'no staleness'}."
+            ),
+        }
+
+    # ------------------------------------------------------------------
+    # 4.4.6 — ownership intelligence
+    # ------------------------------------------------------------------
+
+    async def ownership(
+        self,
+        db: AsyncSession,
+        *,
+        organization_id: str,
+        topic_name: str,
+        user: Any,
+    ) -> Optional[dict[str, Any]]:
+        """Who owns this knowledge: the author of the highest-authority,
+        most recent source behind the topic's current understanding."""
+        topic = await self._topic_by_name(
+            db, organization_id=organization_id, topic_name=topic_name
+        )
+        if topic is None:
+            return None
+        access = await self._access(db, organization_id=organization_id, user=user)
+        evidence = await synthesis_engine._collect_evidence(
+            db, organization_id=organization_id, topic=topic, access=access
+        )
+        if not evidence:
+            return None
+        sources = await synthesis_engine._sources_for(
+            db, organization_id=organization_id, claims=evidence
+        )
+        candidate_sources = [
+            s for c in evidence
+            if (s := sources.get((c.subject_type, c.subject_id))) is not None
+            and c.status != "superseded"
+        ]
+        if not candidate_sources:
+            return None
+        best = max(
+            candidate_sources,
+            key=lambda s: (
+                s.authority_level,
+                ensure_aware(s.source_updated_at).timestamp()
+                if s.source_updated_at else ensure_aware(s.ingested_at).timestamp(),
+            ),
+        )
+        author_sources = [
+            s for s in candidate_sources
+            if _load_provenance(s.provenance_json).get("author_id")
+        ]
+        owner_source = max(
+            author_sources,
+            key=lambda s: (
+                s.authority_level,
+                ensure_aware(s.source_updated_at).timestamp()
+                if s.source_updated_at else ensure_aware(s.ingested_at).timestamp(),
+            ),
+        ) if author_sources else None
+        owner_id = None
+        if owner_source is not None:
+            owner_id = _load_provenance(owner_source.provenance_json).get("author_id")
+        return {
+            "topic": {"id": topic.id, "name": _clean_topic_name(topic.name)},
+            "owner": {
+                "employee_id": owner_id,
+                "resolved": bool(owner_id),
+            },
+            "source": {
+                "type": best.source_type,
+                "id": best.source_id,
+                "title": best.title,
+            },
+            "authority": {
+                "level": best.authority_level,
+                "label": _AUTHORITY_LABELS.get(best.authority_level, "unverified"),
+            },
+            "last_verified_at": (
+                ensure_aware(best.last_verified_at).isoformat()
+                if best.last_verified_at else None
+            ),
+            "freshness_label": best.freshness_label,
+            "evidence": len(evidence),
+        }
+
+    # ------------------------------------------------------------------
+    # 4.4.6 — knowledge health
+    # ------------------------------------------------------------------
+
+    async def health(
+        self,
+        db: AsyncSession,
+        *,
+        organization_id: str,
+        user: Any,
+    ) -> dict[str, Any]:
+        """The organization's knowledge health: seven bars, each explainable,
+        plus what is dragging it down."""
+        access = await self._access(db, organization_id=organization_id, user=user)
+        scanned = await self._scan_topics(
+            db, organization_id=organization_id, access=access
+        )
+        if not scanned:
+            return {
+                "total_topics": 0,
+                "bars": [],
+                "why_weak": [],
+                "scope": "org" if access.org_wide else "project",
+            }
+
+        coverage_ok = 0
+        freshness_ok = documented_ok = multi_family_ok = 0
+        contradiction_free = 0
+        owned_topics = 0
+        evidence_counts: list[int] = []
+        stale_claims: list[dict[str, Any]] = []
+        low_confidence_topics: list[dict[str, Any]] = []
+        unresolved_conflicts: list[dict[str, Any]] = []
+
+        for topic_id, entry in scanned.items():
+            topic = entry["topic"]
+            claims = [c for c in entry["claims"] if c.status != "superseded"]
+            source_map = entry["sources"]
+            families = {c.subject_type for c in claims}
+            evidence_counts.append(len(claims))
+            current = await self._synthesis_current_claim(
+                db, organization_id=organization_id, topic_id=topic_id, access=access
+            )
+            if current is not None:
+                coverage_ok += 1
+            freshness_ok += 1
+            contradictions = synthesis_engine._detect_contradictions(claims)
+            if not contradictions:
+                contradiction_free += 1
+            unresolved = [p for p in contradictions if p["resolution"] == "newer valid_from"]
+            if unresolved:
+                pair = unresolved[0]
+                unresolved_conflicts.append(
+                    {
+                        "topic": topic.name,
+                        "facet": pair["facet_label"],
+                        "values": [pair["value_a"], pair["value_b"]],
+                    }
+                )
+            if families & _DOCUMENT_FAMILIES:
+                documented_ok += 1
+            if len(families) >= 3:
+                multi_family_ok += 1
+            newest_source = max(
+                (source_map.get((c.subject_type, c.subject_id)) for c in claims),
+                key=lambda s: ensure_aware(s.source_updated_at)
+                if s and s.source_updated_at else now_utc(),
+                default=None,
+            )
+            if newest_source and newest_source.freshness_label not in _FRESH_OK:
+                freshness_ok -= 1
+                if max((c.authority_level for c in claims), default=0) >= 4:
+                    stale_claims.append(
+                        {
+                            "topic": topic.name,
+                            "freshness": newest_source.freshness_label,
+                            "title": newest_source.title,
+                        }
+                    )
+            provenance_author = None
+            for c in claims:
+                source = source_map.get((c.subject_type, c.subject_id))
+                if source and _load_provenance(source.provenance_json).get("author_id"):
+                    provenance_author = True
+                    break
+            if provenance_author:
+                owned_topics += 1
+            if current and current.confidence and current.confidence < 0.5:
+                low_confidence_topics.append(
+                    {"topic": topic.name, "confidence": current.confidence}
+                )
+        low_confidence_topics.sort(key=lambda x: x["confidence"])
+        stale_claims.sort(key=lambda x: x["freshness"])
+        total = len(scanned)
+        avg_evidence = sum(evidence_counts) / total if total else 0.0
+        bars = [
+            {
+                "name": "coverage",
+                "value": round(coverage_ok / total * 100),
+                "label": "healthy",
+                "detail": f"{total} active knowledge topics synthesized",
+            },
+            {
+                "name": "freshness",
+                "value": round(freshness_ok / total * 100),
+                "label": "healthy" if freshness_ok / total >= 0.8 else "attention",
+                "detail": f"{freshness_ok}/{total} topics backed by recent sources",
+            },
+            {
+                "name": "evidence_quality",
+                "value": round(min(100, avg_evidence * 10)),
+                "label": "healthy" if avg_evidence >= 3 else "attention",
+                "detail": f"{avg_evidence:.1f} evidence claims per topic on average",
+            },
+            {
+                "name": "contradiction_resolution",
+                "value": round(contradiction_free / total * 100),
+                "label": "healthy" if contradiction_free / total >= 0.9 else "attention",
+                "detail": f"{contradiction_free}/{total} topics free of facet conflicts",
+            },
+            {
+                "name": "ownership",
+                "value": round(owned_topics / total * 100),
+                "label": "healthy" if owned_topics / total >= 0.8 else "attention",
+                "detail": f"{owned_topics}/{total} topics have an accountable author",
+            },
+            {
+                "name": "documentation",
+                "value": round(documented_ok / total * 100),
+                "label": "healthy" if documented_ok / total >= 0.6 else "attention",
+                "detail": f"{documented_ok}/{total} topics covered by a document, wiki, policy, sop or template",
+            },
+            {
+                "name": "cross_team_consistency",
+                "value": round(multi_family_ok / total * 100),
+                "label": "healthy" if multi_family_ok / total >= 0.3 else "attention",
+                "detail": f"{multi_family_ok}/{total} topics corroborated by 3+ source families",
+            },
+        ]
+        why_weak: list[dict[str, Any]] = []
+        if stale_claims:
+            why_weak.append(
+                {
+                    "reason": "critical knowledge is stale",
+                    "details": stale_claims[:_MAX_GAPS_PER_KIND],
+                }
+            )
+        if low_confidence_topics:
+            why_weak.append(
+                {
+                    "reason": "understanding rests on uncertain knowledge",
+                    "details": low_confidence_topics[:_MAX_GAPS_PER_KIND],
+                }
+            )
+        if unresolved_conflicts:
+            why_weak.append(
+                {
+                    "reason": "authoritative conflicts remain unresolved",
+                    "details": unresolved_conflicts[:_MAX_GAPS_PER_KIND],
+                }
+            )
+        covered = coverage_ok
+        if covered < total:
+            why_weak.append(
+                {
+                    "reason": f"{total - covered} topics lack synthesized understanding",
+                    "details": [],
+                }
+            )
+        return {
+            "total_topics": total,
+            "bars": bars,
+            "health_score": round(sum(b["value"] for b in bars) / len(bars)),
+            "why_weak": why_weak,
+            "scope": "org" if access.org_wide else "project",
+        }
+
+    # ------------------------------------------------------------------
+    # 4.4.7 — recommendations (persisted, exact-once)
+    # ------------------------------------------------------------------
+
+    async def recommendations(
+        self,
+        db: AsyncSession,
+        *,
+        organization_id: str,
+        user: Any,
+        limit: int = _MAX_RECOMMENDATIONS,
+    ) -> dict[str, Any]:
+        """Evaluated, persisted, evidence-backed recommendations.
+
+        Materialization is exact-once: a recommendation is keyed by a stable
+        fingerprint; re-running with the same conditions refreshes it,
+        conditions that clear move the row to ``resolved``. Nothing is ever
+        invented — every recommendation cites the claims it is based on.
+        """
+        access = await self._access(db, organization_id=organization_id, user=user)
+        scanned = await self._scan_topics(
+            db, organization_id=organization_id, access=access
+        )
+        materialized: list[dict[str, Any]] = []
+        current_fingerprints: set[tuple[str, str]] = set()
+
+        for topic_id, entry in scanned.items():
+            topic = entry["topic"]
+            claims = [c for c in entry["claims"] if c.status != "superseded"]
+            source_map = entry["sources"]
+            families = {c.subject_type for c in claims}
+            contradictions = synthesis_engine._detect_contradictions(claims)
+            unresolved = [p for p in contradictions if p["resolution"] == "newer valid_from"]
+            latest_authority = max((c.authority_level for c in claims), default=1)
+            newest_source = max(
+                (source_map.get((c.subject_type, c.subject_id)) for c in claims),
+                key=lambda s: ensure_aware(s.source_updated_at)
+                if s and s.source_updated_at else now_utc(),
+                default=None,
+            )
+            freshness = newest_source.freshness_label if newest_source else "stale"
+
+            if latest_authority >= 4 and freshness not in _FRESH_OK:
+                fingerprint = _fingerprint("stale_critical", topic.id)
+                current_fingerprints.add(("stale_critical", fingerprint))
+                materialized.append(
+                    {
+                        "kind": "stale_critical",
+                        "fingerprint": fingerprint,
+                        "reason": (
+                            f"Critically authoritative knowledge on '{topic.name}' is {freshness}; "
+                            "verify before it drives a decision."
+                        ),
+                        "confidence": 0.85 if freshness == "stale" else 0.7,
+                        "risk": "high" if freshness == "stale" else "medium",
+                        "evidence": [c.id for c in claims if c.authority_level >= 4][:12],
+                        "entities": [
+                            {"type": "topic", "id": topic.id, "name": _clean_topic_name(topic.name)}
+                        ],
+                    }
+                )
+            if unresolved:
+                pair = unresolved[0]
+                fingerprint = _fingerprint("conflict", topic.id, pair["claim_a"], pair["claim_b"])
+                current_fingerprints.add(("conflict", fingerprint))
+                materialized.append(
+                    {
+                        "kind": "conflict",
+                        "fingerprint": fingerprint,
+                        "reason": (
+                            f"'{topic.name}': {pair['facet_label']} {pair['value_a']} vs "
+                            f"{pair['value_b']} has equal-authority sources; the losing side "
+                            f"('{pair['value_b']}') may be stale documentation."
+                        ),
+                        "confidence": 0.7,
+                        "risk": "medium",
+                        "evidence": [pair["claim_a"], pair["claim_b"]],
+                        "entities": [
+                            {"type": "topic", "id": topic.id, "name": _clean_topic_name(topic.name)}
+                        ],
+                    }
+                )
+            if any(c.subject_type == "pattern" for c in claims) and not families & _DOCUMENT_FAMILIES:
+                fingerprint = _fingerprint("undocumented_process", topic.id)
+                current_fingerprints.add(("undocumented_process", fingerprint))
+                materialized.append(
+                    {
+                        "kind": "undocumented_process",
+                        "fingerprint": fingerprint,
+                        "reason": (
+                            f"Repeated observations around '{topic.name}' signal an operational "
+                            "process with no documented procedure — consider an SOP or runbook."
+                        ),
+                        "confidence": 0.75,
+                        "risk": "medium",
+                        "evidence": [
+                            c.id for c in claims if c.subject_type == "pattern"
+                        ][:12],
+                        "entities": [
+                            {"type": "topic", "id": topic.id, "name": _clean_topic_name(topic.name)}
+                        ],
+                    }
+                )
+            if len(families) >= 3 and len(claims) >= 4:
+                fingerprint = _fingerprint("cross_functional", topic.id)
+                current_fingerprints.add(("cross_functional", fingerprint))
+                materialized.append(
+                    {
+                        "kind": "cross_functional",
+                        "fingerprint": fingerprint,
+                        "reason": (
+                            f"'{topic.name}' is evidenced by {len(families)} source families "
+                            f"({', '.join(sorted(families))}) — consider a cross-functional "
+                            "review before it grows further."
+                        ),
+                        "confidence": 0.65,
+                        "risk": "low",
+                        "evidence": [c.id for c in claims][:12],
+                        "entities": [
+                            {"type": "topic", "id": topic.id, "name": _clean_topic_name(topic.name)}
+                        ],
+                    }
+                )
+        materialized = materialized[:limit]
+
+        existing = list(
+            (
+                await db.execute(
+                    select(KnowledgeRecommendation).where(
+                        KnowledgeRecommendation.organization_id == organization_id,
+                    ).order_by(KnowledgeRecommendation.created_at.desc())
+                    .limit(_MAX_RECOMMENDATIONS * 2)
+                )
+            ).scalars().all()
+        )
+        by_fingerprint: dict[tuple[str, str], KnowledgeRecommendation] = {
+            (r.kind, r.fingerprint): r for r in existing
+        }
+        now = now_utc()
+        for row in existing:
+            if row.status != "active":
+                continue
+            if (row.kind, row.fingerprint) not in current_fingerprints:
+                row.status = "resolved"
+                row.resolved_at = now
+        for item in materialized:
+            key = (item["kind"], item["fingerprint"])
+            row = by_fingerprint.get(key)
+            if row is None:
+                row = KnowledgeRecommendation(
+                    organization_id=organization_id,
+                    kind=item["kind"],
+                    fingerprint=item["fingerprint"],
+                    status="active",
+                    reason=item["reason"],
+                    confidence=item["confidence"],
+                    risk=item["risk"],
+                    evidence_json=json.dumps(item["evidence"]),
+                    entities_json=json.dumps(item["entities"]),
+                )
+                db.add(row)
+                await db.flush()
+            else:
+                row.reason = item["reason"]
+                row.confidence = item["confidence"]
+                row.risk = item["risk"]
+                row.evidence_json = json.dumps(item["evidence"])
+                row.entities_json = json.dumps(item["entities"])
+                row.status = "active"
+                row.resolved_at = None
+        await db.flush()
+        active = list(
+            (
+                await db.execute(
+                    select(KnowledgeRecommendation).where(
+                        KnowledgeRecommendation.organization_id == organization_id,
+                        KnowledgeRecommendation.status == "active",
+                    ).order_by(KnowledgeRecommendation.updated_at.desc())
+                    .limit(limit)
+                )
+            ).scalars().all()
+        )
+        return {
+            "total": len(active),
+            "active_kinds": sorted({r.kind for r in active}),
+            "recommendations": [
+                {
+                    "id": r.id,
+                    "kind": r.kind,
+                    "status": r.status,
+                    "reason": r.reason,
+                    "confidence": r.confidence,
+                    "risk": r.risk,
+                    "evidence": _json_loads(r.evidence_json, []),
+                    "entities": _json_loads(r.entities_json, []),
+                    "created_at": ensure_aware(r.created_at).isoformat(),
+                    "updated_at": ensure_aware(r.updated_at).isoformat(),
+                }
+                for r in active
+            ],
+            "scope": "org" if access.org_wide else "project",
+        }
+
+    # ------------------------------------------------------------------
+    # 4.4.8 — universal knowledge query
+    # ------------------------------------------------------------------
+
+    async def query(
+        self,
+        db: AsyncSession,
+        *,
+        organization_id: str,
+        question: str,
+        user: Any,
+        limit: int = _MAX_DISCOVERY,
+    ) -> dict[str, Any]:
+        """One surface for the Company Brain: a natural question routes to the
+        matching intelligence and returns only evidence the caller may see."""
+        lowered = question.lower().strip()
+        intent = "discovery"
+        for candidate, keywords in _INTENT_RULES:
+            if any(keyword in lowered for keyword in keywords):
+                intent = candidate
+                break
+        if intent == "changes":
+            result = await self.changes(
+                db, organization_id=organization_id, user=user, days=7, limit=limit
+            )
+            return {
+                **result,
+                "question": question,
+                "intent": "changes",
+                "generated_at": _utcnow_iso(),
+            }
+        if intent == "gaps":
+            result = await self.gaps(db, organization_id=organization_id, user=user)
+            return {
+                **result,
+                "question": question,
+                "intent": "gaps",
+                "generated_at": _utcnow_iso(),
+            }
+        if intent == "health":
+            result = await self.health(db, organization_id=organization_id, user=user)
+            return {
+                **result,
+                "question": question,
+                "intent": "health",
+                "generated_at": _utcnow_iso(),
+            }
+        if intent == "recommendations":
+            result = await self.recommendations(
+                db, organization_id=organization_id, user=user, limit=limit
+            )
+            return {
+                **result,
+                "question": question,
+                "intent": "recommendations",
+                "generated_at": _utcnow_iso(),
+            }
+        if intent == "contradictions":
+            gaps = await self.gaps(db, organization_id=organization_id, user=user)
+            return {
+                "question": question,
+                "intent": "contradictions",
+                "total": sum(1 for g in gaps["gaps"] if g["kind"] == "contradiction"),
+                "answers": [
+                    g for g in gaps["gaps"] if g["kind"] == "contradiction"
+                ],
+                "scope": gaps["scope"],
+                "generated_at": _utcnow_iso(),
+            }
+        if intent in ("impact", "ownership"):
+            access = await self._access(db, organization_id=organization_id, user=user)
+            scanned = await self._scan_topics(
+                db, organization_id=organization_id, access=access
+            )
+            best_topic: Optional[KnowledgeTopic] = None
+            q_tokens = tokens(question)
+            best_score = 0
+            for entry in scanned.values():
+                topic = entry["topic"]
+                t_tokens = tokens(f"{topic.name} {' '.join(_json_loads(topic.aliases_json, []))}")
+                overlap = len(q_tokens & t_tokens)
+                if overlap > best_score:
+                    best_score = overlap
+                    best_topic = topic
+            if best_topic is None:
+                return {
+                    "question": question,
+                    "intent": intent,
+                    "total": 0,
+                    "answers": [],
+                    "answer": "No knowledge topic matches this question.",
+                    "scope": "org" if access.org_wide else "project",
+                    "generated_at": _utcnow_iso(),
+                }
+            if intent == "impact":
+                result = await self.impact(
+                    db, organization_id=organization_id,
+                    topic_name=best_topic.name, user=user,
+                )
+                if result is None:
+                    return {
+                        "question": question, "intent": intent, "total": 0,
+                        "answers": [], "scope": "org" if access.org_wide else "project",
+                    }
+                return {**result, "question": question, "intent": intent,
+                        "generated_at": _utcnow_iso()}
+            result = await self.ownership(
+                db, organization_id=organization_id,
+                topic_name=best_topic.name, user=user,
+            )
+            if result is None:
+                return {
+                    "question": question, "intent": intent, "total": 0,
+                    "answers": [], "scope": "org" if access.org_wide else "project",
+                }
+            return {**result, "question": question, "intent": intent,
+                    "generated_at": _utcnow_iso()}
+        result = await self.discover(
+            db, organization_id=organization_id,
+            query=question, user=user, limit=limit,
+        )
+        return {**result, "intent": "discovery"}
+
+
+intelligence_engine = IntelligenceEngine()

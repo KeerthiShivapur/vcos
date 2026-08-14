@@ -616,6 +616,192 @@ async def brain_knowledge_claim(
     return result
 
 
+# ---------------------------------------------------------------------------
+# Slice 4E.4 — knowledge intelligence (discovery, graph, change, impact,
+# gaps, confidence, ownership, health, recommendations, universal query)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/knowledge/discover")
+async def brain_knowledge_discover(
+    query: str = Query(..., min_length=2),
+    limit: int = Query(8, ge=1, le=20),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.4 — intelligent discovery: what the company knows about a
+    question, with the evidence chain that grounds it (governed)."""
+    from app.knowledge.intelligence_engine import intelligence_engine
+
+    return await intelligence_engine.discover(
+        db, organization_id=org.id, query=query, user=user, limit=limit
+    )
+
+
+@router.get("/knowledge/entities/{entity_type}/{entity_id}/relations")
+async def brain_knowledge_relations(
+    entity_type: str,
+    entity_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.4 — knowledge graph intelligence: every typed edge around one
+    entity and each neighbor's canonical claims and topics."""
+    from app.knowledge.intelligence_engine import intelligence_engine
+
+    return await intelligence_engine.relationships(
+        db, organization_id=org.id, entity_type=entity_type,
+        entity_id=entity_id, user=user,
+    )
+
+
+@router.get("/knowledge/changes")
+async def brain_knowledge_changes(
+    days: int = Query(7, ge=1, le=365),
+    limit: int = Query(20, ge=1, le=50),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.4 — change intelligence: what changed in the company's
+    understanding recently (new evidence, superseded understandings)."""
+    from app.knowledge.intelligence_engine import intelligence_engine
+
+    return await intelligence_engine.changes(
+        db, organization_id=org.id, user=user, days=days, limit=limit
+    )
+
+
+@router.get("/knowledge/topics/{topic_name}/impact")
+async def brain_knowledge_topic_impact(
+    topic_name: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.4 — impact analysis: if this knowledge changes, what else
+    changes (affected entities by family, dependent knowledge claims)."""
+    from app.knowledge.intelligence_engine import intelligence_engine
+
+    result = await intelligence_engine.impact(
+        db, organization_id=org.id, topic_name=topic_name, user=user
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="topic not found")
+    return result
+
+
+@router.get("/knowledge/gaps")
+async def brain_knowledge_gaps(
+    limit: int = Query(30, ge=1, le=100),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.4 — gap intelligence: stale authoritative knowledge,
+    unresolved contradictions, undocumented processes, thin evidence."""
+    from app.knowledge.intelligence_engine import intelligence_engine
+
+    return await intelligence_engine.gaps(
+        db, organization_id=org.id, user=user, limit=limit
+    )
+
+
+@router.get("/knowledge/claims/{claim_id}/confidence")
+async def brain_knowledge_claim_confidence(
+    claim_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.4 — explainable confidence: every factor behind a claim's
+    confidence with its weight, sign and reason."""
+    from app.knowledge.intelligence_engine import intelligence_engine
+
+    result = await intelligence_engine.confidence(
+        db, organization_id=org.id, claim_id=claim_id, user=user
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="claim not found")
+    return result
+
+
+@router.get("/knowledge/topics/{topic_name}/ownership")
+async def brain_knowledge_topic_ownership(
+    topic_name: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.4 — ownership intelligence: who owns this knowledge, with
+    what authority, verified when."""
+    from app.knowledge.intelligence_engine import intelligence_engine
+
+    result = await intelligence_engine.ownership(
+        db, organization_id=org.id, topic_name=topic_name, user=user
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="topic not found")
+    return result
+
+
+@router.get("/knowledge/health")
+async def brain_knowledge_health(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.4 — organizational knowledge health: seven explainable bars
+    plus the reasons anything is weak."""
+    from app.knowledge.intelligence_engine import intelligence_engine
+
+    return await intelligence_engine.health(
+        db, organization_id=org.id, user=user
+    )
+
+
+@router.get("/knowledge/recommendations")
+async def brain_knowledge_recommendations(
+    limit: int = Query(25, ge=1, le=50),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.4 — knowledge recommendations (deterministic, evidence-backed,
+    persisted exactly-once; conditions that clear are resolved)."""
+    from app.knowledge.intelligence_engine import intelligence_engine
+
+    result = await intelligence_engine.recommendations(
+        db, organization_id=org.id, user=user, limit=limit
+    )
+    await db.commit()
+    return result
+
+
+class BrainKnowledgeQueryIn(BaseModel):
+    question: str
+
+
+@router.post("/knowledge/query")
+async def brain_knowledge_query(
+    body: BrainKnowledgeQueryIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.4 — universal company knowledge query: natural questions route
+    to the right intelligence; every answer is grounded and governed."""
+    if not body.question.strip():
+        raise HTTPException(status_code=422, detail="question is required")
+    from app.knowledge.intelligence_engine import intelligence_engine
+
+    return await intelligence_engine.query(
+        db, organization_id=org.id, question=body.question, user=user
+    )
+
+
 @router.post("/advise")
 async def brain_advise(
     body: BrainAskIn,

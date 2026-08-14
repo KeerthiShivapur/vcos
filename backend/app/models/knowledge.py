@@ -634,6 +634,39 @@ class KnowledgeEvidence(Base):
     )
 
 
+class KnowledgeRecommendation(Base):
+    """4E.4 — persisted knowledge intelligence recommendations (exact-once).
+
+    A recommendation is a deterministic, evidence-backed judgment (stale
+    critical knowledge, undocumented process, unresolved conflict, …). Rows
+    are keyed by a stable ``fingerprint`` so materialization is idempotent:
+    re-running with the same conditions never duplicates, and when the
+    condition clears the row moves to ``resolved`` (never deleted).
+    """
+
+    __tablename__ = "knowledge_recommendations"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    fingerprint: Mapped[str] = mapped_column(String(120), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="active", nullable=False, index=True)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, default=0.6, nullable=False)
+    risk: Mapped[str] = mapped_column(String(16), default="low", nullable=False)
+    evidence_json: Mapped[Optional[str]] = mapped_column(Text)
+    entities_json: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        UniqueConstraint("organization_id", "kind", "fingerprint", name="uq_knowledge_recommendation_fingerprint"),
+    )
+
+
 class KnowledgeTopic(Base):
     """4E.1 — the canonical topic registry seeding entity resolution (4E.4).
 
