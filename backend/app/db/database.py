@@ -162,6 +162,29 @@ _POSTGRES_ALTERS: list[str] = [
     "ALTER TABLE knowledge_claims ADD COLUMN IF NOT EXISTS last_seen TIMESTAMPTZ",
     "CREATE INDEX IF NOT EXISTS ix_knowledge_claims_topic ON knowledge_claims (organization_id, topic_id)",
     "CREATE INDEX IF NOT EXISTS ix_knowledge_claims_last_seen ON knowledge_claims (organization_id, last_seen)",
+    # Slice 4E.5: knowledge-to-action — recommendation lifecycle columns on
+    # the existing 4E.4 knowledge_recommendations table (new tables
+    # knowledge_intel_insights / knowledge_intel_insight_events are created by create_all).
+    "ALTER TABLE knowledge_recommendations ADD COLUMN IF NOT EXISTS lifecycle VARCHAR(20) DEFAULT 'detected'",
+    "ALTER TABLE knowledge_recommendations ADD COLUMN IF NOT EXISTS lifecycle_audit_json TEXT",
+    "ALTER TABLE knowledge_recommendations ADD COLUMN IF NOT EXISTS reviewed_by VARCHAR(32)",
+    "ALTER TABLE knowledge_recommendations ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ",
+    "ALTER TABLE knowledge_recommendations ADD COLUMN IF NOT EXISTS review_note TEXT",
+    "ALTER TABLE knowledge_recommendations ADD COLUMN IF NOT EXISTS decided_by VARCHAR(32)",
+    "ALTER TABLE knowledge_recommendations ADD COLUMN IF NOT EXISTS decided_at TIMESTAMPTZ",
+    "ALTER TABLE knowledge_recommendations ADD COLUMN IF NOT EXISTS decision_note TEXT",
+    "ALTER TABLE knowledge_recommendations ADD COLUMN IF NOT EXISTS decision_id VARCHAR(32)",
+    "ALTER TABLE knowledge_recommendations ADD COLUMN IF NOT EXISTS task_id VARCHAR(32)",
+    "ALTER TABLE knowledge_recommendations ADD COLUMN IF NOT EXISTS converted_at TIMESTAMPTZ",
+    "ALTER TABLE knowledge_recommendations ADD COLUMN IF NOT EXISTS executed_by VARCHAR(32)",
+    "ALTER TABLE knowledge_recommendations ADD COLUMN IF NOT EXISTS executed_at TIMESTAMPTZ",
+    "ALTER TABLE knowledge_recommendations ADD COLUMN IF NOT EXISTS verified_by VARCHAR(32)",
+    "ALTER TABLE knowledge_recommendations ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ",
+    "ALTER TABLE knowledge_recommendations ADD COLUMN IF NOT EXISTS verification_outcome VARCHAR(24)",
+    "ALTER TABLE knowledge_recommendations ADD COLUMN IF NOT EXISTS verification_note TEXT",
+    "CREATE INDEX IF NOT EXISTS ix_knowledge_recommendations_lifecycle ON knowledge_recommendations (lifecycle)",
+    "CREATE INDEX IF NOT EXISTS ix_knowledge_recommendations_task_id ON knowledge_recommendations (task_id)",
+    "CREATE INDEX IF NOT EXISTS ix_knowledge_recommendations_decision_id ON knowledge_recommendations (decision_id)",
 ]
 
 

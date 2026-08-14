@@ -473,13 +473,31 @@ class BrainEvidenceIn(BaseModel):
 @router.get("/knowledge/topics/{topic_name}/state")
 async def brain_knowledge_topic_state(
     topic_name: str,
+    as_of: Optional[str] = Query(None, description="ISO date/time — the state valid then (4E.5 temporal knowledge)"),
     org: Organization = Depends(get_current_organization),
     user: User = Depends(require_permission("brain:read")),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Slice 4E.3 — the state of a topic: the current understanding, active
     problems, recent decisions, patterns, contradictions and evolution —
-    assembled only from evidence the caller may see."""
+    assembled only from evidence the caller may see. Slice 4E.5: with
+    ``as_of``, returns the understanding valid at that moment (what was true,
+    what replaced it) instead of the current state."""
+    if as_of:
+        from datetime import datetime
+
+        from app.knowledge.action_engine import action_engine
+
+        try:
+            parsed = datetime.fromisoformat(as_of.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="as_of must be an ISO datetime") from exc
+        result = await action_engine.state_at(
+            db, organization_id=org.id, topic_name=topic_name, as_of=parsed, user=user
+        )
+        if result is None:
+            raise HTTPException(status_code=404, detail="topic not found or no understanding at that time")
+        return result
     from app.knowledge.synthesis_engine import synthesis_engine
 
     result = await synthesis_engine.topic_state(
@@ -782,6 +800,222 @@ async def brain_knowledge_recommendations(
 
 class BrainKnowledgeQueryIn(BaseModel):
     question: str
+
+
+class BrainInsightActionIn(BaseModel):
+    note: Optional[str] = None
+
+
+class BrainRecommendationLifecycleIn(BaseModel):
+    action: str
+    note: Optional[str] = None
+    target: Optional[str] = None
+    project_id: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Slice 4E.5 — knowledge intelligence operating layer (knowledge-to-action)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/knowledge/insights")
+async def brain_knowledge_insights(
+    kind: Optional[str] = Query(None),
+    status: Optional[str] = Query(None, description="active | acknowledged | resolved"),
+    severity: Optional[str] = Query(None),
+    limit: int = Query(40, ge=1, le=100),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.5 — universal knowledge insights (12 kinds, exact-once,
+    evidence-lineaged, governed): what the company knows MEANS."""
+    from app.knowledge.action_engine import action_engine
+
+    result = await action_engine.insights(
+        db, organization_id=org.id, user=user,
+        kind=kind, status=status, severity=severity, limit=limit,
+    )
+    await db.commit()
+    return result
+
+
+@router.get("/knowledge/insights/{insight_id}")
+async def brain_knowledge_insight_detail(
+    insight_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.5 — one insight with its full evidence lineage and audit."""
+    from app.knowledge.action_engine import action_engine
+
+    result = await action_engine.insight_detail(
+        db, organization_id=org.id, insight_id=insight_id, user=user
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="insight not found")
+    return result
+
+
+@router.post("/knowledge/insights/{insight_id}/acknowledge")
+async def brain_knowledge_insight_acknowledge(
+    insight_id: str,
+    body: BrainInsightActionIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.5 — acknowledge an insight (audited; the row is never
+    deleted)."""
+    from app.knowledge.action_engine import action_engine
+
+    result = await action_engine.acknowledge(
+        db, organization_id=org.id, insight_id=insight_id, user=user, note=body.note
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="insight not found")
+    await db.commit()
+    return result
+
+
+@router.post("/knowledge/insights/{insight_id}/resolve")
+async def brain_knowledge_insight_resolve(
+    insight_id: str,
+    body: BrainInsightActionIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.5 — resolve an insight (audited; conditions that clear are
+    resolved by the materializer, this is the explicit user resolution)."""
+    from app.knowledge.action_engine import action_engine
+
+    result = await action_engine.resolve(
+        db, organization_id=org.id, insight_id=insight_id, user=user, note=body.note
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="insight not found")
+    await db.commit()
+    return result
+
+
+@router.get("/knowledge/topics/{topic_name}/evolution")
+async def brain_knowledge_topic_evolution(
+    topic_name: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.5 — temporal knowledge: the supersession chain (what was
+    true, when it changed, what replaced it — old versions never erased)."""
+    from app.knowledge.action_engine import action_engine
+
+    result = await action_engine.evolution_trace(
+        db, organization_id=org.id, topic_name=topic_name, user=user
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="topic not found")
+    return result
+
+
+@router.get("/knowledge/topics/{topic_name}/propagation")
+async def brain_knowledge_topic_propagation(
+    topic_name: str,
+    depth: int = Query(3, ge=1, le=4),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.5 — impact propagation: multi-hop chains from a knowledge
+    change through the graph (vendor -> systems -> projects -> customers)."""
+    from app.knowledge.action_engine import action_engine
+
+    result = await action_engine.propagation(
+        db, organization_id=org.id, topic_name=topic_name, user=user, depth=depth
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="topic not found")
+    return result
+
+
+@router.get("/knowledge/coverage")
+async def brain_knowledge_coverage(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.5 — knowledge coverage map: per business area, how much of
+    the knowledge is authoritative and fresh, and why weak areas are weak."""
+    from app.knowledge.action_engine import action_engine
+
+    return await action_engine.coverage(
+        db, organization_id=org.id, user=user
+    )
+
+
+@router.get("/knowledge/health-center")
+async def brain_knowledge_health_center(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.5 — knowledge health center: 0-100 score, the seven bars,
+    and drill-down counts (contradictions, critical gaps, unverified,
+    stale, orphan)."""
+    from app.knowledge.action_engine import action_engine
+
+    result = await action_engine.health_center(
+        db, organization_id=org.id, user=user
+    )
+    await db.commit()
+    return result
+
+
+@router.get("/knowledge/brief")
+async def brain_knowledge_brief(
+    since_hours: int = Query(24, ge=1, le=24 * 30),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.5 — the executive knowledge brief: what changed, what
+    emerged, what needs a decision, what is affected — and what needs
+    attention first."""
+    from app.knowledge.action_engine import action_engine
+
+    result = await action_engine.brief(
+        db, organization_id=org.id, user=user, since_hours=since_hours
+    )
+    await db.commit()
+    return result
+
+
+@router.post("/knowledge/recommendations/{recommendation_id}/lifecycle")
+async def brain_knowledge_recommendation_lifecycle(
+    recommendation_id: str,
+    body: BrainRecommendationLifecycleIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.5 — recommendation lifecycle: review / accept / reject /
+    convert (task or decision, through the governed operating layers) /
+    execute / verify. The knowledge layer recommends; humans execute."""
+    from app.knowledge.action_engine import action_engine
+
+    try:
+        result = await action_engine.recommendation_lifecycle(
+            db, organization_id=org.id, recommendation_id=recommendation_id,
+            user=user, action=body.action, note=body.note,
+            target=body.target, project_id=body.project_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="recommendation not found")
+    await db.commit()
+    return result
 
 
 @router.post("/knowledge/query")

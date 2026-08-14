@@ -661,10 +661,101 @@ class KnowledgeRecommendation(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # Slice 4E.5 — recommendation lifecycle: detected -> candidate ->
+    # reviewed -> accepted/rejected -> converted -> executed -> verified,
+    # with an audited trail. Conversion is a USER action: the knowledge layer
+    # recommends, the governed operating layers (tasks / decisions) execute.
+    lifecycle: Mapped[str] = mapped_column(String(20), default="detected", nullable=False, index=True)
+    lifecycle_audit_json: Mapped[Optional[str]] = mapped_column(Text)
+    reviewed_by: Mapped[Optional[str]] = mapped_column(String(32))
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    review_note: Mapped[Optional[str]] = mapped_column(Text)
+    decided_by: Mapped[Optional[str]] = mapped_column(String(32))
+    decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    decision_note: Mapped[Optional[str]] = mapped_column(Text)
+    decision_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    task_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    converted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    executed_by: Mapped[Optional[str]] = mapped_column(String(32))
+    executed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    verified_by: Mapped[Optional[str]] = mapped_column(String(32))
+    verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    verification_outcome: Mapped[Optional[str]] = mapped_column(String(24))
+    verification_note: Mapped[Optional[str]] = mapped_column(Text)
 
     __table_args__ = (
         UniqueConstraint("organization_id", "kind", "fingerprint", name="uq_knowledge_recommendation_fingerprint"),
     )
+
+
+class KnowledgeIntelInsight(Base):
+    """4E.5 — a universal knowledge insight: what the company knows MEANS.
+
+    One canonical insight model across the twelve kinds (discovery, change,
+    contradiction, risk, opportunity, gap, dependency, impact, trend,
+    recommendation, verification_required, decision_required). Insights are
+    materialized deterministically from the persisted knowledge substrate,
+    keyed by a stable ``fingerprint`` so replays are exact-once, and carry
+    their own lifecycle (active -> acknowledged -> resolved — rows are never
+    deleted). Every insight records its lineage: the source event, the claim
+    ids and the entities that produced it.
+
+    The distinct ``knowledge_intel_insights`` table keeps this operating layer
+    separate from the legacy Slice 4 ``knowledge_insights`` worker signals
+    (app.models.intelligence.KnowledgeInsight), which remain untouched.
+    """
+
+    __tablename__ = "knowledge_intel_insights"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(240), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    severity: Mapped[str] = mapped_column(String(16), default="medium", nullable=False, index=True)
+    confidence: Mapped[float] = mapped_column(Float, default=0.6, nullable=False)
+    impact: Mapped[str] = mapped_column(String(16), default="medium", nullable=False)
+    urgency: Mapped[str] = mapped_column(String(16), default="medium", nullable=False)
+    priority_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(16), default="active", nullable=False, index=True)
+    fingerprint: Mapped[str] = mapped_column(String(120), nullable=False)
+    source_event: Mapped[Optional[str]] = mapped_column(String(64))
+    source_claims_json: Mapped[Optional[str]] = mapped_column(Text)
+    source_entities_json: Mapped[Optional[str]] = mapped_column(Text)
+    evidence_json: Mapped[Optional[str]] = mapped_column(Text)
+    topic_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    topic_name: Mapped[Optional[str]] = mapped_column(String(120), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+    acknowledged_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    resolved_by: Mapped[Optional[str]] = mapped_column(String(32))
+
+    __table_args__ = (
+        UniqueConstraint("organization_id", "kind", "fingerprint", name="uq_knowledge_intel_insight_fingerprint"),
+    )
+
+
+class KnowledgeIntelInsightEvent(Base):
+    """4E.5 — audit trail for every insight lifecycle transition (created,
+    acknowledged, resolved) with the acting user, note and details."""
+
+    __tablename__ = "knowledge_intel_insight_events"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    insight_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_intel_insights.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    action: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    actor_id: Mapped[Optional[str]] = mapped_column(String(32))
+    note: Mapped[Optional[str]] = mapped_column(Text)
+    details_json: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
 class KnowledgeTopic(Base):

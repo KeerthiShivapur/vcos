@@ -79,7 +79,24 @@ import type {
   KeyResult,
   KnowledgeAnalytics,
   KnowledgeCategory,
+  KnowledgeChangesResponse,
   KnowledgeComment,
+  KnowledgeCoverageResponse,
+  KnowledgeEvolutionResponse,
+  KnowledgeGapsResponse,
+  KnowledgeHealthCenterResponse,
+  KnowledgeImpactResponse,
+  KnowledgeInsightActionResponse,
+  KnowledgeInsightDetailResponse,
+  KnowledgeIntelInsight,
+  KnowledgeIntelInsightsResponse,
+  KnowledgeOwnershipResponse,
+  KnowledgePropagationResponse,
+  KnowledgeQueryResponse,
+  KnowledgeRecommendationLifecycleResponse,
+  KnowledgeRecommendationsResponse,
+  KnowledgeStateAtResponse,
+  KnowledgeBriefResponse,
   KnowledgeExpert,
   KnowledgeGraph,
   KnowledgePresence,
@@ -7723,6 +7740,145 @@ export async function brainKnowledgeSearch(
   return api<BrainKnowledgeSearchResponse>("/brain/knowledge/search", {
     method: "POST",
     body: payload,
+  });
+}
+
+// ------------------------------------------- Slice 4E.4/4E.5 knowledge ops
+
+export async function brainKnowledgeDiscover(params: {
+  query: string;
+  limit?: number;
+}): Promise<KnowledgeQueryResponse> {
+  return api<KnowledgeQueryResponse>("/brain/knowledge/discover", { query: params });
+}
+
+export async function brainKnowledgeChanges(params?: {
+  days?: number;
+  limit?: number;
+}): Promise<KnowledgeChangesResponse> {
+  return api<KnowledgeChangesResponse>("/brain/knowledge/changes", { query: params });
+}
+
+export async function brainKnowledgeGaps(params?: { limit?: number }): Promise<KnowledgeGapsResponse> {
+  return api<KnowledgeGapsResponse>("/brain/knowledge/gaps", { query: params });
+}
+
+export async function brainKnowledgeTopicImpact(topicName: string): Promise<KnowledgeImpactResponse> {
+  return api<KnowledgeImpactResponse>(
+    `/brain/knowledge/topics/${encodeURIComponent(topicName)}/impact`
+  );
+}
+
+export async function brainKnowledgeTopicOwnership(topicName: string): Promise<KnowledgeOwnershipResponse> {
+  return api<KnowledgeOwnershipResponse>(
+    `/brain/knowledge/topics/${encodeURIComponent(topicName)}/ownership`
+  );
+}
+
+export async function brainKnowledgeRecommendations(params?: {
+  limit?: number;
+}): Promise<KnowledgeRecommendationsResponse> {
+  return api<KnowledgeRecommendationsResponse>("/brain/knowledge/recommendations", {
+    query: params,
+  });
+}
+
+export async function brainKnowledgeInsights(params?: {
+  kind?: string;
+  status?: string;
+  severity?: string;
+  limit?: number;
+}): Promise<KnowledgeIntelInsightsResponse> {
+  return api<KnowledgeIntelInsightsResponse>("/brain/knowledge/insights", { query: params });
+}
+
+export async function brainKnowledgeInsightGet(
+  insightId: string
+): Promise<KnowledgeInsightDetailResponse> {
+  return api<KnowledgeInsightDetailResponse>(`/brain/knowledge/insights/${insightId}`);
+}
+
+export async function brainKnowledgeInsightAcknowledge(
+  insightId: string,
+  note?: string
+): Promise<KnowledgeInsightActionResponse> {
+  return api<KnowledgeInsightActionResponse>(
+    `/brain/knowledge/insights/${insightId}/acknowledge`,
+    { method: "POST", body: { note: note ?? null } }
+  );
+}
+
+export async function brainKnowledgeInsightResolve(
+  insightId: string,
+  note?: string
+): Promise<KnowledgeInsightActionResponse> {
+  return api<KnowledgeInsightActionResponse>(
+    `/brain/knowledge/insights/${insightId}/resolve`,
+    { method: "POST", body: { note: note ?? null } }
+  );
+}
+
+export async function brainKnowledgeTopicEvolution(
+  topicName: string
+): Promise<KnowledgeEvolutionResponse> {
+  return api<KnowledgeEvolutionResponse>(
+    `/brain/knowledge/topics/${encodeURIComponent(topicName)}/evolution`
+  );
+}
+
+export async function brainKnowledgeTopicPropagation(
+  topicName: string,
+  depth?: number
+): Promise<KnowledgePropagationResponse> {
+  return api<KnowledgePropagationResponse>(
+    `/brain/knowledge/topics/${encodeURIComponent(topicName)}/propagation`,
+    { query: { depth } }
+  );
+}
+
+export async function brainKnowledgeTopicStateAt(
+  topicName: string,
+  params?: { as_of?: string; year?: number; month?: number }
+): Promise<KnowledgeStateAtResponse> {
+  return api<KnowledgeStateAtResponse>(
+    `/brain/knowledge/topics/${encodeURIComponent(topicName)}/state`,
+    { query: params }
+  );
+}
+
+export async function brainKnowledgeCoverage(): Promise<KnowledgeCoverageResponse> {
+  return api<KnowledgeCoverageResponse>("/brain/knowledge/coverage");
+}
+
+export async function brainKnowledgeHealthCenter(): Promise<KnowledgeHealthCenterResponse> {
+  return api<KnowledgeHealthCenterResponse>("/brain/knowledge/health-center");
+}
+
+export async function brainKnowledgeBrief(sinceHours?: number): Promise<KnowledgeBriefResponse> {
+  return api<KnowledgeBriefResponse>("/brain/knowledge/brief", {
+    query: { since_hours: sinceHours ?? 24 },
+  });
+}
+
+export async function brainKnowledgeRecommendationLifecycle(
+  recommendationId: string,
+  payload: {
+    action: string;
+    note?: string;
+    target?: string;
+    project_id?: string;
+  }
+): Promise<KnowledgeRecommendationLifecycleResponse> {
+  return api<KnowledgeRecommendationLifecycleResponse>(
+    `/brain/knowledge/recommendations/${recommendationId}/lifecycle`,
+    { method: "POST", body: payload }
+  );
+}
+
+export async function brainKnowledgeQuery(question: string): Promise<KnowledgeQueryResponse> {
+  return api<KnowledgeQueryResponse>("/brain/knowledge/query", {
+    method: "POST",
+    body: { question },
   });
 }
 

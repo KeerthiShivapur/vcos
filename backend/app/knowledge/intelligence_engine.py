@@ -45,7 +45,7 @@ import hashlib
 import json
 import logging
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from sqlalchemy import select
@@ -60,6 +60,7 @@ from app.knowledge.canonical_service import (
 )
 from app.knowledge.synthesis_engine import (
     _AUTHORITY_NORM,
+    _MONTHS,
     _json_loads,
     _snippet,
     extract_facets,
@@ -100,13 +101,21 @@ _FRESH_OK = frozenset({"very_high", "high", "medium"})
 
 # intent routing for the universal knowledge query (deterministic keywords)
 _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
+    ("affected", ("which projects are affected", "projects are affected", "who is affected", "what is affected", "whom does")),
     ("changes", ("what changed", "since", "changed in our understanding", "when did", "evolution")),
     ("impact", ("impact", "affected", "affect", "what else", "depends on", "dependent")),
     ("gaps", ("don't know", "don t know", "missing", "gaps", "stale", "outdated", "unverified", "undocumented")),
     ("contradictions", ("uncertain", "uncertainty", "conflict", "contradict", "inconsistent")),
     ("ownership", ("who owns", "owner of", "accountable for")),
     ("health", ("health", "healthy", "how are we doing")),
-    ("recommendations", ("recommend", "should we", "improve", "prioritize")),
+    ("worry", ("should i worry", "worry", "emerging risk", "concern")),
+    ("decide", ("needs a decision", "needs our decision", "decision needed", "should leadership decide")),
+    ("next", ("should i do next", "should we do next", "next action", "what should we do next")),
+    ("recommendations", ("recommend", "improve", "prioritize")),
+    ("missing", ("what are we missing", "are we missing", "what critical information")),
+    ("confident", ("how confident", "confident are we", "confidence")),
+    ("stakeholders", ("who needs to know", "who should know")),
+    ("provenance", ("what is the source", "source of", "where did")),
 ]
 
 _CHANGE_SIGNAL = re.compile(
@@ -1555,6 +1564,8 @@ class IntelligenceEngine:
         for row in existing:
             if row.status != "active":
                 continue
+            if row.lifecycle not in ("detected", "candidate"):
+                continue  # 4E.5: a user-driven lifecycle decision is never overwritten
             if (row.kind, row.fingerprint) not in current_fingerprints:
                 row.status = "resolved"
                 row.resolved_at = now
@@ -1567,6 +1578,7 @@ class IntelligenceEngine:
                     kind=item["kind"],
                     fingerprint=item["fingerprint"],
                     status="active",
+                    lifecycle="detected",
                     reason=item["reason"],
                     confidence=item["confidence"],
                     risk=item["risk"],
@@ -1576,6 +1588,8 @@ class IntelligenceEngine:
                 db.add(row)
                 await db.flush()
             else:
+                if row.lifecycle not in ("detected", "candidate"):
+                    continue  # user already steered this recommendation
                 row.reason = item["reason"]
                 row.confidence = item["confidence"]
                 row.risk = item["risk"]
@@ -1603,6 +1617,8 @@ class IntelligenceEngine:
                     "id": r.id,
                     "kind": r.kind,
                     "status": r.status,
+                    "fingerprint": r.fingerprint,
+                    "lifecycle": r.lifecycle,
                     "reason": r.reason,
                     "confidence": r.confidence,
                     "risk": r.risk,
@@ -1632,6 +1648,15 @@ class IntelligenceEngine:
         """One surface for the Company Brain: a natural question routes to the
         matching intelligence and returns only evidence the caller may see."""
         lowered = question.lower().strip()
+        # temporal special case first: "what was our pricing in february"
+        month_hit = next(
+            (m for m in _MONTHS if m in lowered), None
+        )
+        if month_hit and ("was" in lowered or "were" in lowered):
+            return await self._temporal_query(
+                db, organization_id=organization_id, question=question,
+                month=_MONTHS[month_hit], user=user,
+            )
         intent = "discovery"
         for candidate, keywords in _INTENT_RULES:
             if any(keyword in lowered for keyword in keywords):
@@ -1733,11 +1758,158 @@ class IntelligenceEngine:
                 }
             return {**result, "question": question, "intent": intent,
                     "generated_at": _utcnow_iso()}
+        if intent in ("affected", "stakeholders", "provenance"):
+            from app.knowledge.action_engine import action_engine
+
+            access = await self._access(db, organization_id=organization_id, user=user)
+            scanned = await self._scan_topics(
+                db, organization_id=organization_id, access=access
+            )
+            best_topic: Optional[KnowledgeTopic] = None
+            q_tokens = tokens(question)
+            best_score = 0
+            for entry in scanned.values():
+                topic = entry["topic"]
+                t_tokens = tokens(f"{topic.name} {' '.join(_json_loads(topic.aliases_json, []))}")
+                overlap = len(q_tokens & t_tokens)
+                if overlap > best_score:
+                    best_score = overlap
+                    best_topic = topic
+            if best_topic is None:
+                return {
+                    "question": question, "intent": intent, "total": 0,
+                    "answers": [], "scope": "org" if access.org_wide else "project",
+                    "generated_at": _utcnow_iso(),
+                }
+            if intent == "affected":
+                result = await action_engine.propagation(
+                    db, organization_id=organization_id,
+                    topic_name=best_topic.name, user=user, depth=3,
+                )
+                return {**result, "question": question, "intent": intent,
+                        "generated_at": _utcnow_iso()}
+            if intent == "stakeholders":
+                ownership = await self.ownership(
+                    db, organization_id=organization_id,
+                    topic_name=best_topic.name, user=user,
+                )
+                affected = await action_engine.propagation(
+                    db, organization_id=organization_id,
+                    topic_name=best_topic.name, user=user, depth=2,
+                )
+                return {
+                    "question": question,
+                    "intent": intent,
+                    "topic": best_topic.name,
+                    "owner": (ownership or {}).get("owner"),
+                    "stakeholders": [
+                        hop["title"] for hop in (affected or {}).get("hops", [])
+                        if hop.get("title") and hop["entity_type"] not in ("topic",)
+                    ][:12],
+                    "total": len(affected.get("hops", [])) if affected else 0,
+                    "scope": "org" if access.org_wide else "project",
+                    "generated_at": _utcnow_iso(),
+                }
+            result = await self.discover(
+                db, organization_id=organization_id,
+                query=question, user=user, limit=limit,
+            )
+            return {**result, "intent": intent, "question": question}
+        if intent in ("worry", "decide", "missing", "next", "confident"):
+            from app.knowledge.action_engine import action_engine
+
+            kind = {
+                "worry": ("risk", "verification_required"),
+                "decide": ("decision_required",),
+                "missing": ("gap",),
+                "next": ("recommendation",),
+            }.get(intent, ())
+            insights = await action_engine.insights(
+                db, organization_id=organization_id, user=user, limit=40,
+                **({"kind": kind[0]} if intent == "next" else {}),
+            )
+            if intent == "confident":
+                answers = self._least_confident(insights["insights"], limit)
+            else:
+                answers = [
+                    i for i in insights["insights"]
+                    if i["kind"] in kind and i["status"] == "active"
+                ][:limit]
+            return {
+                "question": question,
+                "intent": intent,
+                "total": len(answers),
+                "answers": answers,
+                "scope": insights["scope"],
+                "generated_at": _utcnow_iso(),
+            }
         result = await self.discover(
             db, organization_id=organization_id,
             query=question, user=user, limit=limit,
         )
         return {**result, "intent": "discovery"}
+
+    async def _temporal_query(
+        self,
+        db: AsyncSession,
+        *,
+        organization_id: str,
+        question: str,
+        month: int,
+        user: Any,
+    ) -> dict[str, Any]:
+        """'what was our pricing in february' -> the understanding valid in
+        February, with what replaced it."""
+        from app.knowledge.action_engine import action_engine
+
+        access = await self._access(db, organization_id=organization_id, user=user)
+        scanned = await self._scan_topics(db, organization_id=organization_id, access=access)
+        q_tokens = tokens(question)
+        best_topic: Optional[KnowledgeTopic] = None
+        best_score = 0
+        for entry in scanned.values():
+            topic = entry["topic"]
+            t_tokens = tokens(f"{topic.name} {' '.join(_json_loads(topic.aliases_json, []))}")
+            overlap = len(q_tokens & t_tokens)
+            if overlap > best_score:
+                best_score = overlap
+                best_topic = topic
+        if best_topic is None:
+            return {
+                "question": question,
+                "intent": "temporal",
+                "total": 0,
+                "answer": "No knowledge topic matches this question.",
+                "scope": "org" if access.org_wide else "project",
+                "generated_at": _utcnow_iso(),
+            }
+        year = now_utc().year
+        as_of = datetime(year, month, 1, tzinfo=timezone.utc)
+        if as_of > now_utc():
+            as_of = datetime(year - 1, month, 1, tzinfo=timezone.utc)
+        result = await action_engine.state_at(
+            db, organization_id=organization_id,
+            topic_name=best_topic.name, as_of=as_of, user=user,
+        )
+        if result is None:
+            return {
+                "question": question,
+                "intent": "temporal",
+                "topic": _clean_topic_name(best_topic.name),
+                "as_of": as_of.isoformat(),
+                "total": 0,
+                "answer": f"No understanding of '{_clean_topic_name(best_topic.name)}' was recorded by {as_of.date().isoformat()}.",
+                "scope": "org" if access.org_wide else "project",
+                "generated_at": _utcnow_iso(),
+            }
+        return {**result, "question": question, "intent": "temporal"}
+
+    @staticmethod
+    def _least_confident(insights: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+        return sorted(
+            [i for i in insights if i["status"] == "active"],
+            key=lambda i: (i["confidence"], i["priority_score"]),
+        )[:limit]
 
 
 intelligence_engine = IntelligenceEngine()

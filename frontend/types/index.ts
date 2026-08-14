@@ -2612,3 +2612,326 @@ export interface BrainGraphTraversal {
   truncated: boolean;
   limits: { max_depth: number; max_nodes: number; max_edges: number };
 }
+
+// ---------------------------------------------------------------------------
+// Slice 4E.5 — knowledge intelligence operating layer (knowledge-to-action)
+// ---------------------------------------------------------------------------
+
+export interface KnowledgeIntelInsight {
+  id: string;
+  kind: string;
+  title: string;
+  summary: string;
+  severity: string;
+  confidence: number;
+  impact: string | null;
+  urgency: string | null;
+  priority_score: number;
+  status: string;
+  topic_id: string | null;
+  topic_name: string | null;
+  created_at: string;
+  updated_at: string;
+  evidence_count: number;
+  claim_ids: string[];
+}
+
+export interface KnowledgeIntelInsightsResponse {
+  total: number;
+  kinds: string[];
+  by_kind: Record<string, number>;
+  scope: "org" | "project";
+  insights: KnowledgeIntelInsight[];
+}
+
+export interface KnowledgeInsightLineageClaim {
+  id: string;
+  statement: string;
+  status: string;
+  confidence: number;
+  authority_level: number;
+  valid_from: string;
+  source_type: string;
+  source_id: string;
+}
+
+export interface KnowledgeInsightDetailResponse extends KnowledgeIntelInsight {
+  lineage: {
+    claims: KnowledgeInsightLineageClaim[];
+    entities: Array<Record<string, unknown>>;
+    source_event: string | null;
+  };
+  audit: Array<{ action: string; actor_id: string; note: string | null; at: string }>;
+}
+
+export interface KnowledgeInsightActionResponse {
+  id: string;
+  status: string;
+  acknowledged_at?: string;
+  resolved_at?: string;
+}
+
+export interface KnowledgeTopicRef {
+  id: string;
+  name: string;
+}
+
+export interface KnowledgeEvolutionStep {
+  claim_id: string;
+  at: string;
+  statement: string;
+  status: string;
+  confidence: number;
+  supersedes: string | null;
+  replaced_by: string | null;
+}
+
+export interface KnowledgeEvolutionResponse {
+  topic: KnowledgeTopicRef;
+  total: number;
+  steps: KnowledgeEvolutionStep[];
+}
+
+export interface KnowledgePropagationHop {
+  entity_type: string;
+  entity_id: string;
+  title: string;
+  relation: string;
+  via: string;
+  depth: number;
+}
+
+export interface KnowledgePropagationResponse {
+  topic: KnowledgeTopicRef;
+  total: number;
+  depth: number;
+  by_family: Record<string, number>;
+  hops: KnowledgePropagationHop[];
+  scope: "org" | "project";
+}
+
+export interface KnowledgeCoverageArea {
+  area: string;
+  coverage: number;
+  total_topics: number;
+  authoritative: number;
+  stale: number;
+  weak_reasons: string[];
+}
+
+export interface KnowledgeCoverageResponse {
+  total: number;
+  areas: KnowledgeCoverageArea[];
+  scope: "org" | "project";
+  generated_at: string;
+}
+
+export interface KnowledgeHealthBar {
+  name: string;
+  value: number;
+  label: string;
+  detail: string;
+}
+
+export interface KnowledgeDrillDown {
+  contradictions: number;
+  critical_gaps: number;
+  unverified_claims: number;
+  stale_knowledge: number;
+  orphan_topics: number;
+  total_topics: number;
+}
+
+export interface KnowledgeHealthCenterResponse {
+  score: number;
+  bars: KnowledgeHealthBar[];
+  drill_down: KnowledgeDrillDown;
+  why_weak: Array<{ reason: string; details: Array<Record<string, unknown>> }>;
+  scope: "org" | "project";
+  generated_at: string;
+}
+
+export interface KnowledgeBriefAttention {
+  id: string;
+  kind: string;
+  title: string;
+  summary: string;
+  severity: string;
+  priority_score: number;
+}
+
+export interface KnowledgeBriefResponse {
+  since_hours: number;
+  generated_at: string;
+  counts: {
+    significant_changes: number;
+    emerging_risks: number;
+    major_knowledge_gaps: number;
+    decisions_potentially_affected: number;
+    projects_impacted: number;
+    customer_changes: number;
+    strategic_signals: number;
+  };
+  attention: KnowledgeBriefAttention[];
+  scope: "org" | "project";
+}
+
+export interface KnowledgeIntelRecommendation {
+  id: string;
+  kind: string;
+  status: string;
+  fingerprint: string;
+  lifecycle: string;
+  reason: string;
+  confidence: number;
+  risk: string;
+  evidence: string[];
+  entities: Array<{ type: string; id: string; name?: string }>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KnowledgeRecommendationsResponse {
+  total: number;
+  active_kinds: string[];
+  recommendations: KnowledgeIntelRecommendation[];
+  scope: "org" | "project";
+}
+
+export interface KnowledgeRecommendationLifecycleResponse {
+  id: string;
+  kind: string;
+  lifecycle: string;
+  status: string;
+  task_id: string | null;
+  decision_id: string | null;
+  audit: Array<{ action: string; at: string; actor_id: string; note: string | null }>;
+}
+
+export interface KnowledgeStateAtResponse {
+  topic: KnowledgeTopicRef;
+  as_of: string;
+  state: {
+    claim_id: string;
+    statement: string;
+    confidence: number;
+    authority_level: number;
+    valid_from: string;
+    valid_to: string | null;
+  };
+  replaced_by: {
+    claim_id: string;
+    at: string;
+    statement: string;
+  } | null;
+}
+
+export interface KnowledgeGap {
+  kind: string;
+  topic: KnowledgeTopicRef;
+  reason: string;
+  confidence: number;
+  severity: string;
+  authority_level?: number;
+  evidence: number;
+  pair_ids?: string[];
+}
+
+export interface KnowledgeGapsResponse {
+  total: number;
+  kinds: string[];
+  gaps: KnowledgeGap[];
+  shortage_total: number;
+  scope: "org" | "project";
+}
+
+export interface KnowledgeChangeEvent {
+  kind: "new_evidence" | "understanding";
+  at: string;
+  family?: string;
+  statement?: string;
+  source_title?: string | null;
+  claim_id: string;
+  from?: string | null;
+  to?: string;
+  supersedes_claim_id?: string | null;
+}
+
+export interface KnowledgeChangesResponse {
+  window_days: number;
+  total: number;
+  topic_changes: Array<{
+    topic: KnowledgeTopicRef;
+    families: string[];
+    events: KnowledgeChangeEvent[];
+  }>;
+  scope: "org" | "project";
+}
+
+export interface KnowledgeOwnershipResponse {
+  topic: KnowledgeTopicRef;
+  owner: { employee_id: string | null; resolved: boolean };
+  source: { type: string; id: string; title: string };
+  authority: { level: number; label: string };
+  last_verified_at: string | null;
+  freshness_label: string;
+  evidence: number;
+}
+
+export interface KnowledgeImpactResponse {
+  topic: KnowledgeTopicRef & { aliases: string[] };
+  evidence: {
+    total: number;
+    sources: Array<{
+      type: string;
+      id: string;
+      title: string | null;
+      excerpt: string;
+      authority_level: number;
+    }>;
+  };
+  affected: {
+    total: number;
+    by_family: Record<
+      string,
+      { count: number; entities: Array<{ id: string; relations: string[] }> }
+    >;
+  };
+  dependent_knowledge: { total: number; claims: Array<Record<string, unknown>> };
+  scope: "org" | "project";
+}
+
+export interface KnowledgeDiscoveryAnswer {
+  topic: KnowledgeTopicRef;
+  score: number;
+  statement: string | null;
+  claim_id: string | null;
+  confidence: number | null;
+  authority: number;
+  families: string[];
+  evidence: Array<{
+    claim_id: string;
+    subject_type: string;
+    subject_id: string;
+    excerpt: string;
+    source_title: string | null;
+    authority_level: number;
+    valid_from: string;
+    matched_tokens: string[];
+  }>;
+}
+
+export interface KnowledgeQueryResponse {
+  question: string;
+  intent: string;
+  total: number;
+  scope: "org" | "project";
+  generated_at?: string;
+  answers?: Array<KnowledgeDiscoveryAnswer | KnowledgeIntelInsight>;
+  answer?: string | null;
+  topic?: KnowledgeTopicRef | string;
+  as_of?: string;
+  state?: KnowledgeStateAtResponse["state"];
+  replaced_by?: KnowledgeStateAtResponse["replaced_by"];
+  [key: string]: unknown;
+}

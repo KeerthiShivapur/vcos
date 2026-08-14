@@ -412,6 +412,8 @@ class SynthesisEngine:
                 groups.setdefault(facet["key"], []).append((claim, facet))
         contradictions: list[dict[str, Any]] = []
         for key, members in groups.items():
+            if len({claim.id for claim, _ in members}) < 2:
+                continue  # a single claim cannot contradict itself
             distinct: dict[str, list[tuple[KnowledgeClaim, dict[str, Any]]]] = {}
             for claim, facet in members:
                 distinct.setdefault(str(facet["value"]), []).append((claim, facet))

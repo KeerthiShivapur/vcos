@@ -186,6 +186,7 @@ export function Sidebar({ unread }: { unread: number }) {
 
   const knowledge: NavItem[] = [
     { href: "/knowledge", label: "Knowledge Hub", icon: FileText, permission: PERMISSIONS.KNOWLEDGE_READ },
+    { href: "/knowledge/workspace", label: "Knowledge Intelligence", icon: Brain, permission: PERMISSIONS.INTELLIGENCE_READ },
     { href: "/documents", label: "Documents", icon: FileText, permission: PERMISSIONS.KNOWLEDGE_READ },
     { href: "/wiki", label: "Wiki", icon: BookOpen, permission: PERMISSIONS.KNOWLEDGE_READ },
     { href: "/policies", label: "Policies", icon: ShieldCheck, permission: PERMISSIONS.KNOWLEDGE_READ },
