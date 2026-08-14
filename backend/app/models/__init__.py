@@ -336,6 +336,11 @@ from app.models.executive_intelligence import ExecutiveIntelligence  # noqa: F40
 from app.models.ai_governance import GovernanceRecommendation  # noqa: F401
 from app.models.resilience_plan import ResiliencePlan  # noqa: F401
 from app.models.brain import BrainConversation, BrainConversationTurn  # noqa: F401
+from app.models.company_actions import (  # noqa: F401
+    CompanyAction,
+    CompanyActionEvent,
+    CompanyActionOutcome,
+)
 
 __all__ = [
     "Organization",
@@ -682,4 +687,7 @@ __all__ = [
     "ResiliencePlan",
     "BrainConversation",
     "BrainConversationTurn",
+    "CompanyAction",
+    "CompanyActionEvent",
+    "CompanyActionOutcome",
 ]

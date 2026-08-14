@@ -2935,3 +2935,137 @@ export interface KnowledgeQueryResponse {
   replaced_by?: KnowledgeStateAtResponse["replaced_by"];
   [key: string]: unknown;
 }
+
+// ---------------------------------------------------------------------------
+// Slice 4E.6 — universal company actions (knowledge-to-action, governed)
+// ---------------------------------------------------------------------------
+
+export interface CompanyAction {
+  id: string;
+  action_type: "task" | "decision" | "communication" | "knowledge" | "meeting" | "project";
+  title: string;
+  description: string | null;
+  state: string;
+  risk: "low" | "medium" | "high";
+  priority_score: number;
+  policy: string;
+  approval_required: boolean;
+  approver_id: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  rejected_reason: string | null;
+  scope_type: string;
+  scope_id: string | null;
+  fingerprint: string;
+  target_label: string | null;
+  source_problem: string | null;
+  why: string | null;
+  source_recommendation_id: string | null;
+  source_insight_id: string | null;
+  source_event_id: string | null;
+  source_claim_ids: string[];
+  target_type: string | null;
+  target_id: string | null;
+  assignee_id: string | null;
+  assigned_at: string | null;
+  due_at: string | null;
+  overdue: boolean;
+  dependencies: string[];
+  escalation_level: number;
+  started_at: string | null;
+  blocked_at: string | null;
+  blocked_reason: string | null;
+  completed_at: string | null;
+  verified_at: string | null;
+  verification_note: string | null;
+  fail_reason: string | null;
+  cancel_reason: string | null;
+  supersedes_id: string | null;
+  superseded_by_id: string | null;
+  outcome_id: string | null;
+  version: number;
+  attention_reasons: string[];
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  deduplicated?: boolean;
+}
+
+export interface CompanyActionCenterResponse {
+  total: number;
+  scope: "org" | "project";
+  stats: {
+    by_state: Record<string, number>;
+    by_action_type: Record<string, number>;
+    open: number;
+  };
+  items: CompanyAction[];
+  limit: number;
+  offset: number;
+}
+
+export interface CompanyActionEvent {
+  event: string;
+  actor_id: string;
+  note: string | null;
+  details: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface CompanyActionDetailResponse extends Omit<CompanyAction, "dependencies"> {
+  events: CompanyActionEvent[];
+  dependencies: Array<{
+    id: string;
+    title: string | null;
+    state: string | null;
+    complete: boolean;
+  }>;
+  outcome: {
+    id: string;
+    outcome_type: string;
+    verdict: string | null;
+    effectiveness: number;
+    evidence: string[];
+    notes: string | null;
+    recorded_by: string | null;
+    measured_at: string;
+  } | null;
+  source_recommendation?: {
+    id: string;
+    kind: string;
+    reason: string;
+    confidence: number;
+    risk: string;
+  } | null;
+  source_insight?: {
+    id: string;
+    kind: string;
+    title: string;
+    summary: string;
+  } | null;
+}
+
+export interface CompanyActionOutcomeRow {
+  key: string;
+  total: number;
+  success: number;
+  failed: number;
+  avg_effectiveness: number;
+}
+
+export interface CompanyActionOutcomeIntelligence {
+  total: number;
+  by_outcome_type: CompanyActionOutcomeRow[];
+  by_action_type: CompanyActionOutcomeRow[];
+  by_risk: CompanyActionOutcomeRow[];
+  success_rate: number;
+  avg_effectiveness: number;
+  recent: Array<{
+    action_id: string;
+    action_title: string | null;
+    outcome_type: string;
+    verdict: string | null;
+    effectiveness: number;
+    measured_at: string;
+  }>;
+}

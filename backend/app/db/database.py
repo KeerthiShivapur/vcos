@@ -185,6 +185,14 @@ _POSTGRES_ALTERS: list[str] = [
     "CREATE INDEX IF NOT EXISTS ix_knowledge_recommendations_lifecycle ON knowledge_recommendations (lifecycle)",
     "CREATE INDEX IF NOT EXISTS ix_knowledge_recommendations_task_id ON knowledge_recommendations (task_id)",
     "CREATE INDEX IF NOT EXISTS ix_knowledge_recommendations_decision_id ON knowledge_recommendations (decision_id)",
+    # Slice 4E.6: universal company actions — bounded replay-safe dispatch.
+    # Every worker pass reaps stale 'running' jobs, re-picks queued dispatch
+    # jobs, and re-adopts orphan events.  At scale those scans walked the whole
+    # background_jobs / events history on every pass; the composite indexes
+    # keep each pass bounded by the *active* queue instead of the full log.
+    "CREATE INDEX IF NOT EXISTS ix_bg_jobs_dispatch_reap ON background_jobs (name, status, started_at)",
+    "CREATE INDEX IF NOT EXISTS ix_bg_jobs_dispatch_pick ON background_jobs (name, status, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_events_processed_occurred ON events (processed_at, occurred_at)",
 ]
 
 

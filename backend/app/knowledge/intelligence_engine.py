@@ -116,6 +116,13 @@ _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
     ("confident", ("how confident", "confident are we", "confidence")),
     ("stakeholders", ("who needs to know", "who should know")),
     ("provenance", ("what is the source", "source of", "where did")),
+    # Slice 4E.6 — universal action intents: the company asks about its
+    # governed actions in the same natural surface as its knowledge.
+    ("actions", ("action center", "my action", "action required", "open action", "what is being actioned", "acting on")),
+    ("attention", ("needs my attention", "needs attention", "should i focus", "what is urgent")),
+    ("blocked", ("is blocked", "blocked", "stuck", "unblock")),
+    ("overdue", ("overdue", "behind schedule", "missed deadline")),
+    ("escalation", ("escalat", "raised to leadership")),
 ]
 
 _CHANGE_SIGNAL = re.compile(
@@ -1841,6 +1848,23 @@ class IntelligenceEngine:
                 "total": len(answers),
                 "answers": answers,
                 "scope": insights["scope"],
+                "generated_at": _utcnow_iso(),
+            }
+        if intent in ("actions", "attention", "blocked", "overdue", "escalation"):
+            from app.knowledge.action_ops_engine import action_ops_engine
+
+            result = await action_ops_engine.center(
+                db, organization_id=organization_id, user=user,
+                attention=(intent == "attention"),
+                blocked_only=(intent == "blocked"),
+                overdue_only=(intent == "overdue"),
+                escalated_only=(intent == "escalation"),
+                limit=limit,
+            )
+            return {
+                **result,
+                "question": question,
+                "intent": intent,
                 "generated_at": _utcnow_iso(),
             }
         result = await self.discover(

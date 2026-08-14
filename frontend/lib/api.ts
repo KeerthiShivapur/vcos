@@ -52,7 +52,11 @@ import type {
   Community,
   CommunityAnalytics,
   CommunityEvent,
-  CommunityMember,
+CommunityMember,
+  CompanyAction,
+  CompanyActionCenterResponse,
+  CompanyActionDetailResponse,
+  CompanyActionOutcomeIntelligence,
   Conversation,
   ConversationMember,
   Decision,
@@ -7880,6 +7884,101 @@ export async function brainKnowledgeQuery(question: string): Promise<KnowledgeQu
     method: "POST",
     body: { question },
   });
+}
+
+// ------------------------------------------- Slice 4E.6 universal company actions
+
+export async function brainKnowledgeActionCenter(params?: {
+  state?: string;
+  action_type?: string;
+  scope_type?: string;
+  scope_id?: string;
+  risk?: string;
+  assignee_id?: string;
+  mine?: boolean;
+  attention?: boolean;
+  blocked_only?: boolean;
+  overdue_only?: boolean;
+  escalated_only?: boolean;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<CompanyActionCenterResponse> {
+  return api<CompanyActionCenterResponse>("/brain/knowledge/actions", { query: params });
+}
+
+export async function brainKnowledgeActionDetail(
+  actionId: string
+): Promise<CompanyActionDetailResponse> {
+  return api<CompanyActionDetailResponse>(`/brain/knowledge/actions/${actionId}`);
+}
+
+export async function brainKnowledgeActionPropose(payload: {
+  action_type: string;
+  title: string;
+  description?: string | null;
+  source_problem?: string | null;
+  target?: string | null;
+  scope_type?: string;
+  scope_id?: string | null;
+  risk: string;
+  due_at?: string | null;
+  source_recommendation_id?: string | null;
+  source_insight_id?: string | null;
+  source_event_id?: string | null;
+  source_claim_ids?: string[] | null;
+  assignee_id?: string | null;
+  approver_id?: string | null;
+  depends_on?: string[] | null;
+}): Promise<CompanyAction> {
+  return api<CompanyAction>("/brain/knowledge/actions", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export async function brainKnowledgeActionTransition(
+  actionId: string,
+  payload: {
+    transition: string;
+    note?: string | null;
+    assignee_id?: string | null;
+    due_at?: string | null;
+  }
+): Promise<CompanyAction> {
+  return api<CompanyAction>(`/brain/knowledge/actions/${actionId}/transition`, {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export async function brainKnowledgeActionOutcome(
+  actionId: string,
+  payload: {
+    outcome_type: string;
+    verdict?: string | null;
+    effectiveness?: number;
+    notes?: string | null;
+    evidence?: string[] | null;
+  }
+): Promise<{ outcome: CompanyActionDetailResponse["outcome"]; action: CompanyAction }> {
+  return api(`/brain/knowledge/actions/${actionId}/outcome`, {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export async function brainKnowledgeActionEvaluate(): Promise<{
+  evaluated: number;
+  expired: number;
+  escalated: number;
+  auto_completed: number;
+}> {
+  return api("/brain/knowledge/actions/evaluate", { method: "POST", body: {} });
+}
+
+export async function brainKnowledgeActionOutcomeIntelligence(): Promise<CompanyActionOutcomeIntelligence> {
+  return api<CompanyActionOutcomeIntelligence>("/brain/knowledge/actions/outcome-intelligence");
 }
 
 

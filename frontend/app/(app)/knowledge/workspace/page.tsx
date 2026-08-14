@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Send,
   Sparkles,
+  Target,
   TrendingUp,
 } from "lucide-react";
 
@@ -66,6 +67,11 @@ const INTENT_HEADINGS: Record<string, string> = {
   provenance: "How this is grounded",
   impact: "What depends on this knowledge",
   ownership: "Who owns this knowledge",
+  actions: "The Company Action Center",
+  attention: "What needs attention",
+  blocked: "Blocked actions",
+  overdue: "Overdue actions",
+  escalation: "Escalated actions",
 };
 
 function CountStat({ label, value }: { label: string; value: number }) {
@@ -75,6 +81,47 @@ function CountStat({ label, value }: { label: string; value: number }) {
       <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wide text-faint">{label}</p>
     </div>
   );
+}
+
+const ACTION_STATE_TONE: Record<string, "neutral" | "brand" | "success" | "warning" | "danger"> = {
+  proposed: "neutral",
+  validating: "brand",
+  awaiting_approval: "warning",
+  approved: "brand",
+  ready: "brand",
+  in_progress: "brand",
+  blocked: "danger",
+  completed: "success",
+  verified: "success",
+  rejected: "neutral",
+  cancelled: "neutral",
+  expired: "neutral",
+  failed: "danger",
+  superseded: "neutral",
+};
+
+function stateTone(state: string) {
+  return ACTION_STATE_TONE[state] ?? "neutral";
+}
+
+function stateLabel(state: string) {
+  const map: Record<string, string> = {
+    proposed: "Proposed",
+    validating: "Validating",
+    awaiting_approval: "Awaiting approval",
+    approved: "Approved",
+    ready: "Ready",
+    in_progress: "In progress",
+    blocked: "Blocked",
+    completed: "Completed",
+    verified: "Verified",
+    rejected: "Rejected",
+    cancelled: "Cancelled",
+    expired: "Expired",
+    failed: "Failed",
+    superseded: "Superseded",
+  };
+  return map[state] ?? state.replaceAll("_", " ");
 }
 
 function DiscoveryAnswerCard({ answer }: { answer: KnowledgeDiscoveryAnswer }) {
@@ -334,6 +381,76 @@ export default function KnowledgeWorkspacePage() {
                 </a>{" "}
                 section of this workspace — open it for the full view.
               </span>
+            </div>
+          )}
+
+          {(result.intent === "actions" ||
+            result.intent === "attention" ||
+            result.intent === "blocked" ||
+            result.intent === "overdue" ||
+            result.intent === "escalation") && (
+            <div className="divide-y divide-line">
+              {Array.isArray(result.items) &&
+                (result.items as Array<Record<string, unknown>>).length === 0 && (
+                  <EmptyState
+                    icon={Target}
+                    title="No actions here"
+                    description="The governed action center has nothing matching this view right now."
+                  />
+                )}
+              {Array.isArray(result.items) &&
+                (result.items as Array<Record<string, unknown>>).slice(0, 40).map((item) => (
+                  <div key={item.id as string} className="px-5 py-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge tone={stateTone(String(item.state))}>
+                        {stateLabel(String(item.state))}
+                      </Badge>
+                      <Badge tone="neutral">{item.action_type as string}</Badge>
+                      <Badge
+                        tone={
+                          item.risk === "high"
+                            ? "danger"
+                            : item.risk === "medium"
+                              ? "warning"
+                              : "success"
+                        }
+                      >
+                        {item.risk as string} risk
+                      </Badge>
+                      {Array.isArray(item.attention_reasons) &&
+                        (item.attention_reasons as string[]).map((reason) => (
+                          <Badge key={reason} tone="warning">
+                            {reason}
+                          </Badge>
+                        ))}
+                    </div>
+                    <p className="mt-2 text-sm font-semibold text-ink">{item.title as string}</p>
+                    {item.why ? (
+                      <p className="mt-0.5 text-[12px] leading-relaxed text-muted">
+                        {item.why as string}
+                      </p>
+                    ) : null}
+                    <p className="mt-1 text-[11px] text-faint">
+                      {item.due_at
+                        ? `due ${new Date(item.due_at as string).toLocaleString()} · `
+                        : ""}
+                      escalated {String(item.escalation_level)} · updated{" "}
+                      {new Date(item.updated_at as string).toLocaleString()}
+                    </p>
+                  </div>
+                ))}
+              {result.total > 0 && (
+                <p className="px-5 py-3 text-[11px] text-faint">
+                  {result.total} action{result.total === 1 ? "" : "s"} in this view — open the{" "}
+                  <a
+                    href="/knowledge/workspace/actions"
+                    className="font-semibold text-brand hover:underline"
+                  >
+                    Action Center
+                  </a>{" "}
+                  to operate on them.
+                </p>
+              )}
             </div>
           )}
 

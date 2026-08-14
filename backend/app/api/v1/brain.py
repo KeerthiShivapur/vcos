@@ -814,6 +814,45 @@ class BrainRecommendationLifecycleIn(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Slice 4E.6 — universal company actions (knowledge-to-action, governed)
+# ---------------------------------------------------------------------------
+
+
+class BrainActionProposeIn(BaseModel):
+    action_type: str
+    title: str
+    description: Optional[str] = None
+    source_problem: Optional[str] = None
+    target: Optional[str] = None
+    scope_type: str = "org"
+    scope_id: Optional[str] = None
+    risk: str = "low"
+    due_at: Optional[datetime] = None
+    source_recommendation_id: Optional[str] = None
+    source_insight_id: Optional[str] = None
+    source_event_id: Optional[str] = None
+    source_claim_ids: Optional[list[str]] = None
+    assignee_id: Optional[str] = None
+    approver_id: Optional[str] = None
+    depends_on: Optional[list[str]] = None
+
+
+class BrainActionTransitionIn(BaseModel):
+    transition: str
+    note: Optional[str] = None
+    assignee_id: Optional[str] = None
+    due_at: Optional[datetime] = None
+
+
+class BrainActionOutcomeIn(BaseModel):
+    outcome_type: str
+    verdict: Optional[str] = None
+    effectiveness: float = 0.5
+    notes: Optional[str] = None
+    evidence: Optional[list[str]] = None
+
+
+# ---------------------------------------------------------------------------
 # Slice 4E.5 — knowledge intelligence operating layer (knowledge-to-action)
 # ---------------------------------------------------------------------------
 
@@ -1014,6 +1053,179 @@ async def brain_knowledge_recommendation_lifecycle(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if result is None:
         raise HTTPException(status_code=404, detail="recommendation not found")
+    await db.commit()
+    return result
+
+
+@router.get("/knowledge/actions")
+async def brain_knowledge_actions(
+    state: Optional[str] = Query(None),
+    action_type: Optional[str] = Query(None),
+    scope_type: Optional[str] = Query(None),
+    scope_id: Optional[str] = Query(None),
+    risk: Optional[str] = Query(None),
+    assignee_id: Optional[str] = Query(None),
+    mine: bool = Query(False),
+    attention: bool = Query(False),
+    blocked_only: bool = Query(False),
+    overdue_only: bool = Query(False),
+    escalated_only: bool = Query(False),
+    search: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.6 — the company action center: every governed action in one
+    surface with bounded filters, pagination and state/type stats. Callers
+    only ever see the actions their governance grants them."""
+    from app.knowledge.action_ops_engine import action_ops_engine
+
+    return await action_ops_engine.center(
+        db, organization_id=org.id, user=user,
+        state=state, action_type=action_type, scope_type=scope_type,
+        scope_id=scope_id, risk=risk, assignee_id=assignee_id,
+        mine=mine, attention=attention, blocked_only=blocked_only,
+        overdue_only=overdue_only, escalated_only=escalated_only,
+        search=search, limit=limit, offset=offset,
+    )
+
+
+@router.get("/knowledge/actions/outcome-intelligence")
+async def brain_knowledge_action_outcome_intelligence(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.6 — what the company's actions achieve: effectiveness by
+    outcome type, action type and risk, feeding back into intelligence."""
+    from app.knowledge.action_ops_engine import action_ops_engine
+
+    return await action_ops_engine.outcome_intelligence(
+        db, organization_id=org.id
+    )
+
+
+@router.post("/knowledge/actions/evaluate")
+async def brain_knowledge_actions_evaluate(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.6 — one idempotent bounded operational pass: expire stale
+    approvals, escalate overdue / long-blocked actions, reflect completion
+    from routed operating artifacts. Replay-safe."""
+    from app.knowledge.action_ops_engine import action_ops_engine
+
+    result = await action_ops_engine.evaluate(db, organization_id=org.id, user=user)
+    await db.commit()
+    return result
+
+
+@router.post("/knowledge/actions", status_code=201)
+async def brain_knowledge_action_propose(
+    body: BrainActionProposeIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.6 — propose a governed company action from the knowledge
+    layer. Exact-once by fingerprint; policy applies immediately (low risk
+    auto-approves and routes, medium/high wait for approval)."""
+    from app.knowledge.action_ops_engine import action_ops_engine
+
+    try:
+        result = await action_ops_engine.propose(
+            db, organization_id=org.id, user=user,
+            action_type=body.action_type, title=body.title,
+            description=body.description, source_problem=body.source_problem,
+            target=body.target, scope_type=body.scope_type, scope_id=body.scope_id,
+            risk=body.risk, due_at=body.due_at,
+            source_recommendation_id=body.source_recommendation_id,
+            source_insight_id=body.source_insight_id,
+            source_event_id=body.source_event_id,
+            source_claim_ids=body.source_claim_ids,
+            assignee_id=body.assignee_id, approver_id=body.approver_id,
+            depends_on=body.depends_on,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if result is None:
+        raise HTTPException(status_code=400, detail="action not created")
+    await db.commit()
+    return result
+
+
+@router.get("/knowledge/actions/{action_id}")
+async def brain_knowledge_action_detail(
+    action_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.6 — one action with its full lineage (recommendation,
+    insight, claims), immutable audit trail, dependency status and outcome."""
+    from app.knowledge.action_ops_engine import action_ops_engine
+
+    result = await action_ops_engine.detail(
+        db, organization_id=org.id, action_id=action_id, user=user
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="action not found")
+    return result
+
+
+@router.post("/knowledge/actions/{action_id}/transition")
+async def brain_knowledge_action_transition(
+    action_id: str,
+    body: BrainActionTransitionIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.6 — one governed transition surface: assign / start / block /
+    unblock / complete / verify / fail / cancel / supersede. Every call is
+    audited immutably; actions are never deleted."""
+    from app.knowledge.action_ops_engine import action_ops_engine
+
+    try:
+        result = await action_ops_engine.transition(
+            db, organization_id=org.id, action_id=action_id, user=user,
+            transition=body.transition, note=body.note,
+            assignee_id=body.assignee_id, due_at=body.due_at,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="action not found")
+    await db.commit()
+    return result
+
+
+@router.post("/knowledge/actions/{action_id}/outcome")
+async def brain_knowledge_action_outcome(
+    action_id: str,
+    body: BrainActionOutcomeIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.6 — record what the verified action actually achieved, with
+    evidence flowing back into company intelligence."""
+    from app.knowledge.action_ops_engine import action_ops_engine
+
+    try:
+        result = await action_ops_engine.record_outcome(
+            db, organization_id=org.id, action_id=action_id, user=user,
+            outcome_type=body.outcome_type, verdict=body.verdict,
+            effectiveness=body.effectiveness, notes=body.notes,
+            evidence=body.evidence,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="action not found")
     await db.commit()
     return result
 

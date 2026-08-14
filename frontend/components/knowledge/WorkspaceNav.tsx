@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, Brain, GitBranch, HeartPulse, ListChecks, MapPin } from "lucide-react";
+import { Activity, Brain, GitBranch, HeartPulse, ListChecks, MapPin, Target } from "lucide-react";
 
 import { classNames } from "@/lib/utils";
 
@@ -11,6 +11,7 @@ const SECTIONS = [
   { href: "/knowledge/workspace/changes", label: "Changes · Insights · Gaps", icon: Activity },
   { href: "/knowledge/workspace/impact", label: "Impact Analysis", icon: MapPin },
   { href: "/knowledge/workspace/recommendations", label: "Command Center", icon: ListChecks },
+  { href: "/knowledge/workspace/actions", label: "Action Center", icon: Target },
   { href: "/knowledge/workspace/timeline", label: "Evolution Timeline", icon: GitBranch },
   { href: "/knowledge/workspace/health", label: "Health Center", icon: HeartPulse },
 ];
