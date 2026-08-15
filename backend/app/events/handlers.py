@@ -58,14 +58,19 @@ def _tokens(*parts: Any) -> list[str]:
 async def _evolve_expertise(
     db: AsyncSession, organization_id: str, event_name: str,
     employee: Employee, tokens: list[str], event_id: Optional[str] = None,
-    points: float | None = None,
+    points: float | None = None, source_type: Optional[str] = None,
+    source_id: Optional[str] = None, source_title: Optional[str] = None,
 ) -> None:
+    """Feed the canonical expertise pipeline (Slice 4F.2). Source lineage is
+    passed where the payload carries a real canonical id; otherwise the
+    engine falls back to the event id itself (always a canonical source)."""
     from app.intelligence.expertise_engine import expertise_engine
 
     await expertise_engine.record_activity(
         db, organization_id=organization_id, employee_id=employee.id,
         event_name=event_name, tokens=tokens, reason=describe(event_name),
-        event_id=event_id, points=points,
+        event_id=event_id, points=points, source_type=source_type,
+        source_id=source_id, source_title=source_title,
     )
 
 
@@ -124,7 +129,11 @@ async def handle_task_completed(db, event, payload):
     employee = await _resolve_employee(db, org_id, payload)
     if employee is not None:
         tokens = _tokens(payload.get("title"), payload.get("project_name"), payload.get("tags"))
-        await _evolve_expertise(db, org_id, "task.completed", employee, tokens, event.id)
+        await _evolve_expertise(
+            db, org_id, "task.completed", employee, tokens, event.id,
+            source_type="task", source_id=payload.get("task_id") or payload.get("id") or event.id,
+            source_title=payload.get("title"),
+        )
     if payload.get("assignee_id"):
         await _graph_link(
             db, org_id, "task.completed", "employee", payload["assignee_id"],
@@ -423,8 +432,12 @@ async def handle_milestone_completed(db, event, payload):
     org_id = payload.get("organization_id") or event.organization_id
     employee = await _resolve_employee(db, org_id, payload)
     if employee is not None:
-        await _evolve_expertise(db, org_id, "milestone.completed", employee,
-                                _tokens(payload.get("title"), payload.get("project_name")), event.id)
+        await _evolve_expertise(
+            db, org_id, "milestone.completed", employee,
+            _tokens(payload.get("title"), payload.get("project_name")), event.id,
+            source_type="milestone", source_id=payload.get("milestone_id") or event.id,
+            source_title=payload.get("title"),
+        )
     if payload.get("project_id"):
         await _graph_link(
             db, org_id, "milestone.completed", "project", payload["project_id"],
@@ -654,19 +667,54 @@ async def handle_meeting_ended(db, event, payload):
 @on("wiki.created")
 async def handle_knowledge_created(db, event, payload):
     org_id = payload.get("organization_id") or event.organization_id
-    employee = await _resolve_employee(db, org_id, payload)
     entity_type = event.name.split(".")[0]
-    if employee is not None:
-        await _evolve_expertise(db, org_id, event.name, employee,
-                                _tokens(payload.get("title"), payload.get("category"), payload.get("keywords")),
-                                event.id)
+    entity_id = (payload.get("document_id") or payload.get("wiki_id")
+                 or payload.get("entity_id") or payload.get("id") or event.id)
+    # Live events carry only {entity_type, entity_id, title}: authorship must
+    # come from the entity itself, never from a mangled payload.
     author = payload.get("author_id") or payload.get("owner_id")
+    if not author:
+        author = await _knowledge_entity_author(db, org_id, entity_type, entity_id)
+    employee = None
+    if author:
+        employee = (
+            await db.execute(
+                select(Employee).where(
+                    Employee.organization_id == org_id, Employee.id == author
+                )
+            )
+        ).scalar_one_or_none()
+    if employee is not None:
+        await _evolve_expertise(
+            db, org_id, event.name, employee,
+            _tokens(payload.get("title"), payload.get("category"), payload.get("keywords")),
+            event.id,
+            source_type=entity_type,
+            source_id=entity_id,
+            source_title=payload.get("title"),
+        )
     if author:
         await _graph_link(
             db, org_id, event.name, "employee", author,
-            entity_type, payload.get("document_id") or payload.get("id"),
+            entity_type, entity_id,
             evidence=f"Authored {entity_type}: {payload.get('title', '')[:120]}",
         )
+
+
+async def _knowledge_entity_author(
+    db: AsyncSession, organization_id: str, entity_type: str, entity_id: str,
+) -> Optional[str]:
+    """The accountable author of a knowledge entity (owner first — the person
+    formally accountable — then the recorded author)."""
+    if entity_type not in ("document", "wiki"):
+        return None
+    from app.models.knowledge import Document, WikiPage
+
+    model = Document if entity_type == "document" else WikiPage
+    row = await db.get(model, entity_id)
+    if row is None or getattr(row, "organization_id", None) != organization_id:
+        return None
+    return getattr(row, "owner_id", None) or getattr(row, "author_id", None)
 
 
 @on("document.updated")
@@ -707,8 +755,12 @@ async def handle_decision_made(db, event, payload):
     employee = await _resolve_employee(db, org_id, payload)
     decision_id = payload.get("decision_id") or payload.get("entity_id")
     if employee is not None:
-        await _evolve_expertise(db, org_id, "decision.made", employee,
-                                _tokens(payload.get("title"), payload.get("summary")), event.id)
+        await _evolve_expertise(
+            db, org_id, "decision.made", employee,
+            _tokens(payload.get("title"), payload.get("summary")), event.id,
+            source_type="decision", source_id=decision_id or event.id,
+            source_title=payload.get("title"),
+        )
         await _graph_link(
             db, org_id, "decision.made", "employee", employee.id,
             "decision", decision_id,
@@ -960,18 +1012,48 @@ async def handle_course_completed(db, event, payload):
         entity_type="course", entity_id=payload.get("course_id"),
         tags=["course", "learning"],
     )
+    employee = await _resolve_employee(db, org_id, payload)
+    if employee is not None:
+        await _evolve_expertise(
+            db, org_id, "course.completed", employee,
+            _tokens(payload.get("course_title"), payload.get("category"),
+                    payload.get("skill_name"), payload.get("tags")),
+            event.id,
+            source_type="course", source_id=payload.get("course_id") or event.id,
+            source_title=payload.get("course_title"),
+        )
 
 
 @on("certificate.earned")
 async def handle_certificate_earned(db, event, payload):
     org_id = payload.get("organization_id") or event.organization_id
     await _refresh_learner(db, org_id, payload.get("employee_id"))
+    employee = await _resolve_employee(db, org_id, payload)
+    if employee is not None:
+        await _evolve_expertise(
+            db, org_id, "certificate.earned", employee,
+            _tokens(payload.get("certificate_name"), payload.get("certification_name"),
+                    payload.get("skill_name"), payload.get("category")),
+            event.id,
+            source_type="certificate", source_id=payload.get("certificate_id") or event.id,
+            source_title=payload.get("certificate_name") or payload.get("certification_name"),
+        )
 
 
 @on("assessment.finished")
 async def handle_assessment_finished(db, event, payload):
     org_id = payload.get("organization_id") or event.organization_id
     await _refresh_learner(db, org_id, payload.get("employee_id"))
+    employee = await _resolve_employee(db, org_id, payload)
+    if employee is not None:
+        await _evolve_expertise(
+            db, org_id, "assessment.finished", employee,
+            _tokens(payload.get("assessment_title"), payload.get("skill_name"),
+                    payload.get("category")),
+            event.id,
+            source_type="assessment", source_id=payload.get("assessment_id") or event.id,
+            source_title=payload.get("assessment_title"),
+        )
 
 
 @on("learning.path.completed")
@@ -989,6 +1071,16 @@ async def handle_path_completed(db, event, payload):
             entity_type="learning_path", entity_id=payload.get("path_id"),
             tags=["learning", "career"],
         )
+        employee = await _resolve_employee(db, org_id, payload)
+        if employee is not None:
+            await _evolve_expertise(
+                db, org_id, "learning.path.completed", employee,
+                _tokens(payload.get("path_title"), payload.get("skill_name"),
+                        payload.get("category")),
+                event.id,
+                source_type="learning_path", source_id=payload.get("path_id") or event.id,
+                source_title=payload.get("path_title"),
+            )
 
 
 @on("mentor.assigned")

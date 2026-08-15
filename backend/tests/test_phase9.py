@@ -19,7 +19,8 @@ async def _employee_id(client, headers):
     return (await client.get("/api/v1/employees/me", headers=headers)).json()["id"]
 
 
-async def _seed_project_task(client, headers, *, code="P9-1", title="Orion", overdue=False):
+async def _seed_project_task(client, headers, *, code="P9-1", title="Orion", overdue=False,
+                             task_title="Core deliverable"):
     me = await _employee_id(client, headers)
     project = await client.post(
         "/api/v1/projects",
@@ -33,7 +34,7 @@ async def _seed_project_task(client, headers, *, code="P9-1", title="Orion", ove
         "/api/v1/tasks",
         json={
             "project_id": pid,
-            "title": "Core deliverable",
+            "title": task_title,
             "assignee_id": me,
             "estimate_hours": 8,
             "due_date": "2020-01-01" if overdue else None,
@@ -69,11 +70,11 @@ async def test_event_handlers_update_expertise_and_graph(client):
     org = await register_org(client, email="p9exp@work.test.co")
     headers = org["headers"]
     me = await _employee_id(client, headers)
-    _, task_id = await _seed_project_task(client, headers, code="P9-EXP")
+    _, task_id = await _seed_project_task(client, headers, code="P9-EXP", task_title="Python")
 
     skill = await client.post(
         "/api/v1/expertise/skills",
-        json={"name": "Project Management", "category": "Leadership"},
+        json={"name": "Python", "category": "Programming Languages"},
         headers=headers,
     )
     assert skill.status_code == 201, skill.text
@@ -687,11 +688,11 @@ async def test_engines_emit_background_audit_events(client):
     org = await register_org(client, email="p9bgevent@work.test.co")
     headers = org["headers"]
     me = await _employee_id(client, headers)
-    _, task_id = await _seed_project_task(client, headers, code="P9-BGE")
+    _, task_id = await _seed_project_task(client, headers, code="P9-BGE", task_title="Python")
 
     skill = await client.post(
         "/api/v1/expertise/skills",
-        json={"name": "Project Management", "category": "Leadership"},
+        json={"name": "Python", "category": "Programming Languages"},
         headers=headers,
     )
     assigned = await client.post(

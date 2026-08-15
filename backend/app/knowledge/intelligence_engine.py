@@ -141,6 +141,16 @@ _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
                 "members of the", "which team members are in", "people in the",
                 "who manages", "who reports to", "reporting line",
                 "org chart", "organisation chart", "organization chart")),
+    # Slice 4F.2 — universal skills & expertise questions. Kept after people
+    # so "who knows X" never steals the reporting/unit meanings, but before
+    # the discovery default. "what does X know" is person expertise.
+    ("expertise", ("who knows", "who is an expert", "who is the expert",
+                   "who are the experts", "experts in", "expert in",
+                   "expertise", "strongest in", "best at", "skilled in",
+                   "skilled at", "proficient in", "knows about",
+                   "knows python", "works with", "what does",
+                   "does anyone know", "who can help with", "who could help",
+                   "is good at", "is known for", "good at whats")),
 ]
 
 _CHANGE_SIGNAL = re.compile(
@@ -1840,6 +1850,232 @@ class IntelligenceEngine:
             "generated_at": _utcnow_iso(),
         }
 
+    # ------------------------------------------------------------------ expertise (4F.2)
+
+    async def _expertise_query(
+        self,
+        db: AsyncSession,
+        *,
+        organization_id: str,
+        question: str,
+        user: Any,
+    ) -> dict[str, Any]:
+        """Slice 4F.2 — universal skills & expertise questions.
+
+        Deterministic routing: "who knows X" / "who is strongest in X" ->
+        governed ranked experts; "what does <person> know" -> the person's
+        evidence-derived expertise; a team/department mention scopes the
+        search; otherwise the organization capability map answers "where does
+        X expertise live". Results are governance-scoped and carry evidence
+        counts — the score is always defensible.
+        """
+        from app.people.capability_engine import capability_engine
+        from app.people.expertise_search import expertise_search
+        from app.people.people_engine import people_engine
+
+        access = await self._access(db, organization_id=organization_id, user=user)
+        scope_label = "org" if access.org_wide else "project"
+        lowered = question.lower().strip()
+
+        # ---- "what does X know" / "what is X good at" -> person expertise
+        person_phrase: Optional[str] = None
+        for keyword in ("what does", "what is", "what are"):
+            if keyword in lowered:
+                person_phrase = lowered.split(keyword, 1)[1]
+                break
+        if person_phrase is not None:
+            import re as _re
+
+            stem = _re.split(
+                r"\s+(?:knows?|understands?|good at|known for|best at|"
+                r"proficient in|skilled in|expert in|expertise|skills?)\b",
+                person_phrase, 1,
+            )
+            subject = stem[0].strip().strip("?").strip()
+            predicate = stem[1].strip().strip("?").strip() if len(stem) > 1 else ""
+            search = await people_engine.search(
+                db, organization_id=organization_id, access=access,
+                q=subject, limit=10,
+            )
+            if search["people"]:
+                person = search["people"][0]
+                result = await expertise_search.person_expertise(
+                    db, organization_id=organization_id, person_id=person["id"],
+                )
+                if predicate.strip():
+                    skill_result = await expertise_search.search(
+                        db, organization_id=organization_id, access=access,
+                        query=predicate.strip(), limit=5,
+                    )
+                    mine = [
+                        e for e in result["expertise"]
+                        if e["skill_id"] in {s["skill_id"] for s in skill_result["skills"]}
+                    ]
+                    if mine:
+                        top = mine[0]
+                        answer = (
+                            f"{person['name']} has {top['skill_name']} expertise "
+                            f"(score {top['score']:.0f}, confidence {top['confidence']:.2f}, "
+                            f"{top['evidence_count']} evidence item(s))."
+                        )
+                    else:
+                        answer = f"No evidence supports {person['name']} in that skill."
+                    return {
+                        "question": question,
+                        "intent": "expertise",
+                        "kind": "person_skill",
+                        "total": len(mine),
+                        "answers": mine,
+                        "answer": answer,
+                        "scope": scope_label,
+                        "generated_at": _utcnow_iso(),
+                    }
+                names = [e["skill_name"] for e in result["expertise"][:5]]
+                if names:
+                    answer = (
+                        f"{person['name']} has demonstrated expertise in: "
+                        f"{', '.join(names)}."
+                    )
+                else:
+                    answer = f"No evidence-derived expertise is visible for {person['name']}."
+                return {
+                    "question": question,
+                    "intent": "expertise",
+                    "kind": "person_expertise",
+                    "total": result["total"],
+                    "answers": result["expertise"],
+                    "answer": answer,
+                    "scope": scope_label,
+                    "generated_at": _utcnow_iso(),
+                }
+
+        # ---- "who knows X [in the Y team]" -> governed ranked experts
+        skill_phrase: Optional[str] = None
+        for keyword in (
+            "who knows", "who is the expert", "who are the experts",
+            "who is an expert", "experts in", "expert in", "strongest in",
+            "best at", "skilled in", "skilled at", "proficient in",
+            "knows about", "does anyone know", "who can help with",
+            "who could help", "works with", "expertise in",
+        ):
+            if keyword in lowered:
+                skill_phrase = lowered.split(keyword, 1)[1]
+                break
+        if skill_phrase:
+            scope_type: Optional[str] = None
+            scope_id: Optional[str] = None
+            import re as _re
+
+            scope_match = _re.search(
+                r"\b(in|on|within)\s+the\s+(.+?)\s+(team|department|business unit)\b",
+                skill_phrase,
+            )
+            if scope_match:
+                unit = scope_match.group(2).strip()
+                scope_type = scope_match.group(3).replace(" ", "_")
+                unit_search = await people_engine.search(
+                    db, organization_id=organization_id, access=access,
+                    q=unit, limit=5,
+                )
+                matched_unit = None
+                if scope_type == "team" and unit_search["teams"]:
+                    matched_unit = unit_search["teams"][0]
+                elif scope_type == "department" and unit_search["departments"]:
+                    matched_unit = unit_search["departments"][0]
+                if scope_type == "business_unit":
+                    scope_id = None
+                if matched_unit is not None:
+                    scope_id = matched_unit["id"]
+                skill_phrase = skill_phrase.replace(scope_match.group(0), "")
+            skills = await expertise_search.resolve_for_query(
+                db, organization_id=organization_id, query=skill_phrase
+            )
+            if not skills:
+                return {
+                    "question": question,
+                    "intent": "expertise",
+                    "kind": "no_skill",
+                    "total": 0,
+                    "answers": [],
+                    "answer": "No canonical skill matches that question.",
+                    "scope": scope_label,
+                    "generated_at": _utcnow_iso(),
+                }
+            result = await expertise_search.search(
+                db, organization_id=organization_id, access=access,
+                query=skill_phrase, scope_type=scope_type, scope_id=scope_id, limit=5,
+            )
+            experts = result["experts"]
+            skill_label = skills[0].canonical_name
+            if experts:
+                top = experts[0]
+                answer = (
+                    f"{top['name']} appears to be the strongest visible "
+                    f"{skill_label} expert (score {top['score']:.0f}, "
+                    f"confidence {top['confidence']:.2f}, "
+                    f"{top['evidence_count']} evidence item(s))."
+                )
+                if len(experts) > 1:
+                    answer += " Also: " + ", ".join(e["name"] for e in experts[1:4]) + "."
+            else:
+                answer = f"No visible expertise is supported by evidence for {skill_label}."
+            return {
+                "question": question,
+                "intent": "expertise",
+                "kind": "experts",
+                "total": result["total"],
+                "answers": experts,
+                "answer": answer,
+                "scope": scope_label,
+                "generated_at": _utcnow_iso(),
+            }
+
+        # ---- "where does our X expertise live / which team has X"
+        if any(k in lowered for k in ("where does", "which team", "which department",
+                                      "where is our", "does the company")):
+            skills = await expertise_search.resolve_for_query(
+                db, organization_id=organization_id, query=lowered
+            )
+            if skills:
+                org_map = await capability_engine.org_map(
+                    db, organization_id=organization_id
+                )
+                matched = [
+                    c for c in org_map["capabilities"]
+                    if c["skill_id"] in {s.id for s in skills}
+                ]
+                label = skills[0].canonical_name
+                if matched:
+                    top = max(matched, key=lambda c: c["avg_score"])
+                    answer = (
+                        f"{label} expertise exists across {top['member_count']} "
+                        f"visible member(s) in the organization "
+                        f"(average score {top['avg_score']:.0f})."
+                    )
+                else:
+                    answer = f"No evidence-backed {label} expertise is visible."
+                return {
+                    "question": question,
+                    "intent": "expertise",
+                    "kind": "organization_map",
+                    "total": len(matched),
+                    "answers": matched,
+                    "answer": answer,
+                    "scope": "org" if access.org_wide else "project",
+                    "generated_at": _utcnow_iso(),
+                }
+
+        return {
+            "question": question,
+            "intent": "expertise",
+            "kind": "no_skill",
+            "total": 0,
+            "answers": [],
+            "answer": "No skill in the question resolves to the canonical taxonomy.",
+            "scope": scope_label,
+            "generated_at": _utcnow_iso(),
+        }
+
     async def query(
         self,
         db: AsyncSession,
@@ -1916,6 +2152,10 @@ class IntelligenceEngine:
             }
         if intent == "people":
             return await self._people_query(
+                db, organization_id=organization_id, question=question, user=user
+            )
+        if intent == "expertise":
+            return await self._expertise_query(
                 db, organization_id=organization_id, question=question, user=user
             )
         if intent in ("impact", "ownership"):

@@ -360,6 +360,14 @@ from app.models.people_intelligence import (  # noqa: F401
     PersonRoleAssignment,
     ReportingRelationship,
 )
+from app.models.skills_intelligence import (  # noqa: F401
+    CanonicalSkill,
+    CapabilityAggregate,
+    Expertise,
+    ExpertiseEvidence,
+    PersonSkill,
+    SkillAlias,
+)
 
 __all__ = [
     "Organization",
@@ -724,4 +732,10 @@ __all__ = [
     "PersonRoleAssignment",
     "ReportingRelationship",
     "PeopleTimeline",
+    "CanonicalSkill",
+    "SkillAlias",
+    "PersonSkill",
+    "Expertise",
+    "ExpertiseEvidence",
+    "CapabilityAggregate",
 ]

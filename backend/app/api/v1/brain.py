@@ -19,6 +19,7 @@ from app.core.timeutils import ensure_aware
 from app.db.database import get_db
 from app.intelligence.company_brain import MAX_TIMELINE
 from app.intelligence.company_context import CallerAccess, resolve_caller_access
+from app.intelligence.expertise_engine import expertise_engine
 from app.intelligence.graph_engine import graph_engine as company_graph
 from app.intelligence.insight_engine import insight_engine
 from app.intelligence.pattern_engine import pattern_engine
@@ -28,7 +29,10 @@ from app.knowledge.synthesis_engine import _json_loads
 from app.models.knowledge import KnowledgeTopic
 from app.models.organization import Organization
 from app.models.user import User
+from app.people.capability_engine import capability_engine
+from app.people.expertise_search import expertise_search
 from app.people.people_engine import PeopleError, people_engine
+from app.people.skill_engine import SkillError, skill_engine
 
 router = APIRouter(prefix="/brain", tags=["Company Brain"])
 
@@ -2849,3 +2853,394 @@ async def brain_org_units_summary(
     """Departments and teams with governed member counts."""
     access = await _people_access(db, org, user)
     return await people_engine.units_summary(db, organization_id=org.id, access=access)
+
+
+# ---------------------------------------------------------------------------
+# Slice 4F.2 — Universal Skills & Expertise Intelligence
+#
+# One governed expertise surface. Everything is evidence-derived and
+# explainable: skills (associations) never grant expertise; expertise never
+# exists without canonical evidence; every claim carries lineage; reads are
+# governance-scoped before data assembly; aggregates are gated per scope so
+# hidden people never leak through counts or rankings.
+# ---------------------------------------------------------------------------
+
+
+class PersonSkillDeclareIn(BaseModel):
+    name: Optional[str] = None
+    skill_id: Optional[str] = None
+    level: int = 2
+    source: str = "declared"
+
+
+async def _require_visible_person(
+    db: AsyncSession, org: Organization, access: CallerAccess, person_id: str,
+) -> dict[str, Any]:
+    try:
+        return await people_engine.get_profile(
+            db, organization_id=org.id, access=access, person_id=person_id
+        )
+    except PeopleError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+async def _require_scope_visibility(
+    db: AsyncSession, org: Organization, access: CallerAccess,
+    scope_type: str, scope_id: str,
+) -> None:
+    """Aggregates are only served when the caller can see the whole scope —
+    a hidden member must never leak through a count or a ranking."""
+    from app.models.employee import Employee
+
+    if scope_type == "team":
+        from app.models.team import Team
+
+        exists = (
+            await db.execute(
+                select(Team.id).where(
+                    Team.organization_id == org.id, Team.id == scope_id
+                )
+            )
+        ).scalar_one_or_none()
+    elif scope_type == "department":
+        from app.models.department import Department
+
+        exists = (
+            await db.execute(
+                select(Department.id).where(
+                    Department.organization_id == org.id,
+                    Department.id == scope_id,
+                )
+            )
+        ).scalar_one_or_none()
+    else:
+        exists = None
+    if scope_type in ("team", "department") and exists is None:
+        raise HTTPException(status_code=404, detail="scope not found")
+
+    if access.org_wide:
+        return
+    visible = await people_engine.visible_person_ids(
+        db, organization_id=org.id, access=access
+    )
+    if scope_type == "team":
+        from app.models.team import TeamMember
+
+        member_ids = set(
+            (
+                await db.execute(
+                    select(TeamMember.employee_id).where(
+                        TeamMember.organization_id == org.id, TeamMember.team_id == scope_id
+                    )
+                )
+            ).scalars().all()
+        )
+        employee_ids = set(
+            (
+                await db.execute(
+                    select(Employee.id).where(
+                        Employee.organization_id == org.id, Employee.team_id == scope_id
+                    )
+                )
+            ).scalars().all()
+        )
+        member_ids |= employee_ids
+    elif scope_type == "department":
+        member_ids = set(
+            (
+                await db.execute(
+                    select(Employee.id).where(
+                        Employee.organization_id == org.id,
+                        Employee.department_id == scope_id,
+                    )
+                )
+            ).scalars().all()
+        )
+    else:
+        member_ids: set[str] = set()
+    if member_ids and (visible is None or member_ids <= set(visible)):
+        return
+    raise HTTPException(status_code=404, detail="scope not found")
+
+
+@router.get("/expertise/skills")
+async def brain_expertise_skills(
+    q: Optional[str] = Query(default=None, max_length=200),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """The canonical skill taxonomy with aliases and parents."""
+    await skill_engine.ensure_taxonomy(db, organization_id=org.id)
+    entries = await skill_engine.list_taxonomy(
+        db, organization_id=org.id
+    )
+    if q:
+        wanted = await expertise_search.resolve_for_query(
+            db, organization_id=org.id, query=q
+        )
+        wanted_ids = {s.id for s in wanted}
+        entries = [e for e in entries if e["skill_id"] in wanted_ids]
+    return {
+        "total": len(entries),
+        "skills": entries,
+        "generated_at": _utcnow_iso(),
+    }
+
+
+@router.get("/expertise/search")
+async def brain_expertise_search(
+    q: str = Query(..., max_length=200),
+    scope_type: Optional[str] = Query(default=None, pattern="^(team|department|business_unit)$"),
+    scope_id: Optional[str] = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=50),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Governed ranked expert discovery: expertise + confidence + recency +
+    evidence count + organizational scope — never keyword matching alone."""
+    access = await _people_access(db, org, user)
+    return await expertise_search.search(
+        db, organization_id=org.id, access=access, query=q,
+        scope_type=scope_type, scope_id=scope_id, limit=limit,
+    )
+
+
+@router.get("/expertise/skills/{skill_id}")
+async def brain_expertise_skill_detail(
+    skill_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """One canonical skill: taxonomy view + its strongest visible experts."""
+    from app.models.skills_intelligence import CanonicalSkill
+
+    skill = await db.get(CanonicalSkill, skill_id)
+    if skill is None or skill.organization_id != org.id:
+        raise HTTPException(status_code=404, detail="skill not found")
+    access = await _people_access(db, org, user)
+    experts = await expertise_search.search(
+        db, organization_id=org.id, access=access,
+        query=skill.canonical_name, limit=10,
+    )
+    return {
+        "skill_id": skill.id,
+        "canonical_name": skill.canonical_name,
+        "description": skill.description,
+        "category": skill.category,
+        "status": skill.status,
+        "provenance": skill.provenance,
+        "level": skill.level,
+        "experts": experts["experts"],
+        "expert_total": experts["total"],
+        "generated_at": _utcnow_iso(),
+    }
+
+
+@router.get("/expertise/teams/{team_id}")
+async def brain_expertise_team(
+    team_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Team capability map from bounded indexed aggregates (gated by scope)."""
+    access = await _people_access(db, org, user)
+    await _require_scope_visibility(db, org, access, "team", team_id)
+    return await capability_engine.team_map(
+        db, organization_id=org.id, team_id=team_id
+    )
+
+
+@router.get("/expertise/departments/{department_id}")
+async def brain_expertise_department(
+    department_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Department capability map from bounded indexed aggregates (gated)."""
+    access = await _people_access(db, org, user)
+    await _require_scope_visibility(db, org, access, "department", department_id)
+    return await capability_engine.department_map(
+        db, organization_id=org.id, department_id=department_id
+    )
+
+
+@router.get("/expertise/organization")
+async def brain_expertise_organization(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """The organization-level capability map. Org-wide callers only: the
+    rollup covers every member, so it must never leak to scoped callers."""
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    return await capability_engine.org_map(
+        db, organization_id=org.id
+    )
+
+
+@router.get("/people/{person_id}/skills")
+async def brain_people_skills(
+    person_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Skill associations of a person (declared + observed) with the current
+    evidence-derived overlay. Associations are never expertise."""
+    access = await _people_access(db, org, user)
+    await _require_visible_person(db, org, access, person_id)
+    return await expertise_search.person_skills(
+        db, organization_id=org.id, person_id=person_id
+    )
+
+
+@router.post("/people/{person_id}/skills")
+async def brain_people_skills_declare(
+    person_id: str,
+    payload: PersonSkillDeclareIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("employees:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Declared association — never expertise. The skill is resolved through
+    the canonical taxonomy (name or skill_id) and mirrored into the legacy
+    operating layer; no evidence dimension moves."""
+    access = await _people_access(db, org, user)
+    await _require_visible_person(db, org, access, person_id)
+    try:
+        if payload.skill_id:
+            from app.models.skills_intelligence import CanonicalSkill
+
+            skill = await db.get(CanonicalSkill, payload.skill_id)
+            if skill is None or skill.organization_id != org.id:
+                raise SkillError("skill not found")
+        elif payload.name:
+            skill = await skill_engine.get_or_create_for_declared(
+                db, organization_id=org.id, name=payload.name,
+                created_by=user.id,
+            )
+        else:
+            raise SkillError("name or skill_id is required")
+        level = max(1, min(5, payload.level))
+        association = await skill_engine.bump_person_skill(
+            db, organization_id=org.id, person_id=person_id,
+            skill_id=skill.id, source="declared" if payload.source == "declared" else "signaled",
+            declared_level=level, created_by=user.id,
+        )
+        # legacy compatibility mirror (operating layer keeps working)
+        from app.models.employee import Employee, EmployeeSkill
+        from app.models.skill import Skill as LegacySkill
+        from app.people.expertise_service import expertise_service
+
+        legacy = await expertise_service.create_skill(
+            db, organization_id=org.id,
+            data={"name": skill.canonical_name, "category": skill.category,
+                  "description": skill.description},
+        )
+        existing_emp_skill = (
+            await db.execute(
+                select(EmployeeSkill).where(
+                    EmployeeSkill.organization_id == org.id,
+                    EmployeeSkill.employee_id == person_id,
+                    EmployeeSkill.skill_id == legacy.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing_emp_skill is None:
+            db.add(EmployeeSkill(
+                organization_id=org.id,
+                employee_id=person_id,
+                skill_id=legacy.id,
+                level=level,
+                years_experience=0.0,
+                verified=False,
+            ))
+        await db.commit()
+    except SkillError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "person_id": person_id,
+        "skill_id": skill.id,
+        "skill_name": skill.canonical_name,
+        "category": skill.category,
+        "declared_level": level,
+        "source": association.source,
+        "status": association.status,
+        "first_seen": association.first_seen.isoformat(),
+        "last_seen": association.last_seen.isoformat(),
+    }
+
+
+@router.get("/people/{person_id}/expertise")
+async def brain_people_expertise(
+    person_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Evidence-derived expertise of a person, strongest first."""
+    access = await _people_access(db, org, user)
+    await _require_visible_person(db, org, access, person_id)
+    return await expertise_search.person_expertise(
+        db, organization_id=org.id, person_id=person_id
+    )
+
+
+@router.get("/people/{person_id}/expertise/{skill_id}")
+async def brain_people_expertise_skill(
+    person_id: str,
+    skill_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """The defensible state of one (person x skill) cell: dimensions + score
+    + confidence + lifecycle."""
+    access = await _people_access(db, org, user)
+    await _require_visible_person(db, org, access, person_id)
+    state = await expertise_engine.state(
+        db, organization_id=org.id, person_id=person_id, skill_id=skill_id
+    )
+    if state is None:
+        raise HTTPException(status_code=404, detail="no expertise state for this skill")
+    return state
+
+
+@router.get("/people/{person_id}/expertise/{skill_id}/evidence")
+async def brain_people_expertise_evidence(
+    person_id: str,
+    skill_id: str,
+    limit: int = Query(default=50, ge=1, le=200),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Expertise evidence lineage: every item carries its canonical source
+    id (task / document / decision / certificate / event)."""
+    access = await _people_access(db, org, user)
+    await _require_visible_person(db, org, access, person_id)
+    state = await expertise_engine.state(
+        db, organization_id=org.id, person_id=person_id, skill_id=skill_id
+    )
+    if state is None:
+        raise HTTPException(status_code=404, detail="no expertise state for this skill")
+    items = await expertise_engine.lineage(
+        db, organization_id=org.id, person_id=person_id, skill_id=skill_id, limit=limit,
+    )
+    return {
+        "person_id": person_id,
+        "skill_id": skill_id,
+        "skill_name": state["skill_name"],
+        "lifecycle": state["lifecycle"],
+        "score": state["score"],
+        "confidence": state["confidence"],
+        "evidence_total": len(items),
+        "evidence": items,
+    }
