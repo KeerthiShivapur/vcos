@@ -353,6 +353,13 @@ from app.models.organizational_learning import (  # noqa: F401
     KnowledgeClaimLifecycle,
     OperatingInsight,
 )
+from app.models.people_intelligence import (  # noqa: F401
+    PeopleTimeline,
+    PersonIdentity,
+    PersonMembership,
+    PersonRoleAssignment,
+    ReportingRelationship,
+)
 
 __all__ = [
     "Organization",
@@ -712,4 +719,9 @@ __all__ = [
     "ImpactAssessment",
     "KnowledgeClaimLifecycle",
     "OperatingInsight",
+    "PersonIdentity",
+    "PersonMembership",
+    "PersonRoleAssignment",
+    "ReportingRelationship",
+    "PeopleTimeline",
 ]

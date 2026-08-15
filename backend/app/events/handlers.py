@@ -17,6 +17,8 @@ from app.events.event_models import GRAPH_EVENTS, describe
 from app.events.subscriber import on
 from app.models.employee import Employee
 from app.models.notification import Event as EventRow
+from app.models.people_intelligence import MEMBERSHIP_STATUSES, PeopleTimeline
+from app.models.team import Team
 
 logger = logging.getLogger("vcos.events.handlers")
 
@@ -2160,4 +2162,311 @@ async def handle_universal_knowledge_ingest(db, event, payload):
         organization_id=result.get("organization_id") or payload.get("organization_id") or event.organization_id,
         source_type=result["entity_type"],
         source_id=result["entity_id"],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Slice 4F.1 — Universal People Intelligence Foundation (event bridge)
+# ---------------------------------------------------------------------------
+# The people layer is event-driven from the SAME durable events the platform
+# already emits (user.created, employee.joined, employee.offboarded,
+# employee.promoted, user.status.updated, team.member.added/removed). Every
+# handler is replay-safe: the human/journal row keyed by the durable event id
+# makes a replay exact-once. Handlers never commit — the EventBus owns the
+# transaction.
+# ---------------------------------------------------------------------------
+
+
+async def _people_person(
+    db: AsyncSession, org_id: Optional[str], payload: dict[str, Any]
+) -> Optional[Employee]:
+    """Resolve the canonical person behind a people event payload."""
+    org_id = payload.get("organization_id") or org_id
+    if not org_id:
+        return None
+    person_id = payload.get("employee_id") or payload.get("person_id")
+    if person_id:
+        employee = await db.get(Employee, person_id)
+        if employee is not None and employee.organization_id == org_id:
+            return employee
+        return None
+    user_id = payload.get("user_id") or payload.get("id")
+    if user_id:
+        row = await db.execute(
+            select(Employee).where(
+                Employee.organization_id == org_id, Employee.user_id == user_id
+            )
+        )
+        return row.scalar_one_or_none()
+    return None
+
+
+async def _people_applied(
+    db: AsyncSession, org_id: str, person_id: str, event_id: str
+) -> bool:
+    """Exact-once guard: has this durable event already been applied to the
+    person's timeline?"""
+    row = (
+        await db.execute(
+            select(PeopleTimeline.id).where(
+                PeopleTimeline.organization_id == org_id,
+                PeopleTimeline.person_id == person_id,
+                PeopleTimeline.event_id == event_id,
+            )
+        )
+    ).scalars().first()
+    return row is not None
+
+
+@on("user.created")
+async def handle_people_user_joined(db, event, payload):
+    """A person joined: canonical sync + person.created evidence."""
+    org_id = payload.get("organization_id") or event.organization_id
+    person = await _people_person(db, org_id, payload)
+    if person is None:
+        return
+    from app.people.people_engine import people_engine
+
+    await people_engine.ensure_person(db, organization_id=org_id, person_id=person.id)
+    if await _people_applied(db, org_id, person.id, event.id):
+        return
+    await people_engine.journal(
+        db, org_id, person.id, kind="person.created",
+        title=f"{person.full_name} joined the company",
+        detail=person.designation or "New team member joined the organization.",
+        meta={"employee_number": person.employee_number, "email": person.email},
+        event_id=event.id,
+    )
+
+
+@on("employee.joined")
+async def handle_people_employee_joined(db, event, payload):
+    """Hire completed: canonical sync + person.created evidence."""
+    org_id = payload.get("organization_id") or event.organization_id
+    person = await _people_person(db, org_id, payload)
+    if person is None:
+        return
+    from app.people.people_engine import people_engine
+
+    await people_engine.ensure_person(db, organization_id=org_id, person_id=person.id)
+    if await _people_applied(db, org_id, person.id, event.id):
+        return
+    await people_engine.journal(
+        db, org_id, person.id, kind="person.created",
+        title=f"{person.full_name} joined the company",
+        detail="Employee joined through the recruitment pipeline.",
+        meta={"employee_number": person.employee_number},
+        event_id=event.id,
+    )
+
+
+@on("employee.offboarded")
+async def handle_people_employee_offboarded(db, event, payload):
+    """Departure: close the open membership window — history is retained."""
+    org_id = payload.get("organization_id") or event.organization_id
+    person = await _people_person(db, org_id, payload)
+    if person is None:
+        return
+    from app.people.people_engine import people_engine
+
+    if await _people_applied(db, org_id, person.id, event.id):
+        return
+    await people_engine.set_membership(
+        db, organization_id=org_id, person_id=person.id,
+        employment_status="departed",
+        note=f"Offboarding: {payload.get('reason') or 'no reason recorded'}",
+        source_type="event", source_id=event.id,
+        actor_id=payload.get("actor_id"),
+        event_id=event.id,
+    )
+
+
+@on("employee.promoted")
+async def handle_people_employee_promoted(db, event, payload):
+    """Promotion: open a new primary role window (demoting the previous
+    primary) — the designation mirror follows."""
+    org_id = payload.get("organization_id") or event.organization_id
+    person = await _people_person(db, org_id, payload)
+    if person is None:
+        return
+    new_title = payload.get("new_designation") or person.designation
+    if not new_title:
+        return
+    from app.people.people_engine import people_engine
+
+    if await _people_applied(db, org_id, person.id, event.id):
+        return
+    await people_engine.assign_role(
+        db, organization_id=org_id, person_id=person.id,
+        role_title=new_title, role_type="functional", is_primary=True,
+        source_type="event", source_id=event.id,
+        actor_id=payload.get("actor_id"),
+        event_id=event.id,
+    )
+
+
+@on("user.status.updated")
+async def handle_people_user_status(db, event, payload):
+    """User status changes open/close membership windows accordingly."""
+    org_id = payload.get("organization_id") or event.organization_id
+    person = await _people_person(db, org_id, payload)
+    if person is None:
+        return
+    status = (payload.get("status") or "").lower()
+    mapping = {
+        "active": "active",
+        "inactive": "inactive",
+        "suspended": "suspended",
+        "pending": "invited",
+        "invited": "invited",
+    }
+    membership_status = mapping.get(status)
+    if membership_status is None:
+        return
+    from app.people.people_engine import people_engine
+
+    if await _people_applied(db, org_id, person.id, event.id):
+        return
+    await people_engine.set_membership(
+        db, organization_id=org_id, person_id=person.id,
+        employment_status=membership_status,
+        note=f"User account status changed to {status}.",
+        source_type="event", source_id=event.id,
+        actor_id=payload.get("actor_id"),
+        event_id=event.id,
+    )
+
+
+@on("team.member.added")
+async def handle_people_team_member_added(db, event, payload):
+    """Evidence a team join in the people timeline."""
+    org_id = payload.get("organization_id") or event.organization_id
+    person = await _people_person(db, org_id, payload)
+    if person is None:
+        return
+    from app.people.people_engine import people_engine
+
+    if await _people_applied(db, org_id, person.id, event.id):
+        return
+    team = await db.get(Team, payload.get("team_id"))
+    await people_engine.journal(
+        db, org_id, person.id, kind="team.joined",
+        title=f"Joined team: {team.name if team else payload.get('team_id')}",
+        detail="Team membership recorded on the people timeline.",
+        meta={"team_id": payload.get("team_id")},
+        event_id=event.id,
+    )
+
+
+@on("team.member.removed")
+async def handle_people_team_member_removed(db, event, payload):
+    """Evidence a team leave in the people timeline."""
+    org_id = payload.get("organization_id") or event.organization_id
+    person = await _people_person(db, org_id, payload)
+    if person is None:
+        return
+    from app.people.people_engine import people_engine
+
+    if await _people_applied(db, org_id, person.id, event.id):
+        return
+    team = await db.get(Team, payload.get("team_id"))
+    await people_engine.journal(
+        db, org_id, person.id, kind="team.left",
+        title=f"Left team: {team.name if team else payload.get('team_id')}",
+        detail="Team membership removed.",
+        meta={"team_id": payload.get("team_id")},
+        event_id=event.id,
+    )
+
+
+@on("employee.created")
+async def handle_people_employee_created(db, event, payload):
+    """A person was created through the employee service: canonical sync +
+    person.created evidence."""
+    org_id = payload.get("organization_id") or event.organization_id
+    person = await _people_person(db, org_id, payload)
+    if person is None:
+        return
+    from app.people.people_engine import people_engine
+
+    await people_engine.ensure_person(db, organization_id=org_id, person_id=person.id)
+    if await _people_applied(db, org_id, person.id, event.id):
+        return
+    await people_engine.journal(
+        db, org_id, person.id, kind="person.created",
+        title=f"{person.full_name} joined the company",
+        detail="Employee record created.",
+        meta={"employee_number": person.employee_number, "email": person.email},
+        event_id=event.id,
+    )
+
+
+@on("manager.changed")
+async def handle_people_manager_changed(db, event, payload):
+    """Reporting mirror: the manager change opens/closes the reports_to
+    window."""
+    org_id = payload.get("organization_id") or event.organization_id
+    person = await _people_person(db, org_id, payload)
+    if person is None:
+        return
+    from app.people.people_engine import people_engine
+
+    if await _people_applied(db, org_id, person.id, event.id):
+        return
+    await people_engine.set_reporting(
+        db, organization_id=org_id, person_id=person.id,
+        relationship_type="reports_to",
+        manager_person_id=payload.get("to"),
+        note=f"Manager changed: now {'reports to ' + str(payload.get('to')) if payload.get('to') else 'reports to no one'}.",
+        source_type="event", source_id=event.id,
+        actor_id=payload.get("actor_id"),
+        event_id=event.id,
+    )
+
+
+@on("employee.status.changed")
+async def handle_people_employee_status_changed(db, event, payload):
+    """Employment status transitions open/close membership windows."""
+    org_id = payload.get("organization_id") or event.organization_id
+    person = await _people_person(db, org_id, payload)
+    if person is None:
+        return
+    status = (payload.get("to") or person.status or "").lower()
+    if status not in MEMBERSHIP_STATUSES:
+        return
+    from app.people.people_engine import people_engine
+
+    if await _people_applied(db, org_id, person.id, event.id):
+        return
+    await people_engine.set_membership(
+        db, organization_id=org_id, person_id=person.id,
+        employment_status=status,
+        note=f"Employment status changed to {status}.",
+        source_type="event", source_id=event.id,
+        actor_id=payload.get("actor_id"),
+        event_id=event.id,
+    )
+
+
+@on("employee.transferred")
+async def handle_people_employee_transferred(db, event, payload):
+    """Evidence a department/team transfer in the people timeline."""
+    org_id = payload.get("organization_id") or event.organization_id
+    person = await _people_person(db, org_id, payload)
+    if person is None:
+        return
+    from app.people.people_engine import people_engine
+
+    if await _people_applied(db, org_id, person.id, event.id):
+        return
+    await people_engine.journal(
+        db, org_id, person.id, kind="person.transferred",
+        title="Moved between departments/teams",
+        detail=(f"Transferred to department {payload.get('to_department')}"
+                if payload.get("to_department") else "Transfer recorded."),
+        meta={
+            "from_department": payload.get("from_department"),
+            "to_department": payload.get("to_department"),
+        },
+        event_id=event.id,
     )

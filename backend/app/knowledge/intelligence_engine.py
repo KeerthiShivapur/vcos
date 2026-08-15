@@ -132,6 +132,15 @@ _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
     ("blocked", ("is blocked", "blocked", "stuck", "unblock")),
     ("overdue", ("overdue", "behind schedule", "missed deadline")),
     ("escalation", ("escalat", "raised to leadership")),
+    # Slice 4F.1 — universal people intelligence questions route to the
+    # governed people surfaces (deterministic: unit membership, reporting
+    # lines, org chart, directory). Kept last so "who owns X" stays the
+    # knowledge ownership meaning.
+    ("people", ("who works in", "who works at", "who is in", "who are in",
+                "who belongs to", "who is part of", "who are the people in",
+                "members of the", "which team members are in", "people in the",
+                "who manages", "who reports to", "reporting line",
+                "org chart", "organisation chart", "organization chart")),
 ]
 
 _CHANGE_SIGNAL = re.compile(
@@ -1652,6 +1661,185 @@ class IntelligenceEngine:
     # 4.4.8 — universal knowledge query
     # ------------------------------------------------------------------
 
+    async def _people_query(
+        self,
+        db: AsyncSession,
+        *,
+        organization_id: str,
+        question: str,
+        user: Any,
+    ) -> dict[str, Any]:
+        """Slice 4F.1 — universal people intelligence questions.
+
+        Deterministic routing: "who works in X" -> unit members, "who
+        reports to X" -> direct reports, "who manages X" -> reporting
+        line, "org chart" -> the living chart, otherwise the governed
+        directory. Every answer is governance-scoped and carries `scope`.
+        """
+        from app.people.people_engine import people_engine
+
+        access = await self._access(db, organization_id=organization_id, user=user)
+        lowered = question.lower().strip()
+        scope_label = "org" if access.org_wide else "project"
+
+        unit_phrase: Optional[str] = None
+        for keyword in (
+            "who works in", "who works at", "who is in", "who are in",
+            "who belongs to", "who is part of", "who are the people in",
+            "members of the", "which team members are in", "people in the",
+        ):
+            if keyword in lowered:
+                unit_phrase = lowered.split(keyword, 1)[1]
+                break
+        if unit_phrase:
+            import re as _re
+
+            phrase = _re.sub(r"^(the|a|an|my)\s+", "", unit_phrase.strip().strip("?")).strip()
+            probes = [phrase]
+            for suffix in (" business unit", " department", " team", " unit"):
+                if phrase.endswith(suffix):
+                    probes.append(phrase[: -len(suffix)])
+            for probe in probes:
+                search = await people_engine.search(
+                    db, organization_id=organization_id, access=access,
+                    q=probe, limit=5,
+                )
+                units = search["teams"] + search["departments"]
+                if not units:
+                    continue
+                unit = units[0]
+                members = await people_engine.unit_members(
+                    db, organization_id=organization_id, access=access,
+                    unit_kind=unit["type"], unit_id=unit["id"],
+                )
+                names = [m["name"] for m in members["members"]]
+                if names:
+                    answer = (f"{members['unit_name']} has {len(names)} member(s) "
+                              f"visible to you: {', '.join(names)}.")
+                else:
+                    answer = f"No members are visible to you in {members['unit_name']}."
+                return {
+                    "question": question,
+                    "intent": "people",
+                    "kind": "unit_members",
+                    "total": len(names),
+                    "answers": members["members"],
+                    "answer": answer,
+                    "scope": scope_label,
+                    "generated_at": _utcnow_iso(),
+                }
+
+        target_phrase: Optional[str] = None
+        direct_reports_question = False
+        for keyword in ("who reports to", "who manages"):
+            if keyword in lowered:
+                target_phrase = lowered.split(keyword, 1)[1].strip().strip("?").strip()
+                direct_reports_question = keyword == "who reports to"
+                break
+        if target_phrase:
+            search = await people_engine.search(
+                db, organization_id=organization_id, access=access,
+                q=target_phrase, limit=10,
+            )
+            if search["people"]:
+                person = search["people"][0]
+                if direct_reports_question:
+                    related = await people_engine.related_people(
+                        db, organization_id=organization_id, access=access,
+                        person_id=person["id"],
+                    )
+                    reports = [
+                        r for r in related["relations"] if r["relation"] == "direct_report"
+                    ]
+                    names = [r["name"] for r in reports]
+                    if names:
+                        answer = (f"{person['name']} has {len(names)} visible direct "
+                                  f"report(s): {', '.join(names)}.")
+                    else:
+                        answer = f"No direct reports are visible to you under {person['name']}."
+                    return {
+                        "question": question,
+                        "intent": "people",
+                        "kind": "direct_reports",
+                        "total": len(names),
+                        "answers": reports,
+                        "answer": answer,
+                        "scope": scope_label,
+                        "generated_at": _utcnow_iso(),
+                    }
+                line = await people_engine.reporting_line(
+                    db, organization_id=organization_id, access=access,
+                    person_id=person["id"],
+                )
+                if line["manager_chain"]:
+                    names = [m["name"] for m in line["manager_chain"]]
+                    answer = f"{person['name']} reports to " + " reports to ".join(names) + "."
+                else:
+                    answer = f"{person['name']} has no visible manager."
+                return {
+                    "question": question,
+                    "intent": "people",
+                    "kind": "reporting_line",
+                    "total": len(line["manager_chain"]),
+                    "answers": line["manager_chain"],
+                    "answer": answer,
+                    "scope": scope_label,
+                    "generated_at": _utcnow_iso(),
+                }
+
+        if any(k in lowered for k in ("org chart", "organisation chart", "organization chart")):
+            chart = await people_engine.org_chart(
+                db, organization_id=organization_id, access=access
+            )
+            names: list[str] = []
+
+            def walk(roots: list[dict[str, Any]], depth: int = 0) -> None:
+                for node in roots:
+                    names.append(("  " * depth) + node["name"])
+                    if depth < 4 and node.get("children"):
+                        walk(node["children"], depth + 1)
+
+            walk(chart["roots"])
+            if not chart["roots"]:
+                answer = "No org chart structure is visible to you."
+            elif len(names) > 30:
+                answer = (f"The visible org chart has {chart['nodes']} node(s); "
+                          f"top-level teams: {', '.join(n for n in names if not n.startswith('  '))}.")
+            else:
+                answer = "\n".join(names)
+            return {
+                "question": question,
+                "intent": "people",
+                "kind": "org_chart",
+                "total": chart["nodes"],
+                "answers": chart["roots"],
+                "answer": answer,
+                "scope": scope_label,
+                "generated_at": _utcnow_iso(),
+            }
+
+        directory = await people_engine.list_people(
+            db, organization_id=organization_id, access=access, limit=20
+        )
+        names = [p["name"] for p in directory["people"]]
+        if not names:
+            answer = "No visible people in this organization."
+        elif directory["total_visible"] > len(names):
+            answer = (f"The organization has {directory['total_visible']} visible "
+                      f"person(s); showing {len(names)}: {', '.join(names)}.")
+        else:
+            answer = f"The organization has {len(names)} person(s): {', '.join(names)}."
+        return {
+            "question": question,
+            "intent": "people",
+            "kind": "directory",
+            "total": directory["total_visible"],
+            "answers": directory["people"],
+            "answer": answer,
+            "scope": scope_label,
+            "generated_at": _utcnow_iso(),
+        }
+
     async def query(
         self,
         db: AsyncSession,
@@ -1726,6 +1914,10 @@ class IntelligenceEngine:
                 "scope": gaps["scope"],
                 "generated_at": _utcnow_iso(),
             }
+        if intent == "people":
+            return await self._people_query(
+                db, organization_id=organization_id, question=question, user=user
+            )
         if intent in ("impact", "ownership"):
             access = await self._access(db, organization_id=organization_id, user=user)
             scanned = await self._scan_topics(

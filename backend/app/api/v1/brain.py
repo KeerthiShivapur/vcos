@@ -18,6 +18,7 @@ from app.api.deps import get_current_organization, require_permission
 from app.core.timeutils import ensure_aware
 from app.db.database import get_db
 from app.intelligence.company_brain import MAX_TIMELINE
+from app.intelligence.company_context import CallerAccess, resolve_caller_access
 from app.intelligence.graph_engine import graph_engine as company_graph
 from app.intelligence.insight_engine import insight_engine
 from app.intelligence.pattern_engine import pattern_engine
@@ -27,6 +28,7 @@ from app.knowledge.synthesis_engine import _json_loads
 from app.models.knowledge import KnowledgeTopic
 from app.models.organization import Organization
 from app.models.user import User
+from app.people.people_engine import PeopleError, people_engine
 
 router = APIRouter(prefix="/brain", tags=["Company Brain"])
 
@@ -82,6 +84,46 @@ class BrainGovernanceIn(BaseModel):
 
 class BrainPatternStatusIn(BaseModel):
     status: str
+
+
+# -------------------------------------------------------------------- 4F.1 people bodies
+
+class PeopleIdentityLinkIn(BaseModel):
+    source: str
+    source_key: str
+    kind: str = "primary"
+    verified: bool = False
+    note: Optional[str] = None
+
+
+class PeopleIdentityResolveIn(BaseModel):
+    source: str
+    source_key: str
+
+
+class PeopleMembershipIn(BaseModel):
+    employment_status: str
+    valid_from: Optional[datetime] = None
+    employment_type: Optional[str] = None
+    note: Optional[str] = None
+
+
+class PeopleRoleAssignIn(BaseModel):
+    role_title: str
+    role_type: str = "functional"
+    is_primary: bool = False
+    valid_from: Optional[datetime] = None
+
+
+class PeopleRoleChangeIn(BaseModel):
+    role_title: Optional[str] = None
+    role_type: Optional[str] = None
+
+
+class PeopleReportingIn(BaseModel):
+    relationship_type: str
+    manager_person_id: Optional[str] = None
+    valid_from: Optional[datetime] = None
 
 
 # ----------------------------------------------------------------- capabilities
@@ -2465,3 +2507,345 @@ async def brain_insight_related(
     if result is None:
         raise HTTPException(status_code=404, detail="insight not found")
     return result
+
+
+# ---------------------------------------------------------------------------
+# Slice 4F.1 — Universal People Intelligence Foundation
+# ---------------------------------------------------------------------------
+# One governed people surface for the brain: canonical person profiles,
+# identity resolution, temporal membership/roles/reporting, the living org
+# chart, the People Graph and unit rollups. Access is resolved before data is
+# assembled (CallerAccess), writes are temporal-window operations (history is
+# never destroyed) and every entry lands in the append-only people timeline.
+
+async def _people_access(db: AsyncSession, org: Organization, user: User) -> CallerAccess:
+    return await resolve_caller_access(db, organization_id=org.id, user=user)
+
+
+@router.get("/people")
+async def brain_people_list(
+    q: Optional[str] = Query(default=None, max_length=200),
+    limit: int = Query(default=100, ge=1, le=200),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """The governed people directory of the organization."""
+    access = await _people_access(db, org, user)
+    return await people_engine.list_people(
+        db, organization_id=org.id, access=access, query=q, limit=limit
+    )
+
+
+@router.get("/people/search")
+async def brain_people_search(
+    q: str = Query(..., max_length=200),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Governed people/team/department search for brain mentions."""
+    access = await _people_access(db, org, user)
+    return await people_engine.search(db, organization_id=org.id, access=access, q=q)
+
+
+@router.get("/people/{person_id}")
+async def brain_people_get(
+    person_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Canonical person profile: current membership, open roles, reporting,
+    identity links — everything 4F.2-4F.6 will attach to."""
+    access = await _people_access(db, org, user)
+    try:
+        return await people_engine.get_profile(
+            db, organization_id=org.id, access=access, person_id=person_id
+        )
+    except PeopleError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+@router.get("/people/{person_id}/history")
+async def brain_people_history(
+    person_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Full temporal history: membership windows, role windows, reporting
+    windows and the append-only people timeline."""
+    access = await _people_access(db, org, user)
+    try:
+        return await people_engine.get_profile(
+            db, organization_id=org.id, access=access, person_id=person_id,
+            include_history=True,
+        )
+    except PeopleError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+@router.get("/people/{person_id}/at")
+async def brain_people_as_of(
+    person_id: str,
+    at: Optional[datetime] = None,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Temporal reconstruction: the person's world at one moment in time."""
+    access = await _people_access(db, org, user)
+    try:
+        return await people_engine.as_of(
+            db, organization_id=org.id, access=access, person_id=person_id,
+            at=at or ensure_aware(datetime.utcnow()),
+        )
+    except PeopleError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+@router.get("/people/{person_id}/reporting-line")
+async def brain_people_reporting_line(
+    person_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """The chain of managers above a person."""
+    access = await _people_access(db, org, user)
+    try:
+        return await people_engine.reporting_line(
+            db, organization_id=org.id, access=access, person_id=person_id
+        )
+    except PeopleError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+@router.get("/people/{person_id}/related")
+async def brain_people_related(
+    person_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Why is this person related to everyone else? Deterministic relations
+    with an explicit reason for each pair."""
+    access = await _people_access(db, org, user)
+    try:
+        return await people_engine.related_people(
+            db, organization_id=org.id, access=access, person_id=person_id
+        )
+    except PeopleError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+@router.post("/people/{person_id}/identities")
+async def brain_people_identity_link(
+    person_id: str,
+    payload: PeopleIdentityLinkIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("employees:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Link one strong identifier to one canonical person. A key already
+    active on another person is refused — ambiguity is never silently merged."""
+    try:
+        result = await people_engine.register_identity(
+            db, organization_id=org.id, person_id=person_id,
+            source=payload.source, source_key=payload.source_key,
+            kind=payload.kind, verified=payload.verified, note=payload.note,
+            actor_id=(await _people_access(db, org, user)).employee_id,
+        )
+        await db.commit()
+        return result
+    except PeopleError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+@router.post("/people/identities/resolve")
+async def brain_people_identity_resolve(
+    payload: PeopleIdentityResolveIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Resolve one strong identifier to the canonical person — or admit the
+    identifier is unknown/retired. Never merges ambiguity."""
+    return await people_engine.resolve_identity(
+        db, organization_id=org.id, source=payload.source, source_key=payload.source_key
+    )
+
+
+@router.put("/people/{person_id}/membership")
+async def brain_people_membership(
+    person_id: str,
+    payload: PeopleMembershipIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("employees:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Open a new membership window (previous open window is closed, never
+    deleted). Mirrors the mapped employee status when applicable."""
+    try:
+        result = await people_engine.set_membership(
+            db, organization_id=org.id, person_id=person_id,
+            employment_status=payload.employment_status,
+            valid_from=payload.valid_from,
+            employment_type=payload.employment_type,
+            note=payload.note,
+            source_type="people.membership", source_id=person_id,
+            actor_id=(await _people_access(db, org, user)).employee_id,
+        )
+        await db.commit()
+        return result
+    except PeopleError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+@router.post("/people/{person_id}/roles")
+async def brain_people_role_assign(
+    person_id: str,
+    payload: PeopleRoleAssignIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("employees:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Assign a temporal role window. Many roles per person; at most one open
+    primary (assigning a new primary demotes the previous one)."""
+    try:
+        result = await people_engine.assign_role(
+            db, organization_id=org.id, person_id=person_id,
+            role_title=payload.role_title, role_type=payload.role_type,
+            is_primary=payload.is_primary, valid_from=payload.valid_from,
+            source_type="people.role", source_id=person_id,
+            actor_id=(await _people_access(db, org, user)).employee_id,
+        )
+        await db.commit()
+        return result
+    except PeopleError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+@router.post("/people/roles/{assignment_id}/change")
+async def brain_people_role_change(
+    assignment_id: str,
+    payload: PeopleRoleChangeIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("employees:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Change a role: the old window closes, a continuation window opens —
+    the role history is preserved."""
+    try:
+        result = await people_engine.change_role(
+            db, organization_id=org.id, assignment_id=assignment_id,
+            role_title=payload.role_title, role_type=payload.role_type,
+            source_type="people.role", source_id=assignment_id,
+            actor_id=(await _people_access(db, org, user)).employee_id,
+        )
+        await db.commit()
+        return result
+    except PeopleError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+@router.post("/people/roles/{assignment_id}/remove")
+async def brain_people_role_remove(
+    assignment_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("employees:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Close a role window — the closed window remains in history."""
+    try:
+        result = await people_engine.remove_role(
+            db, organization_id=org.id, assignment_id=assignment_id,
+            source_type="people.role", source_id=assignment_id,
+            actor_id=(await _people_access(db, org, user)).employee_id,
+        )
+        await db.commit()
+        return result
+    except PeopleError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+@router.post("/people/{person_id}/reporting")
+async def brain_people_reporting(
+    person_id: str,
+    payload: PeopleReportingIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("employees:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Set (or clear) a temporal reporting relationship. The open reports_to
+    window mirrors Employee.manager_id so the live org chart stays coherent."""
+    try:
+        result = await people_engine.set_reporting(
+            db, organization_id=org.id, person_id=person_id,
+            relationship_type=payload.relationship_type,
+            manager_person_id=payload.manager_person_id,
+            valid_from=payload.valid_from,
+            source_type="people.reporting", source_id=person_id,
+            actor_id=(await _people_access(db, org, user)).employee_id,
+        )
+        await db.commit()
+        return result
+    except PeopleError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+@router.get("/org/chart")
+async def brain_org_chart(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """The living org chart from current open reports_to windows. Invisible
+    subordinates are never revealed to scoped callers."""
+    access = await _people_access(db, org, user)
+    return await people_engine.org_chart(db, organization_id=org.id, access=access)
+
+
+@router.get("/org/graph")
+async def brain_org_graph(
+    depth: int = Query(default=3, ge=1, le=8),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """The People Graph: person + team + department + role nodes with
+    reporting / membership edges — fully governed."""
+    access = await _people_access(db, org, user)
+    return await people_engine.people_graph(
+        db, organization_id=org.id, access=access, depth=depth
+    )
+
+
+@router.get("/org/units")
+async def brain_org_units(
+    unit_kind: str = Query(..., pattern="^(team|department|business_unit|location)$"),
+    unit_id: str = Query(...),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Members of a team / department / business_unit / location."""
+    access = await _people_access(db, org, user)
+    try:
+        return await people_engine.unit_members(
+            db, organization_id=org.id, access=access, unit_kind=unit_kind, unit_id=unit_id
+        )
+    except PeopleError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+@router.get("/org/units/summary")
+async def brain_org_units_summary(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Departments and teams with governed member counts."""
+    access = await _people_access(db, org, user)
+    return await people_engine.units_summary(db, organization_id=org.id, access=access)
