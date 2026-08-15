@@ -584,6 +584,7 @@ class ApprovalCreate(BaseModel):
     approval_type: str = "project"
     title: str
     description: Optional[str] = None
+    requester_id: Optional[str] = None
     approver_id: Optional[str] = None
     priority: str = "medium"
     due_at: Optional[datetime] = None

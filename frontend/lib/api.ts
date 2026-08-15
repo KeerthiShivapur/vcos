@@ -7747,6 +7747,127 @@ export async function brainKnowledgeSearch(
   });
 }
 
+// ------------------------------------------- Slice 4F.3 expertise evidence & trust
+
+export interface TrustContradiction {
+  evidence_id: string;
+  evidence_kind: string;
+  outcome: string;
+  expired: boolean;
+  source_type: string;
+  source_id: string;
+  detail?: string | null;
+}
+
+export interface TrustProfile {
+  trust: boolean;
+  person_id: string;
+  person_name: string;
+  skill_id: string;
+  skill_name: string;
+  lifecycle: string;
+  score: number;
+  confidence: number;
+  depth: number;
+  breadth: number;
+  freshness: string;
+  evidence_total: number;
+  evidence_by_kind: Record<string, number>;
+  evidence_by_source: Record<string, number>;
+  successful_count: number;
+  failed_count: number;
+  outcome_ratio: number | null;
+  outcome_validation: number;
+  corroboration: number;
+  corroborated_kinds: number;
+  distinct_lineages: number;
+  deduplicated_count: number;
+  expired_count: number;
+  recency_days: number | null;
+  contradictions: TrustContradiction[];
+  recent_evidence: EvidenceLine[];
+}
+
+export interface EvidenceLine {
+  evidence_id: string;
+  evidence_kind: string;
+  evidence_type: string;
+  outcome: string;
+  strength: string;
+  weight: number;
+  source_type: string;
+  source_id: string;
+  source_title?: string | null;
+  detail?: string | null;
+  lineage_key: string;
+  origin_event_id?: string | null;
+  valid_to?: string | null;
+  occurred_at: string;
+}
+
+export interface ExpertiseEvidenceResponse {
+  person_id: string;
+  skill_id: string;
+  skill_name: string;
+  lifecycle: string;
+  score: number;
+  confidence: number;
+  evidence_total: number;
+  evidence: EvidenceLine[];
+}
+
+export interface ExpertiseExpertEntry {
+  person_id: string;
+  name: string;
+  designation?: string | null;
+  skills: { skill_id: string; skill_name: string; score: number }[];
+  lifecycle: string;
+  confidence: number;
+  successful_count: number;
+  failed_count: number;
+  outcome_ratio: number | null;
+  corroborated_kinds: number;
+  distinct_lineages: number;
+  freshness: string;
+  recent_activity_90d: boolean;
+}
+
+export interface ExpertiseSearchResponse {
+  query: string;
+  total: number;
+  experts: ExpertiseExpertEntry[];
+  recent_only: boolean;
+}
+
+export async function brainExpertiseSearch(
+  q: string,
+  recentOnly = false
+): Promise<ExpertiseSearchResponse> {
+  return api<ExpertiseSearchResponse>("/brain/expertise/search", {
+    query: { q, recent_only: String(recentOnly) },
+  });
+}
+
+export async function getPersonTrust(
+  personId: string,
+  skillId: string
+): Promise<TrustProfile> {
+  return api<TrustProfile>(`/brain/people/${personId}/expertise/${skillId}/trust`);
+}
+
+export async function getPersonEvidence(
+  personId: string,
+  skillId: string
+): Promise<ExpertiseEvidenceResponse> {
+  return api<ExpertiseEvidenceResponse>(
+    `/brain/people/${personId}/expertise/${skillId}/evidence`
+  );
+}
+
+export async function getEvidenceItem(evidenceId: string): Promise<EvidenceLine> {
+  return api<EvidenceLine>(`/brain/expertise/evidence/${evidenceId}`);
+}
+
 // ------------------------------------------- Slice 4E.4/4E.5 knowledge ops
 
 export async function brainKnowledgeDiscover(params: {

@@ -8,6 +8,7 @@ a missing entity simply logs and skips. Handlers never commit — the caller
 
 import json
 import logging
+from datetime import datetime
 from typing import Any, Optional
 
 from sqlalchemy import select
@@ -60,17 +61,23 @@ async def _evolve_expertise(
     employee: Employee, tokens: list[str], event_id: Optional[str] = None,
     points: float | None = None, source_type: Optional[str] = None,
     source_id: Optional[str] = None, source_title: Optional[str] = None,
+    outcome: Optional[str] = None, origin_event_id: Optional[str] = None,
+    lineage_key: Optional[str] = None, valid_to: Optional[datetime] = None,
 ) -> None:
-    """Feed the canonical expertise pipeline (Slice 4F.2). Source lineage is
-    passed where the payload carries a real canonical id; otherwise the
-    engine falls back to the event id itself (always a canonical source)."""
+    """Feed the canonical expertise pipeline (Slice 4F.2 / 4F.3). Source
+    lineage is passed where the payload carries a real canonical id; otherwise
+    the engine falls back to the event id itself (always a canonical source).
+    Slice 4F.3 adds explicit outcome signals and ancestry (origin_event_id /
+    lineage_key) that power the trust model and the double-count guard."""
     from app.intelligence.expertise_engine import expertise_engine
 
     await expertise_engine.record_activity(
         db, organization_id=organization_id, employee_id=employee.id,
         event_name=event_name, tokens=tokens, reason=describe(event_name),
         event_id=event_id, points=points, source_type=source_type,
-        source_id=source_id, source_title=source_title,
+        source_id=source_id, source_title=source_title, outcome=outcome,
+        origin_event_id=origin_event_id, lineage_key=lineage_key,
+        valid_to=valid_to,
     )
 
 
@@ -838,12 +845,13 @@ async def handle_approval_approved(db, event, payload):
 @on("approval.rejected")
 async def handle_approval_rejected(db, event, payload):
     org_id = payload.get("organization_id") or event.organization_id
-    if payload.get("requester_id"):
+    requester = payload.get("requester_id")
+    if requester:
         from app.services.work_alerts import notify_employee
 
         await notify_employee(
             db, organization_id=org_id,
-            employee_id=payload["requester_id"],
+            employee_id=requester,
             type="approval.decided",
             title=f"Approval rejected: {payload.get('title', '')[:80]}",
             body="Your approval request was rejected.",
@@ -852,6 +860,18 @@ async def handle_approval_rejected(db, event, payload):
             entity_type="approval", entity_id=payload.get("approval_id"),
             link="/approvals",
         )
+        # Slice 4F.3 — rejection is a CONTRADICTION: a failed outcome on the
+        # requester's attempted contribution. Written as negative evidence so
+        # it deflates trust deterministically and is never hidden.
+        employee = await db.get(Employee, requester)
+        if employee is not None and employee.organization_id == org_id:
+            await _evolve_expertise(
+                db, org_id, "approval.rejected", employee,
+                _tokens(payload.get("title"), payload.get("category")), event.id,
+                source_type="approval", source_id=payload.get("approval_id") or event.id,
+                source_title=payload.get("title"),
+                outcome="failed",
+            )
 
 
 @on("goal.completed")
@@ -859,8 +879,14 @@ async def handle_goal_completed(db, event, payload):
     org_id = payload.get("organization_id") or event.organization_id
     employee = await _resolve_employee(db, org_id, payload)
     if employee is not None:
-        await _evolve_expertise(db, org_id, "goal.updated", employee,
-                                _tokens(payload.get("name"), payload.get("title")), event.id, points=2.0)
+        goal_id = payload.get("goal_id") or event.id
+        await _evolve_expertise(
+            db, org_id, "goal.completed", employee,
+            _tokens(payload.get("name"), payload.get("title")), event.id, points=2.0,
+            source_type="goal", source_id=goal_id,
+            source_title=payload.get("name") or payload.get("title"),
+            lineage_key=f"goal:{goal_id}", outcome="successful",
+        )
     if payload.get("owner_id"):
         from app.services.work_alerts import notify_employee
 
@@ -1081,6 +1107,91 @@ async def handle_path_completed(db, event, payload):
                 source_type="learning_path", source_id=payload.get("path_id") or event.id,
                 source_title=payload.get("path_title"),
             )
+
+
+# ---------------------------------------------------------------------------
+# Slice 4F.3 — engineering operations outcomes feed the trust model.
+# A deployment/backup recovery is WORK evidence like any other; a FAILURE is
+# a contradiction (negative evidence) for the operator. One deployment can
+# never double count: every event of the same deployment shares one lineage
+# key, and a ROLLED BACK deployment EXPIRES its earlier successful claims.
+# ---------------------------------------------------------------------------
+
+
+_OPS_ROW_ACTOR = {
+    "deployment": ("app.models.infrastructure", "DeploymentRecord"),
+    "backup": ("app.models.infrastructure", "BackupRecord"),
+}
+
+_OPS_FAILED_EVENTS = {
+    "deployment.failed", "deployment.rolled_back", "backup.failed",
+    "replica.failed", "workflow.failed", "health.unhealthy",
+    "health.degraded", "disaster.recovery.failover",
+}
+
+
+@on("deployment.completed")
+@on("deployment.promoted")
+@on("deployment.failed")
+@on("deployment.rolled_back")
+@on("backup.completed")
+@on("backup.failed")
+@on("backup.restored")
+@on("replica.failed")
+@on("cluster.recovered")
+@on("workflow.completed")
+@on("workflow.failed")
+@on("health.degraded")
+@on("health.unhealthy")
+@on("disaster.recovery.recovered")
+@on("disaster.recovery.failover")
+async def handle_ops_outcome(db, event, payload):
+    """Feed operations outcomes into the canonical expertise pipeline."""
+    org_id = payload.get("organization_id") or event.organization_id
+    action = event.name.split(".")[0]
+    action_id = payload.get(f"{action}_id") or payload.get("id") or event.id
+    tokens = _tokens(
+        payload.get("service"), payload.get("name"), payload.get("target"),
+        payload.get("cluster_type"), payload.get("workflow_name"),
+        payload.get("region"),
+    )
+    if not tokens:
+        return
+    employee = await _resolve_employee(db, org_id, payload)
+    if employee is None:
+        # canonical row fallback: the operator who ran the action
+        model_ref = _OPS_ROW_ACTOR.get(action)
+        if model_ref is not None:
+            import importlib
+
+            module = importlib.import_module(model_ref[0])
+            row = await db.get(getattr(module, model_ref[1]), action_id)
+            actor = getattr(row, "actor_id", None) if row is not None else None
+            if actor:
+                employee = (
+                    await db.execute(
+                        select(Employee).where(
+                            Employee.organization_id == org_id, Employee.id == actor
+                        )
+                    )
+                ).scalar_one_or_none()
+    if employee is None:
+        return
+    from app.intelligence.expertise_engine import expertise_engine
+
+    if event.name == "deployment.rolled_back":
+        await expertise_engine.expire_source(
+            db, organization_id=org_id, source_type="deployment",
+            source_id=action_id,
+        )
+    await _evolve_expertise(
+        db, org_id, event.name, employee, tokens, event.id,
+        source_type=action,
+        source_id=action_id,
+        source_title=payload.get("service") or payload.get("name"),
+        lineage_key=f"{action}:{action_id}",
+        outcome="failed" if event.name in _OPS_FAILED_EVENTS else "successful",
+    )
 
 
 @on("mentor.assigned")

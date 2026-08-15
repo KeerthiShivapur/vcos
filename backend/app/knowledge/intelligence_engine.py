@@ -141,6 +141,17 @@ _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
                 "members of the", "which team members are in", "people in the",
                 "who manages", "who reports to", "reporting line",
                 "org chart", "organisation chart", "organization chart")),
+    # Slice 4F.3 — expertise EVIDENCE & TRUST questions: "why do you think X
+    # knows Y", "what evidence backs that", "can we trust X on Y", "is it
+    # still current". Placed just before expertise discovery so the WHY of a
+    # claim wins over the WHO of discovery, without stealing "why is/are/did"
+    # (the knowledge why intent sits earlier and wins those).
+    ("expertise_trust", ("why does", "why do you", "why you think", "why you say",
+                         "what evidence", "evidence for", "evidence behind",
+                         "evidence trail", "proven by", "recent evidence",
+                         "still current", "their expertise", "should we trust",
+                         "can we trust", "how much do we trust", "do you trust",
+                         "rated for", "how did you rate")),
     # Slice 4F.2 — universal skills & expertise questions. Kept after people
     # so "who knows X" never steals the reporting/unit meanings, but before
     # the discovery default. "what does X know" is person expertise.
@@ -150,7 +161,8 @@ _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
                    "skilled at", "proficient in", "knows about",
                    "knows python", "works with", "what does",
                    "does anyone know", "who can help with", "who could help",
-                   "is good at", "is known for", "good at whats")),
+                   "is good at", "is known for", "good at whats",
+                   "recently", "who has shown", "who demonstrated")),
 ]
 
 _CHANGE_SIGNAL = re.compile(
@@ -2003,7 +2015,8 @@ class IntelligenceEngine:
                 }
             result = await expertise_search.search(
                 db, organization_id=organization_id, access=access,
-                query=skill_phrase, scope_type=scope_type, scope_id=scope_id, limit=5,
+                query=skill_phrase, scope_type=scope_type, scope_id=scope_id,
+                limit=5, recent_only=("recent" in lowered),
             )
             experts = result["experts"]
             skill_label = skills[0].canonical_name
@@ -2072,6 +2085,207 @@ class IntelligenceEngine:
             "total": 0,
             "answers": [],
             "answer": "No skill in the question resolves to the canonical taxonomy.",
+            "scope": scope_label,
+            "generated_at": _utcnow_iso(),
+        }
+
+    async def _expertise_trust_query(
+        self,
+        db: AsyncSession,
+        *,
+        organization_id: str,
+        question: str,
+        user: Any,
+    ) -> dict[str, Any]:
+        """Slice 4F.3 — "why do you think X knows Y" / "can we trust X on Y".
+
+        Deterministic: resolve the person, resolve the skill, then return the
+        governed TRUST profile — what supports the claim (evidence trail with
+        canonical sources), how reliable (confidence, outcome validation),
+        how recent (freshness), what corroborates it (independent kinds/
+        lineages) and what contradicts it (failed + expired evidence, never
+        hidden). No person/skill resolves to nothing — the surface says so.
+        """
+        from app.people.expertise_search import expertise_search
+        from app.people.people_engine import people_engine
+        from app.intelligence.expertise_engine import expertise_engine
+
+        access = await self._access(db, organization_id=organization_id, user=user)
+        scope_label = "org" if access.org_wide else "project"
+        lowered = question.lower().strip()
+
+        # ---- resolve the person subject (deterministic, no LLM guessing)
+        import re as _re
+
+        subject: Optional[str] = None
+        predicate = ""
+        possessive = _re.search(
+            r"\b([\w\s\.\-]+?)'s\s+([\w\-]+(?:\s+[\w\-]+)*)?\s*"
+            r"(expertise|knowledge|skill)\b",
+            lowered,
+        )
+        verb_markers = (
+            r"\b(?:knows?(?: about)?|understands?|is an? (?:expert|specialist|pro)"
+            r" in|is proficient in|is skilled in|is good at|is strong in|"
+            r"expert in|expertise in|known for|rated for|trust(?:ed)?(?: for)?|"
+            r"trust him with|trust her with|trust)\b"
+        )
+        if possessive:
+            subject = possessive.group(1).strip()
+            # the skill word(s) between the name and the noun go with the
+            # predicate ("Py's Python expertise" -> "python expertise")
+            predicate = " ".join(
+                p for p in (possessive.group(2) or "", possessive.group(3)) if p
+            )
+            remainder = lowered[possessive.end():]
+        else:
+            verb_hit = _re.search(verb_markers, lowered)
+            if verb_hit:
+                subject = lowered[:verb_hit.start()].strip("? .!,-")
+                predicate = lowered[verb_hit.end():].strip("? .!,")
+            else:
+                subject = lowered.strip("? .!,")
+        predicate = _re.sub(
+            r"^(?:\s*(?:the|for|on|in|with|about|regarding|currently|still|now|"
+            r"like|that|their|his|her))+\s*", "", predicate,
+        ).strip("? .!,")
+        # disambiguate the name deterministically: drop leading words until a
+        # visible person actually matches (never an LLM guess)
+        subject_candidates: list[Optional[str]] = [None]
+        if subject:
+            words = subject.split()
+            subject_candidates = [
+                " ".join(words[i:])[:80] or None for i in range(min(len(words), 8))
+            ] or [None]
+
+        # ---- person lookup
+        person: Optional[dict[str, Any]] = None
+        for candidate in subject_candidates:
+            if not candidate:
+                continue
+            found = await people_engine.search(
+                db, organization_id=organization_id, access=access,
+                q=candidate, limit=3,
+            )
+            if found["people"]:
+                person = found["people"][0]
+                break
+
+        if person is None:
+            markers = ("know", "expert", "skill", "expertise", "evidence",
+                       "trust", "rate", "rated", "demonstrated")
+            if not any(m in lowered for m in markers):
+                return {
+                    "question": question,
+                    "intent": "expertise_trust",
+                    "kind": "not_expertise",
+                    "total": 0,
+                    "answers": [],
+                    "answer": ("That doesn't read as an expertise-trust question. "
+                               "Ask e.g. \"why does <name> know <skill>?\" or "
+                               "\"can we trust <name> on <skill>?\"."),
+                    "scope": scope_label,
+                    "generated_at": _utcnow_iso(),
+                }
+            return {
+                "question": question,
+                "intent": "expertise_trust",
+                "kind": "no_person",
+                "total": 0,
+                "answers": [],
+                "answer": ("No person matched that question. Name a visible "
+                           "person, e.g. \"why does Keerthi know Python?\"."),
+                "scope": scope_label,
+                "generated_at": _utcnow_iso(),
+            }
+
+        profile_result = await expertise_search.person_expertise(
+            db, organization_id=organization_id, person_id=person["id"],
+        )
+        cells = profile_result["expertise"]
+
+        # ---- optional skill narrowing -> the one trust profile
+        if predicate:
+            skills = await expertise_search.resolve_for_query(
+                db, organization_id=organization_id, query=predicate,
+            )
+            skill_ids = {s.id for s in skills}
+            cell = next(
+                (c for c in cells if c["skill_id"] in skill_ids), None,
+            )
+            if cell is not None and skills:
+                skill_id = cell["skill_id"]
+                trust = await expertise_engine.trust(
+                    db, organization_id=organization_id,
+                    person_id=person["id"], skill_id=skill_id, limit=12,
+                )
+                if trust is not None:
+                    t = trust
+                    evidence_lines = []
+                    for row in t["recent_evidence"][:5]:
+                        evidence_lines.append(
+                            f"{row['strength']}/{row['evidence_kind']} from "
+                            f"{row['source_type']}:{row['source_id']} "
+                            f"({row['detail'] or row['evidence_type']})"
+                        )
+                    negative = t["failed_count"] + sum(
+                        1 for c in t["contradictions"] if c.get("expired"))
+                    answer = (
+                        f"{t['person_name']} on {t['skill_name']}: "
+                        f"lifecycle {t['lifecycle']}, score {t['score']:.0f}, "
+                        f"confidence {t['confidence']:.2f}, freshness "
+                        f"{t['freshness']}, {t['successful_count']} successful / "
+                        f"{t['failed_count']} failed outcome(s) across "
+                        f"{t['distinct_lineages']} independent source lineage(s) "
+                        f"from {t['corroborated_kinds']} evidence kind(s)."
+                    )
+                    if negative:
+                        answer += f" {negative} negative or expired item(s) remain visible and counted against it."
+                    if evidence_lines:
+                        answer += " Evidence: " + " | ".join(evidence_lines) + "."
+                    else:
+                        answer += " No current evidence row remains (expired)."
+                    return {
+                        "question": question,
+                        "intent": "expertise_trust",
+                        "kind": "trust_profile",
+                        "total": 1,
+                        "answers": [{**t, **{"person_id": person["id"]}}],
+                        "answer": answer,
+                        "scope": scope_label,
+                        "generated_at": _utcnow_iso(),
+                    }
+
+        if not cells:
+            return {
+                "question": question,
+                "intent": "expertise_trust",
+                "kind": "no_expertise",
+                "total": 0,
+                "answers": [],
+                "answer": (
+                    f"No evidence-derived expertise is visible for "
+                    f"{person['name']}, so there is nothing to trust yet."
+                ),
+                "scope": scope_label,
+                "generated_at": _utcnow_iso(),
+            }
+
+        names = ", ".join(
+            f"{c['skill_name']} ({c['lifecycle']}, "
+            f"confidence {c['confidence']:.2f}, freshness {c['freshness']})"
+            for c in cells[:4]
+        )
+        return {
+            "question": question,
+            "intent": "expertise_trust",
+            "kind": "person_expertise",
+            "total": len(cells),
+            "answers": cells,
+            "answer": (
+                f"{person['name']} trust snapshot: " + names + ". "
+                f"Ask me \"what evidence backs <name> on <skill>?\" for a cell."
+            ),
             "scope": scope_label,
             "generated_at": _utcnow_iso(),
         }
@@ -2156,6 +2370,10 @@ class IntelligenceEngine:
             )
         if intent == "expertise":
             return await self._expertise_query(
+                db, organization_id=organization_id, question=question, user=user
+            )
+        if intent == "expertise_trust":
+            return await self._expertise_trust_query(
                 db, organization_id=organization_id, question=question, user=user
             )
         if intent in ("impact", "ownership"):

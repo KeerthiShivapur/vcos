@@ -64,8 +64,14 @@ class ExpertiseSearch:
         db: AsyncSession, *, organization_id: str, access: CallerAccess,
         query: str, scope_type: Optional[str] = None,
         scope_id: Optional[str] = None, limit: int = MAX_RESULTS,
+        recent_only: bool = False,
     ) -> dict[str, Any]:
-        """Governed ranked expert discovery for a skill query."""
+        """Governed ranked expert discovery for a skill query.
+
+        Slice 4F.3: every expert entry carries the trust facets (confidence,
+        outcome counts/ratio, corroborated kinds, independent lineages,
+        freshness) and ``recent_only`` narrows to people with evidence in the
+        last 180 days — the "who has demonstrated it recently" question."""
         from app.people.people_engine import people_engine
 
         limit = max(1, min(limit, MAX_RESULTS))
@@ -80,6 +86,7 @@ class ExpertiseSearch:
                 "experts": [],
                 "total": 0,
                 "scope": "org" if access.org_wide else "project",
+                "recent_only": recent_only,
             }
         skill_ids = [s.id for s in skills]
         skill_names = {s.id: (s.canonical_name, s.category) for s in skills}
@@ -92,6 +99,13 @@ class ExpertiseSearch:
             ExpertiseState.skill_id.in_(skill_ids),
             ExpertiseState.score > 0,
         ]
+        if recent_only:
+            from datetime import datetime, timedelta, timezone
+
+            filters.append(
+                ExpertiseState.last_observed
+                >= datetime.now(timezone.utc) - timedelta(days=180)
+            )
         if visible is not None:
             filters.append(ExpertiseState.person_id.in_(set(visible)))
         scope_filters = []
@@ -108,6 +122,9 @@ class ExpertiseSearch:
                 ExpertiseState.score, ExpertiseState.confidence,
                 ExpertiseState.lifecycle, ExpertiseState.evidence_count,
                 ExpertiseState.last_observed, ExpertiseState.frequency_90d,
+                ExpertiseState.successful_count, ExpertiseState.failed_count,
+                ExpertiseState.outcome_ratio, ExpertiseState.distinct_lineages,
+                ExpertiseState.corroborated_kinds, ExpertiseState.freshness,
                 Employee.display_name, Employee.first_name, Employee.last_name,
                 Employee.designation, Employee.team_id, Employee.department_id,
                 Employee.status,
@@ -174,6 +191,12 @@ class ExpertiseSearch:
                 "confidence": r.confidence,
                 "lifecycle": r.lifecycle,
                 "evidence_count": r.evidence_count,
+                "successful_count": r.successful_count,
+                "failed_count": r.failed_count,
+                "outcome_ratio": r.outcome_ratio,
+                "distinct_lineages": r.distinct_lineages,
+                "corroborated_kinds": r.corroborated_kinds,
+                "freshness": r.freshness,
                 "last_observed": r.last_observed.isoformat() if r.last_observed else None,
                 "recent_activity_90d": r.frequency_90d,
             }
@@ -190,6 +213,7 @@ class ExpertiseSearch:
             "experts": experts,
             "total": len(experts),
             "scope": "org" if access.org_wide else "project",
+            "recent_only": recent_only,
         }
 
     # ------------------------------------------------------------------ person surfaces
@@ -256,7 +280,8 @@ class ExpertiseSearch:
     async def person_expertise(
         self, db: AsyncSession, *, organization_id: str, person_id: str,
     ) -> dict[str, Any]:
-        """Evidence-derived expertise states of one person, strongest first."""
+        """Evidence-derived expertise states of one person, strongest first.
+        Slice 4F.3: each cell carries its trust facets."""
         rows = (
             await db.execute(
                 select(ExpertiseState).where(
@@ -294,6 +319,12 @@ class ExpertiseSearch:
                     "strong_count": r.strong_count,
                     "medium_count": r.medium_count,
                     "weak_count": r.weak_count,
+                    "successful_count": r.successful_count,
+                    "failed_count": r.failed_count,
+                    "outcome_ratio": r.outcome_ratio,
+                    "distinct_lineages": r.distinct_lineages,
+                    "corroborated_kinds": r.corroborated_kinds,
+                    "freshness": r.freshness,
                     "breadth": r.breadth,
                     "recency_days": r.recency_days,
                     "frequency_90d": r.frequency_90d,

@@ -193,6 +193,26 @@ _POSTGRES_ALTERS: list[str] = [
     "CREATE INDEX IF NOT EXISTS ix_bg_jobs_dispatch_reap ON background_jobs (name, status, started_at)",
     "CREATE INDEX IF NOT EXISTS ix_bg_jobs_dispatch_pick ON background_jobs (name, status, created_at)",
     "CREATE INDEX IF NOT EXISTS ix_events_processed_occurred ON events (processed_at, occurred_at)",
+    # Slice 4F.3: expertise evidence & trust — provenance/outcome/lineage on
+    # the canonical evidence, trust facets + freshness on the expertise state.
+    "ALTER TABLE expertise_evidence ADD COLUMN IF NOT EXISTS evidence_kind VARCHAR(20) DEFAULT 'work'",
+    "ALTER TABLE expertise_evidence ADD COLUMN IF NOT EXISTS outcome VARCHAR(12) DEFAULT 'neutral'",
+    "ALTER TABLE expertise_evidence ADD COLUMN IF NOT EXISTS valid_from TIMESTAMPTZ",
+    "ALTER TABLE expertise_evidence ADD COLUMN IF NOT EXISTS valid_to TIMESTAMPTZ",
+    "ALTER TABLE expertise_evidence ADD COLUMN IF NOT EXISTS lineage_key VARCHAR(64)",
+    "ALTER TABLE expertise_evidence ADD COLUMN IF NOT EXISTS origin_event_id VARCHAR(32)",
+    "CREATE INDEX IF NOT EXISTS ix_expertise_evidence_lineage ON expertise_evidence (organization_id, lineage_key)",
+    "CREATE INDEX IF NOT EXISTS ix_expertise_evidence_origin ON expertise_evidence (origin_event_id)",
+    # 4F.3 outcome history: one action's success/failure/rollback must all
+    # remain visible; the old source-unique constraint (one row per source)
+    # collapsed that history, so it is dropped in favour of the event key.
+    "ALTER TABLE expertise_evidence DROP CONSTRAINT IF EXISTS uq_expertise_evidence_source",
+    "ALTER TABLE expertise ADD COLUMN IF NOT EXISTS successful_count INTEGER DEFAULT 0",
+    "ALTER TABLE expertise ADD COLUMN IF NOT EXISTS failed_count INTEGER DEFAULT 0",
+    "ALTER TABLE expertise ADD COLUMN IF NOT EXISTS outcome_ratio FLOAT",
+    "ALTER TABLE expertise ADD COLUMN IF NOT EXISTS distinct_lineages INTEGER DEFAULT 0",
+    "ALTER TABLE expertise ADD COLUMN IF NOT EXISTS corroborated_kinds INTEGER DEFAULT 0",
+    "ALTER TABLE expertise ADD COLUMN IF NOT EXISTS freshness VARCHAR(12) DEFAULT 'historical'",
 ]
 
 

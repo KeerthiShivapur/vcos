@@ -27,6 +27,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { Spinner } from "@/components/ui/Spinner";
 import { Avatar } from "@/components/ui/Avatar";
+import ExpertiseEvidencePanel from "@/components/people/ExpertiseEvidencePanel";
 import { formatDate, timeAgo } from "@/lib/utils";
 import { toastError, toastSuccess } from "@/components/ui/Toaster";
 
@@ -237,6 +238,7 @@ function ProfileContent() {
                         style={{ width: `${Math.round((score.score / maxScore) * 100)}%` }}
                       />
                     </div>
+                    <ExpertiseEvidencePanel personId={id} skill={score} />
                   </div>
                 ))}
               </div>

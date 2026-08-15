@@ -2994,16 +2994,20 @@ async def brain_expertise_search(
     scope_type: Optional[str] = Query(default=None, pattern="^(team|department|business_unit)$"),
     scope_id: Optional[str] = Query(default=None),
     limit: int = Query(default=20, ge=1, le=50),
+    recent_only: bool = Query(default=False),
     org: Organization = Depends(get_current_organization),
     user: User = Depends(require_permission("brain:read")),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Governed ranked expert discovery: expertise + confidence + recency +
-    evidence count + organizational scope — never keyword matching alone."""
+    evidence count + organizational scope — never keyword matching alone.
+    ``recent_only`` narrows to people with demonstrated evidence in the last
+    180 days (Slice 4F.3 "who has shown it recently" question)."""
     access = await _people_access(db, org, user)
     return await expertise_search.search(
         db, organization_id=org.id, access=access, query=q,
         scope_type=scope_type, scope_id=scope_id, limit=limit,
+        recent_only=recent_only,
     )
 
 
@@ -3178,6 +3182,39 @@ async def brain_people_skills_declare(
     }
 
 
+async def _resolve_state_skill(
+    db: AsyncSession, org: Organization, skill_id: str,
+) -> str:
+    """Slice 4F.3 — a skill reference may arrive as a canonical skill id (the
+    evidence engine) OR a legacy skill id (the profile/phase-2 surfaces); the
+    canonical cell is resolved deterministically, never guessed."""
+    from app.models.skills_intelligence import CanonicalSkill
+    from app.models.skill import Skill
+
+    canonical = (
+        await db.execute(
+            select(CanonicalSkill).where(
+                CanonicalSkill.organization_id == org.id, CanonicalSkill.id == skill_id
+            )
+        )
+    ).scalar_one_or_none()
+    if canonical is not None:
+        return canonical.id
+    legacy: Optional[Skill] = await db.get(Skill, skill_id)
+    if legacy is not None and legacy.organization_id == org.id:
+        aliased = (
+            await db.execute(
+                select(CanonicalSkill).where(
+                    CanonicalSkill.organization_id == org.id,
+                    CanonicalSkill.canonical_name == legacy.name,
+                )
+            )
+        ).scalar_one_or_none()
+        if aliased is not None:
+            return aliased.id
+    return skill_id
+
+
 @router.get("/people/{person_id}/expertise")
 async def brain_people_expertise(
     person_id: str,
@@ -3205,6 +3242,7 @@ async def brain_people_expertise_skill(
     + confidence + lifecycle."""
     access = await _people_access(db, org, user)
     await _require_visible_person(db, org, access, person_id)
+    skill_id = await _resolve_state_skill(db, org, skill_id)
     state = await expertise_engine.state(
         db, organization_id=org.id, person_id=person_id, skill_id=skill_id
     )
@@ -3226,6 +3264,7 @@ async def brain_people_expertise_evidence(
     id (task / document / decision / certificate / event)."""
     access = await _people_access(db, org, user)
     await _require_visible_person(db, org, access, person_id)
+    skill_id = await _resolve_state_skill(db, org, skill_id)
     state = await expertise_engine.state(
         db, organization_id=org.id, person_id=person_id, skill_id=skill_id
     )
@@ -3244,3 +3283,50 @@ async def brain_people_expertise_evidence(
         "evidence_total": len(items),
         "evidence": items,
     }
+
+
+@router.get("/people/{person_id}/expertise/{skill_id}/trust")
+async def brain_people_expertise_trust(
+    person_id: str,
+    skill_id: str,
+    limit: int = Query(default=50, ge=1, le=200),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4F.3 — the TRUST profile of one (person x skill) cell.
+
+    WHY VCOS believes it (evidence trail), WHAT supports it (kinds/sources),
+    HOW reliable it is (confidence, outcome validation), HOW recent it is
+    (freshness), WHAT corroborates it (independent lineages/kinds), and what
+    CONTRADICTS it (negative + expired evidence, never hidden)."""
+    access = await _people_access(db, org, user)
+    await _require_visible_person(db, org, access, person_id)
+    skill_id = await _resolve_state_skill(db, org, skill_id)
+    profile = await expertise_engine.trust(
+        db, organization_id=org.id, person_id=person_id, skill_id=skill_id,
+        limit=limit,
+    )
+    if profile is None:
+        raise HTTPException(status_code=404, detail="no expertise state for this skill")
+    return profile
+
+
+@router.get("/expertise/evidence/{evidence_id}")
+async def brain_expertise_evidence_item(
+    evidence_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4F.3 — one evidence item with full provenance (governed
+    drill-down: the item is only served when the subject person is visible
+    to the caller)."""
+    access = await _people_access(db, org, user)
+    item = await expertise_engine.evidence(
+        db, organization_id=org.id, evidence_id=evidence_id,
+    )
+    if item is None:
+        raise HTTPException(status_code=404, detail="evidence not found")
+    await _require_visible_person(db, org, access, item["person_id"])
+    return item

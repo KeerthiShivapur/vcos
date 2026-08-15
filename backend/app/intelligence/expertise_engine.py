@@ -52,7 +52,7 @@ from app.people.skill_engine import skill_engine, MAX_EXTRACT
 
 logger = logging.getLogger("vcos.intelligence.expertise")
 
-MODEL_VERSION = "4f2.1"
+MODEL_VERSION = "4f3.1"
 
 MAX_EVIDENCE_PER_CELL = 500   # bounded evidence load per recomputed cell
 DORMANT_DAYS = 270            # no observed evidence -> dormant
@@ -87,6 +87,99 @@ EVIDENCE_CLASS_BY_EVENT: dict[str, tuple[str, float]] = {
     "approval.approved": ("weak", 0.4),
     "knowledge.comment": ("weak", 0.3),
     "template.used": ("weak", 0.2),
+    # Slice 4F.3 — outcome-bearing operations evidence (infrastructure work).
+    # Successes and failures are BOTH first-class: a failed deployment writes
+    # negative evidence for the operator, most-strongly weighted.
+    "deployment.completed": ("strong", 1.0),
+    "deployment.promoted": ("strong", 0.95),
+    "disaster.recovery.recovered": ("strong", 0.95),
+    "cluster.recovered": ("strong", 0.9),
+    "backup.restored": ("strong", 0.9),
+    "workflow.completed": ("medium", 0.6),
+    "deployment.failed": ("strong", 1.0),
+    "deployment.rolled_back": ("strong", 0.95),
+    "backup.failed": ("medium", 0.6),
+    "replica.failed": ("medium", 0.6),
+    "workflow.failed": ("medium", 0.6),
+    "health.degraded": ("medium", 0.5),
+    "health.unhealthy": ("strong", 0.8),
+    "disaster.recovery.failover": ("medium", 0.55),
+    "approval.rejected": ("medium", 0.55),
+    "expense.rejected": ("weak", 0.35),
+    "purchase.rejected": ("weak", 0.35),
+}
+
+# Slice 4F.3 — canonical source taxonomy (evidence kinds for corroboration).
+# One event -> one kind; corroboration counts DISTINCT kinds with effective
+# evidence, so "work + knowledge + decision + recognition" corroborates far
+# more strongly than four observations of the same kind.
+EVIDENCE_KIND_BY_EVENT: dict[str, str] = {}
+for _event in (
+    "task.completed", "milestone.completed", "goal.completed",
+    "deployment.completed", "deployment.promoted", "deployment.failed",
+    "deployment.rolled_back", "backup.restored", "backup.failed",
+    "replica.failed", "workflow.completed", "workflow.failed",
+    "health.degraded", "health.unhealthy",
+    "disaster.recovery.recovered", "disaster.recovery.failover",
+    "cluster.recovered",
+):
+    EVIDENCE_KIND_BY_EVENT[_event] = "work"
+for _event in (
+    "document.created", "wiki.created", "document.updated", "wiki.updated",
+    "template.used", "knowledge.comment", "innovation.submitted",
+):
+    EVIDENCE_KIND_BY_EVENT[_event] = "knowledge"
+for _event in (
+    "decision.made", "decision.executed", "decision.implemented",
+    "policy.approved", "approval.approved", "approval.rejected",
+    "expense.rejected", "purchase.rejected",
+):
+    EVIDENCE_KIND_BY_EVENT[_event] = "decision"
+for _event in ("meeting.ended", "community.posted", "forum.replied"):
+    EVIDENCE_KIND_BY_EVENT[_event] = "communication"
+EVIDENCE_KIND_BY_EVENT["recognition.given"] = "recognition"
+for _event in (
+    "course.completed", "certificate.earned", "assessment.finished",
+    "learning.path.completed",
+):
+    EVIDENCE_KIND_BY_EVENT[_event] = "learning"
+
+# Slice 4F.3 — outcome signals. "neutral" is a mention/participation without
+# a proven outcome; "successful" is proven by completion/delivery/recovery;
+# "failed" is a contradiction (a failed deployment, a rejected approval).
+EVIDENCE_OUTCOME_BY_EVENT: dict[str, str] = {
+    "task.completed": "successful",
+    "milestone.completed": "successful",
+    "goal.completed": "successful",
+    "document.created": "successful",
+    "wiki.created": "successful",
+    "decision.made": "successful",
+    "decision.executed": "successful",
+    "decision.implemented": "successful",
+    "policy.approved": "successful",
+    "approval.approved": "successful",
+    "course.completed": "successful",
+    "certificate.earned": "successful",
+    "assessment.finished": "successful",
+    "learning.path.completed": "successful",
+    "recognition.given": "successful",
+    "deployment.completed": "successful",
+    "deployment.promoted": "successful",
+    "cluster.recovered": "successful",
+    "backup.restored": "successful",
+    "workflow.completed": "successful",
+    "disaster.recovery.recovered": "successful",
+    "deployment.failed": "failed",
+    "deployment.rolled_back": "failed",
+    "backup.failed": "failed",
+    "replica.failed": "failed",
+    "workflow.failed": "failed",
+    "health.degraded": "failed",
+    "health.unhealthy": "failed",
+    "disaster.recovery.failover": "failed",
+    "approval.rejected": "failed",
+    "expense.rejected": "failed",
+    "purchase.rejected": "failed",
 }
 
 # Lifecycle thresholds (deterministic; documented in SLICE4F2 report).
@@ -135,19 +228,38 @@ def _class_for(event_name: str, points: Optional[float]) -> tuple[str, float]:
     return ("weak", 0.3)
 
 
+def _taxonomy_for(
+    event_name: str, points: Optional[float],
+) -> tuple[str, float, str, str]:
+    """Deterministic (strength, weight, kind, outcome) for an event.
+    Missing entries fall back to the legacy class mapping with kind ``work``
+    and no outcome signal (``neutral``) — never guessed."""
+    strength, weight = _class_for(event_name, points)
+    kind = EVIDENCE_KIND_BY_EVENT.get(event_name, "work")
+    outcome = EVIDENCE_OUTCOME_BY_EVENT.get(event_name, "neutral")
+    return strength, weight, kind, outcome
+
+
 def _lifecycle(
     score: float, evidence_count: int, strong_count: int,
     credible_count: int, confidence: float, last_observed: Optional[datetime],
-    now: datetime,
+    now: datetime, outcome_validation: float = 1.0,
 ) -> str:
     """Deterministic lifecycle: observed -> emerging -> established -> strong
     -> authoritative; inactivity (DORMANT_DAYS) -> dormant. Weak-only cells
-    are hard-capped at emerging: no credible evidence, no trust."""
+    are hard-capped at emerging: no credible evidence, no trust. A material
+    share of failed outcomes (outcome_validation < 0.6) hard-caps the cell at
+    established: contradicting evidence is never ignored."""
     if last_observed is not None and _safe_diff_days(now, last_observed) > DORMANT_DAYS:
         return "dormant"
     # Weak mentions alone (no strong or medium evidence) never leave emerging.
     if evidence_count > 0 and strong_count == 0 and credible_count == 0:
         return "emerging"
+    # Contradicting outcomes cap trust: failed evidence can never be bundled
+    # into an authoritative claim.
+    if outcome_validation < 0.6:
+        score = min(score, 34.0)
+        confidence = min(confidence, 0.59)
     for min_score, min_evidence, min_strong, min_credible, min_conf, lifecycle in LIFECYCLE_RULES:
         if (score >= min_score and evidence_count >= min_evidence
                 and strong_count >= min_strong and credible_count >= min_credible
@@ -161,67 +273,154 @@ def _lifecycle(
 def _dimensions(
     rows: list[ExpertiseEvidence], now: datetime,
 ) -> dict[str, Any]:
-    """Deterministic dimension math for one (person x skill) cell."""
+    """Deterministic dimension math for one (person x skill) cell.
+
+    Evidence INDEPENDENCE (Slice 4F.3): rows from the same underlying action
+    (lineage_key) within the same kind are counted once — the strongest row
+    of the group wins — so a derived cascade can never inflate trust. Expired
+    claims (valid_to passed) are excluded from current math but remain in
+    lineage history. Outcome signals deflate score/confidence deterministically
+    when failures are material; corroboration rewards INDEPENDENT kinds.
+    """
+    active = [
+        r for r in rows
+        if r.valid_to is None
+        or (r.valid_to is not None and ensure_aware(r.valid_to) > now)
+    ]
+    expired_count = len(rows) - len(active)
+    rows = active[:MAX_EVIDENCE_PER_CELL]
     count = len(rows)
     if count == 0:
-        return {"score": 0.0, "confidence": 0.0, "depth": 0.0, "breadth": 0}
+        return {
+            "score": 0.0, "confidence": 0.0, "depth": 0.0, "breadth": 0,
+            "successful_count": 0, "failed_count": 0, "outcome_ratio": None,
+            "outcome_validation": 1.0, "corroboration": 0.0,
+            "distinct_lineages": 0, "corroborated_kinds": 0,
+            "evidence_count": 0, "strong_count": 0, "medium_count": 0,
+            "weak_count": 0, "frequency": 0, "span_days": 0,
+            "first_observed": None, "last_observed": None,
+            "lifecycle": "none", "deduplicated_count": 0, "recency": 0.0,
+            "consistency": 0.0, "authority": 0.0, "sufficiency": 0.0,
+            "freshness": "historical", "expired_count": expired_count,
+        }
 
-    strong_w = sum(r.weight for r in rows if r.strength == "strong")
-    medium_w = sum(r.weight for r in rows if r.strength == "medium")
-    weak_w = sum(r.weight for r in rows if r.strength == "weak")
+    # One underlying action -> the strongest row per (lineage_key, kind).
+    best: dict[tuple[str, str], ExpertiseEvidence] = {}
+    for r in rows:
+        key = (r.lineage_key or r.event_id or r.id, r.evidence_kind)
+        current = best.get(key)
+        if current is None or r.weight > current.weight:
+            best[key] = r
+    effective = list(best.values())
+    deduplicated = count - len(effective)
+
+    strong_w = sum(r.weight for r in effective if r.strength == "strong")
+    medium_w = sum(r.weight for r in effective if r.strength == "medium")
+    weak_w = sum(r.weight for r in effective if r.strength == "weak")
     total_w = strong_w + medium_w + weak_w
     weighted = strong_w + medium_w * 0.55 + weak_w * 0.2
-    strong_count = sum(1 for r in rows if r.strength == "strong")
-    medium_count = sum(1 for r in rows if r.strength == "medium")
-    weak_count = sum(1 for r in rows if r.strength == "weak")
+    strong_count = sum(1 for r in effective if r.strength == "strong")
+    medium_count = sum(1 for r in effective if r.strength == "medium")
+    weak_count = sum(1 for r in effective if r.strength == "weak")
 
-    occurred = sorted((r.occurred_at for r in rows), key=ensure_aware)
+    successful_count = sum(1 for r in effective if r.outcome == "successful")
+    failed_count = sum(1 for r in effective if r.outcome == "failed")
+    outcome_ratio = (
+        successful_count / (successful_count + failed_count)
+        if (successful_count + failed_count) > 0 else None
+    )
+    # outcome_validation: how much the sample PROVES the claim.
+    if outcome_ratio is None:
+        outcome_validation = 1.0
+    elif outcome_ratio >= 0.8:
+        outcome_validation = 1.0
+    elif outcome_ratio >= 0.4:
+        outcome_validation = outcome_ratio
+    else:
+        outcome_validation = 0.2
+
+    occurred = sorted(
+        (r.occurred_at for r in effective), key=ensure_aware
+    )
     first_observed = occurred[0]
     last_observed = occurred[-1]
     days_since = _safe_diff_days(now, last_observed)
     span_days = _safe_diff_days(last_observed, first_observed)
     recent_count = sum(
-        1 for r in rows if _safe_diff_days(now, r.occurred_at) <= RECENT_DAYS
+        1 for r in effective if _safe_diff_days(now, r.occurred_at) <= RECENT_DAYS
     )
 
     depth = _clamp(weighted / STRONG_UNIT_WEIGHT, 0.0, 1.0)
-    breadth = min(4.0, float(len({r.source_type for r in rows}))) / 4.0
+    breadth = min(4.0, float(len({r.source_type for r in effective}))) / 4.0
     recency = _clamp(1.0 - days_since / 730.0, 0.0, 1.0)
     frequency = _clamp(recent_count / 6.0, 0.0, 1.0)
-    consistency = _clamp(span_days / 540.0, 0.0, 1.0) if count >= 2 else 0.0
+    consistency = _clamp(span_days / 540.0, 0.0, 1.0) if len(effective) >= 2 else 0.0
     authority = _clamp(strong_w / total_w, 0.0, 1.0) if total_w > 0 else 0.0
-    sufficiency = _clamp(count / 10.0, 0.0, 1.0)
+    sufficiency = _clamp(len(effective) / 10.0, 0.0, 1.0)
 
+    # corroboration: distinct INDEPENDENT kinds (<= 5 contributing kinds).
+    kinds = {r.evidence_kind for r in effective}
+    corroborated_kinds = len(kinds)
+    corroboration = _clamp(corroborated_kinds / 5.0, 0.0, 1.0)
+    distinct_lineages = len({r.lineage_key or r.id for r in effective})
+
+    # confidence v2 (Slice 4F.3): authority + sufficiency + recency +
+    # consistency + strong share + CORROBORATION + OUTCOME VALIDATION.
+    # Weights documented in the 4F.3 report; sum to 1.0.
     confidence = _clamp(
-        0.30 * authority + 0.25 * sufficiency + 0.20 * recency
-        + 0.15 * consistency + 0.10 * strong_count / max(1, count),
+        0.25 * authority + 0.20 * sufficiency + 0.15 * recency
+        + 0.12 * consistency + 0.08 * strong_count / max(1, len(effective))
+        + 0.10 * corroboration + 0.10 * outcome_validation,
         0.0, 0.97,
     )
+    # outcome gate: failed evidence deflates the score deterministically only
+    # when it is material; a clean record is never punished.
+    if failed_count > 0 and outcome_ratio is not None and outcome_ratio < 0.8:
+        outcome_gate = 0.55 + 0.45 * outcome_ratio
+    else:
+        outcome_gate = 1.0
     score = (
         100.0
         * (0.45 * depth + 0.20 * breadth + 0.15 * recency
            + 0.10 * frequency + 0.10 * consistency)
         * (0.7 + 0.3 * authority)
+        * outcome_gate
     )
+    if days_since <= RECENT_DAYS:
+        freshness = "active"
+    elif days_since <= 365:
+        freshness = "recent"
+    else:
+        freshness = "historical"
     lifecycle = _lifecycle(
-        score, count, strong_count, strong_count + medium_count,
-        confidence, last_observed, now,
+        score, len(effective), strong_count, strong_count + medium_count,
+        confidence, last_observed, now, outcome_validation,
     )
 
     return {
         "score": round(score, 1),
         "confidence": round(confidence, 3),
         "depth": round(depth, 3),
-        "breadth": int(len({r.source_type for r in rows})),
+        "breadth": int(len({r.source_type for r in effective})),
         "recency": round(recency, 3),
         "frequency": int(recent_count),
         "consistency": round(consistency, 3),
         "authority": round(authority, 3),
         "sufficiency": round(sufficiency, 3),
-        "evidence_count": count,
+        "evidence_count": len(effective),
         "strong_count": strong_count,
         "medium_count": medium_count,
         "weak_count": weak_count,
+        "successful_count": successful_count,
+        "failed_count": failed_count,
+        "outcome_ratio": round(outcome_ratio, 3) if outcome_ratio is not None else None,
+        "outcome_validation": round(outcome_validation, 3),
+        "corroboration": round(corroboration, 3),
+        "corroborated_kinds": corroborated_kinds,
+        "distinct_lineages": distinct_lineages,
+        "deduplicated_count": deduplicated,
+        "expired_count": expired_count,
+        "freshness": freshness,
         "first_observed": first_observed,
         "last_observed": last_observed,
         "span_days": span_days,
@@ -246,12 +445,18 @@ class ExpertiseEngine:
         source_type: Optional[str] = None,
         source_id: Optional[str] = None,
         source_title: Optional[str] = None,
+        outcome: Optional[str] = None,
+        origin_event_id: Optional[str] = None,
+        lineage_key: Optional[str] = None,
+        valid_to: Optional[datetime] = None,
     ) -> list[ExpertiseHistory]:
         """Legacy signature preserved: every existing handler keeps working.
         The canonical pipeline now runs underneath (evidence first, exact
         classes, recompute only affected cells, legacy mirror afterwards).
         ``source_type``/``source_id``/``source_title`` are optional lineage
-        overrides (Slice 4F.2 handlers pass real canonical ids)."""
+        overrides (Slice 4F.2 handlers pass real canonical ids). Slice 4F.3
+        adds explicit outcome / ancestry (``origin_event_id``, ``lineage_key``
+        — for the trust model and the double-count guard)."""
         employee = await db.get(Employee, employee_id)
         if employee is None or employee.organization_id != organization_id:
             return []
@@ -269,6 +474,10 @@ class ExpertiseEngine:
             source_type=source_type or event_name.split(".")[0] or "event",
             source_id=source_id or event_id or f"event-{event_name}",
             source_title=source_title or reason or describe(event_name),
+            outcome=outcome,
+            origin_event_id=origin_event_id,
+            lineage_key=lineage_key,
+            valid_to=valid_to,
         )
 
     async def record_evidence(
@@ -287,6 +496,10 @@ class ExpertiseEngine:
         source_title: Optional[str] = None,
         occurred_at: Optional[datetime] = None,
         topic_id: Optional[str] = None,
+        outcome: Optional[str] = None,
+        origin_event_id: Optional[str] = None,
+        lineage_key: Optional[str] = None,
+        valid_to: Optional[datetime] = None,
     ) -> list[ExpertiseHistory]:
         """Canonical entry point with explicit source lineage (the 4F.2 path)."""
         employee = await db.get(Employee, employee_id)
@@ -307,6 +520,10 @@ class ExpertiseEngine:
             source_title=source_title,
             occurred_at=occurred_at,
             topic_id=topic_id,
+            outcome=outcome,
+            origin_event_id=origin_event_id,
+            lineage_key=lineage_key,
+            valid_to=valid_to,
         )
 
     # ------------------------------------------------------------------ pipeline
@@ -318,6 +535,8 @@ class ExpertiseEngine:
         event_id: Optional[str], points: Optional[float],
         source_type: str, source_id: str, source_title: Optional[str],
         occurred_at: Optional[datetime] = None, topic_id: Optional[str] = None,
+        outcome: Optional[str] = None, origin_event_id: Optional[str] = None,
+        lineage_key: Optional[str] = None, valid_to: Optional[datetime] = None,
     ) -> list[ExpertiseHistory]:
         """Change-driven: resolve the person's canonical skills for this
         event, write exact-once evidence, recompute the affected cells only,
@@ -330,7 +549,7 @@ class ExpertiseEngine:
             db, organization_id=organization_id
         )
 
-        strength, _weight = _class_for(event_name, points)
+        strength, _weight, kind, default_outcome = _taxonomy_for(event_name, points)
 
         # 1. bounded deterministic extraction
         matched = await skill_engine.resolve_candidates(
@@ -341,6 +560,11 @@ class ExpertiseEngine:
             return []
 
         now = occurred_at or utcnow()
+        effective_outcome = outcome or default_outcome
+        effective_lineage = (
+            lineage_key or origin_event_id or event_id
+            or f"{source_type}:{source_id}"
+        )
         history: list[ExpertiseHistory] = []
         changed: list[ExpertiseState] = []
         for skill in matched[:MAX_EXTRACT]:
@@ -358,6 +582,12 @@ class ExpertiseEngine:
                     evidence_type=event_name,
                     strength=strength,
                     weight=_weight,
+                    evidence_kind=kind,
+                    outcome=effective_outcome,
+                    valid_from=now,
+                    valid_to=valid_to,
+                    lineage_key=effective_lineage,
+                    origin_event_id=origin_event_id,
                     source_type=source_type,
                     source_id=source_id,
                     source_title=source_title,
@@ -513,6 +743,12 @@ class ExpertiseEngine:
         state.strong_count = dims["strong_count"]
         state.medium_count = dims["medium_count"]
         state.weak_count = dims["weak_count"]
+        state.successful_count = dims["successful_count"]
+        state.failed_count = dims["failed_count"]
+        state.outcome_ratio = dims["outcome_ratio"]
+        state.distinct_lineages = dims["distinct_lineages"]
+        state.corroborated_kinds = dims["corroborated_kinds"]
+        state.freshness = dims["freshness"]
         state.breadth = dims["breadth"]
         state.depth = dims["depth"]
         state.recency_days = (
@@ -538,8 +774,19 @@ class ExpertiseEngine:
             "strong": dims["strong_count"],
             "medium": dims["medium_count"],
             "weak": dims["weak_count"],
+            "successful": dims["successful_count"],
+            "failed": dims["failed_count"],
+            "outcome_ratio": dims["outcome_ratio"],
+            "outcome_validation": dims["outcome_validation"],
+            "corroboration": dims["corroboration"],
+            "corroborated_kinds": dims["corroborated_kinds"],
+            "distinct_lineages": dims["distinct_lineages"],
+            "deduplicated_count": dims["deduplicated_count"],
+            "expired_count": dims["expired_count"],
+            "freshness": dims["freshness"],
             "span_days": dims["span_days"],
             "evidence_types": sorted({r.source_type for r in rows}),
+            "evidence_kinds": sorted({r.evidence_kind for r in rows}),
         }
         state.model_version = MODEL_VERSION
         state.updated_at = now
@@ -562,6 +809,17 @@ class ExpertiseEngine:
                 )
             )
         ).scalar_one_or_none()
+        if legacy is None:
+            # Slice 4F.3 — an evidence-driven org may never have touched the
+            # legacy skill surface; create the mirror row so Phase-2 pages
+            # always show the same experts the brain trusts.
+            legacy = Skill(
+                organization_id=organization_id,
+                name=skill.canonical_name,
+                category=getattr(skill, "category", None),
+            )
+            db.add(legacy)
+            await db.flush()
         state = (
             await db.execute(
                 select(ExpertiseState).where(
@@ -704,6 +962,12 @@ class ExpertiseEngine:
             "strong_count": row.strong_count,
             "medium_count": row.medium_count,
             "weak_count": row.weak_count,
+            "successful_count": row.successful_count,
+            "failed_count": row.failed_count,
+            "outcome_ratio": row.outcome_ratio,
+            "distinct_lineages": row.distinct_lineages,
+            "corroborated_kinds": row.corroborated_kinds,
+            "freshness": row.freshness,
             "breadth": row.breadth,
             "depth": row.depth,
             "recency_days": row.recency_days,
@@ -714,6 +978,128 @@ class ExpertiseEngine:
             "factors": row.factors,
             "model_version": row.model_version,
         }
+
+    async def trust(
+        self, db: AsyncSession, *, organization_id: str, person_id: str,
+        skill_id: str, limit: int = 50,
+    ) -> Optional[dict[str, Any]]:
+        """Slice 4F.3 — the trust profile of one (person x skill) cell.
+
+        Answers: WHY does VCOS believe it, WHAT evidence supports it, HOW
+        reliable is it (confidence + outcome validation), HOW recent is it
+        (freshness), WHO corroborates it (independent kinds/lineages), and
+        what CONTRADICTS it (negative + expired evidence — never hidden)."""
+        base = await self.state(
+            db, organization_id=organization_id, person_id=person_id,
+            skill_id=skill_id,
+        )
+        if base is None:
+            return None
+        employee = await db.get(Employee, person_id)
+        items = await self.lineage(
+            db, organization_id=organization_id, person_id=person_id,
+            skill_id=skill_id, limit=limit,
+        )
+        contradictions = [
+            e for e in items
+            if e["outcome"] == "failed" or e["expired"]
+        ]
+        by_kind: dict[str, int] = {}
+        by_source: dict[str, int] = {}
+        recent_days = 180
+        for e in items:
+            by_kind[e["evidence_kind"]] = by_kind.get(e["evidence_kind"], 0) + 1
+            by_source[e["source_type"]] = by_source.get(e["source_type"], 0) + 1
+        recent = []
+        recent_count = 0
+        for e in items:
+            if e["occurred_at"] is None:
+                continue
+            age_days = max(
+                0, (ensure_aware(utcnow()) - ensure_aware(
+                    datetime.fromisoformat(e["occurred_at"])
+                )).days
+            )
+            if age_days <= recent_days:
+                recent_count += 1
+                recent.append(e)
+        return {
+            **base,
+            "trust": True,
+            "person_name": (
+                employee.display_name
+                or f"{employee.first_name} {employee.last_name or ''}".strip()
+            ) if employee is not None and employee.organization_id == organization_id
+            else None,
+            "evidence_total": len(items),
+            "evidence_by_kind": by_kind,
+            "evidence_by_source": by_source,
+            "recent_evidence": [e for e in recent[:20]],
+            "recent_evidence_count": recent_count,
+            "recent_evidence_days": recent_days,
+            "contradictions": contradictions[:20],
+            "contradiction_count": len(contradictions),
+        }
+
+    async def evidence(
+        self, db: AsyncSession, *, organization_id: str, evidence_id: str,
+    ) -> Optional[dict[str, Any]]:
+        """One evidence item with full provenance (governed drill-down)."""
+        row = await db.get(ExpertiseEvidence, evidence_id)
+        if row is None or row.organization_id != organization_id:
+            return None
+        skill = await db.get(CanonicalSkill, row.skill_id)
+        return {
+            "evidence_id": row.id,
+            "person_id": row.person_id,
+            "skill_id": row.skill_id,
+            "skill_name": skill.canonical_name if skill else row.skill_id,
+            "evidence_type": row.evidence_type,
+            "evidence_kind": row.evidence_kind,
+            "strength": row.strength,
+            "weight": row.weight,
+            "outcome": row.outcome,
+            "source_type": row.source_type,
+            "source_id": row.source_id,
+            "source_title": row.source_title,
+            "detail": row.detail,
+            "event_id": row.event_id,
+            "origin_event_id": row.origin_event_id,
+            "lineage_key": row.lineage_key,
+            "valid_from": row.valid_from.isoformat() if row.valid_from else None,
+            "valid_to": row.valid_to.isoformat() if row.valid_to else None,
+            "expired": (
+                row.valid_to is not None
+                and ensure_aware(row.valid_to) <= utcnow()
+            ),
+            "occurred_at": row.occurred_at.isoformat() if row.occurred_at else None,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+
+    async def expire_source(
+        self, db: AsyncSession, *, organization_id: str,
+        source_type: str, source_id: str, valid_to: Optional[datetime] = None,
+    ) -> int:
+        """Expire every currently-valid evidence item of one canonical source
+        (e.g. a deployment that got rolled back): the claim loses its validity
+        window but stays visible as history in lineage/trust surfaces."""
+        rows = list(
+            (
+                await db.execute(
+                    select(ExpertiseEvidence).where(
+                        ExpertiseEvidence.organization_id == organization_id,
+                        ExpertiseEvidence.source_type == source_type,
+                        ExpertiseEvidence.source_id == source_id,
+                        ExpertiseEvidence.valid_to.is_(None),
+                    )
+                )
+            ).scalars().all()
+        )
+        at = valid_to or utcnow()
+        for row in rows:
+            row.valid_to = at
+        await db.flush()
+        return len(rows)
 
     async def lineage(
         self, db: AsyncSession, *, organization_id: str, person_id: str,
@@ -749,14 +1135,24 @@ class ExpertiseEngine:
             {
                 "evidence_id": r.id,
                 "evidence_type": r.evidence_type,
+                "evidence_kind": r.evidence_kind,
                 "strength": r.strength,
                 "weight": r.weight,
+                "outcome": r.outcome,
                 "source_type": r.source_type,
                 "source_id": r.source_id,
                 "source_title": r.source_title,
                 "topic": topic_names.get(r.topic_id) if r.topic_id else None,
                 "detail": r.detail,
                 "event_id": r.event_id,
+                "origin_event_id": r.origin_event_id,
+                "lineage_key": r.lineage_key,
+                "valid_from": r.valid_from.isoformat() if r.valid_from else None,
+                "valid_to": r.valid_to.isoformat() if r.valid_to else None,
+                "expired": (
+                    r.valid_to is not None
+                    and ensure_aware(r.valid_to) <= utcnow()
+                ),
                 "occurred_at": r.occurred_at.isoformat() if r.occurred_at else None,
             }
             for r in rows

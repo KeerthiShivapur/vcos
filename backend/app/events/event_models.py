@@ -380,6 +380,25 @@ EXPERTISE_EVENTS: dict[str, tuple[float, str]] = {
     "decision.implemented": (2.0, "Implemented a decision"),
     "template.used": (0.5, "Used a template"),
     "approval.approved": (0.5, "Approved a request"),
+    # Slice 4F.3 — ops / decision / goal evidence feeds the trust model with
+    # explicit outcome signals; failures always deflate, never invent.
+    "approval.rejected": (-0.5, "Approval was rejected"),
+    "goal.completed": (2.0, "Completed a goal"),
+    "deployment.completed": (2.0, "Deployment succeeded"),
+    "deployment.promoted": (2.0, "Deployment promoted"),
+    "deployment.failed": (-1.0, "Deployment failed"),
+    "deployment.rolled_back": (-1.0, "Deployment was rolled back"),
+    "backup.completed": (1.5, "Backup completed"),
+    "backup.failed": (-1.0, "Backup failed"),
+    "backup.restored": (1.5, "Backup restored"),
+    "replica.failed": (-1.0, "Replica failed"),
+    "cluster.recovered": (2.0, "Cluster recovered"),
+    "workflow.completed": (1.5, "Workflow completed"),
+    "workflow.failed": (-1.0, "Workflow failed"),
+    "health.degraded": (-0.5, "Health degraded"),
+    "health.unhealthy": (-1.0, "Health unhealthy"),
+    "disaster.recovery.recovered": (3.0, "Disaster recovery recovered"),
+    "disaster.recovery.failover": (-1.0, "Disaster recovery failover"),
 }
 
 # Events that create organization graph edges.

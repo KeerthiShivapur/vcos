@@ -97,6 +97,22 @@ EXPERTISE_LIFECYCLE = (
 
 EVIDENCE_STRENGTHS = ("strong", "medium", "weak")
 
+# Slice 4F.3 — the canonical evidence KIND taxonomy (source classification for
+# corroboration; the user-facing hierarchy is documented in the 4F.3 report):
+# work / knowledge / decision / communication / recognition / learning /
+# operations. Corroboration counts DISTINCT kinds, and an assessment is
+# "corroborated" when multiple INDEPENDENT source classes agree.
+EVIDENCE_KINDS = (
+    "work", "knowledge", "decision", "communication", "recognition",
+    "learning", "operations",
+)
+
+# Outcome signals: successful (proven by outcome), failed (contradicting),
+# neutral (mentions / participation — no outcome either way). Failed evidence
+# is negative evidence: it deflates score/confidence deterministically and is
+# never hidden from the trust profile.
+EVIDENCE_OUTCOMES = ("successful", "failed", "neutral")
+
 # Evidence source types (canonical source ids are stored alongside so every
 # claim can answer "why does VCOS believe this?").
 EVIDENCE_SOURCE_TYPES = (
@@ -263,6 +279,22 @@ class Expertise(Base):
     strong_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     medium_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     weak_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Slice 4F.3 — trust facets:
+    #   successful_count / failed_count   outcome signals (effective evidence)
+    #   outcome_ratio                     successful/(successful+failed) or None
+    #   distinct_lineages                 INDEPENDENT underlying actions (one
+    #                                     action counted once per kind) — the
+    #                                     double-count guard
+    #   corroborated_kinds                distinct evidence kinds present
+    #                                     (work/knowledge/decision/...)
+    #   freshness                         active (<=90d) | recent (<=365d) |
+    #                                     historical (>365d) since last evidence
+    successful_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    failed_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    outcome_ratio: Mapped[Optional[float]] = mapped_column(Float)
+    distinct_lineages: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    corroborated_kinds: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    freshness: Mapped[str] = mapped_column(String(12), default="historical", nullable=False)
     # breadth: distinct evidence source types
     breadth: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     # depth: quality-weighted strong+medium evidence mass (0..1)
@@ -280,7 +312,7 @@ class Expertise(Base):
     last_observed: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), index=True)
     # deterministic component breakdown (the "no single magic number" answer)
     factors_json: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
-    model_version: Mapped[str] = mapped_column(String(16), default="4f2.1", nullable=False)
+    model_version: Mapped[str] = mapped_column(String(16), default="4f3.1", nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
     @property
@@ -306,13 +338,14 @@ class ExpertiseEvidence(Base):
 
     __tablename__ = "expertise_evidence"
     __table_args__ = (
+        # Replay exact-once by EVENT: one canonical event -> one row per skill.
+        # Slice 4F.3: a single ACTION with several outcomes (deployment.completed
+        # -> deployment.failed -> deployment.rolled_back) must keep ALL its
+        # history rows — success/contradiction/expiry are never collapsed, so
+        # there is no source-unique constraint (distinct events, distinct rows).
         UniqueConstraint(
             "organization_id", "person_id", "event_id", "skill_id",
             name="uq_expertise_evidence_event",
-        ),
-        UniqueConstraint(
-            "organization_id", "person_id", "source_type", "source_id", "skill_id",
-            name="uq_expertise_evidence_source",
         ),
         Index("ix_expertise_evidence_org_skill", "organization_id", "skill_id"),
         Index("ix_expertise_evidence_org_person", "organization_id", "person_id"),
@@ -332,6 +365,28 @@ class ExpertiseEvidence(Base):
     # strong | medium | weak
     strength: Mapped[str] = mapped_column(String(12), nullable=False)
     weight: Mapped[float] = mapped_column(Float, default=0.5, nullable=False)
+    # Slice 4F.3 — provenance & trust:
+    #   evidence_kind   the canonical source class (work / knowledge /
+    #                   decision / communication / recognition / learning /
+    #                   operations) used for corroboration,
+    #   outcome         successful (proven) | failed (contradicting) |
+    #                   neutral (mention / participation),
+    #   valid_from/to   the validity window of this claim (a rolled-back
+    #                   deployment EXPIRES its earlier successful evidence);
+    #                   expired items stay visible in lineage as history but
+    #                   never feed current scoring,
+    #   lineage_key     the underlying ACTION identity (origin event id or a
+    #                   canonical action id like a deployment id) — one action
+    #                   counted once per kind, so derived cascades can never
+    #                   inflate evidence (independent sources only),
+    #   origin_event_id the event this evidence derives from when ancestry is
+    #                   known (double-count prevention).
+    evidence_kind: Mapped[str] = mapped_column(String(20), default="work", nullable=False)
+    outcome: Mapped[str] = mapped_column(String(12), default="neutral", nullable=False)
+    valid_from: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    valid_to: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    lineage_key: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    origin_event_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
     source_type: Mapped[str] = mapped_column(String(32), nullable=False)
     source_id: Mapped[str] = mapped_column(String(32), nullable=False)
     source_title: Mapped[Optional[str]] = mapped_column(String(300))
