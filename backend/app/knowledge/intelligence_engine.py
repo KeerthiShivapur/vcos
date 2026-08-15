@@ -101,15 +101,24 @@ _FRESH_OK = frozenset({"very_high", "high", "medium"})
 
 # intent routing for the universal knowledge query (deterministic keywords)
 _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
+    # Slice 4E.7 — the company-level loop surfaces route FIRST so the company
+    # meaning wins over the knowledge-only meaning ("what changed in the
+    # company since yesterday" is company change, not claim change).
+    ("company_changes", ("changed overnight", "changed in the company", "company changes", "changed since yesterday")),
+    ("learned", ("what did we learn", "what have we learned", "did we learn", "lessons learned", "what should the company remember", "what did the company learn")),
+    ("why", ("why is", "why are", "why did", "why was", "is at risk", "at risk", "explain why")),
     ("affected", ("which projects are affected", "projects are affected", "who is affected", "what is affected", "whom does")),
     ("changes", ("what changed", "since", "changed in our understanding", "when did", "evolution")),
     ("impact", ("impact", "affected", "affect", "what else", "depends on", "dependent")),
     ("gaps", ("don't know", "don t know", "missing", "gaps", "stale", "outdated", "unverified", "undocumented")),
     ("contradictions", ("uncertain", "uncertainty", "conflict", "contradict", "inconsistent")),
     ("ownership", ("who owns", "owner of", "accountable for")),
+    ("companyhealth", ("company health", "how healthy is the company", "is the company healthy", "how is the company doing")),
     ("health", ("health", "healthy", "how are we doing")),
+    ("should", ("should we launch", "should we enter", "should we invest", "should we expand", "should we hire", "should we do this")),
     ("worry", ("should i worry", "worry", "emerging risk", "concern")),
     ("decide", ("needs a decision", "needs our decision", "decision needed", "should leadership decide")),
+    ("decisions", ("which decisions", "decision quality", "decision performance", "expected vs actual", "decisions are causing", "how good are our decisions")),
     ("next", ("should i do next", "should we do next", "next action", "what should we do next")),
     ("recommendations", ("recommend", "improve", "prioritize")),
     ("missing", ("what are we missing", "are we missing", "what critical information")),
@@ -1865,6 +1874,164 @@ class IntelligenceEngine:
                 **result,
                 "question": question,
                 "intent": intent,
+                "generated_at": _utcnow_iso(),
+            }
+        # --------------------------------------------------- Slice 4E.7 loop
+        if intent == "company_changes":
+            from app.knowledge.learning_engine import learning_engine
+
+            result = await learning_engine.company_changes(
+                db, organization_id=organization_id, since_hours=24, user=user,
+            )
+            return {**result, "question": question, "generated_at": _utcnow_iso()}
+        if intent == "learned":
+            from app.knowledge.learning_engine import learning_engine
+
+            result = await learning_engine.learning_feed(
+                db, organization_id=organization_id, user=user, limit=limit,
+            )
+            return {**result, "question": question, "generated_at": _utcnow_iso()}
+        if intent == "companyhealth":
+            from app.knowledge.learning_engine import learning_engine
+
+            result = await learning_engine.company_health(
+                db, organization_id=organization_id, user=user,
+            )
+            return {**result, "question": question, "generated_at": _utcnow_iso()}
+        if intent in ("why", "should", "decisions"):
+            from app.models.company_actions import CompanyAction
+            from app.models.organizational_learning import DecisionOutcome, OrganizationalLearning
+
+            access = await self._access(db, organization_id=organization_id, user=user)
+            if intent == "why":
+                # find the best-matching subject: an action first, then a topic.
+                action_rows = list(
+                    (
+                        await db.execute(
+                            select(CompanyAction)
+                            .where(CompanyAction.organization_id == organization_id)
+                            .order_by(CompanyAction.updated_at.desc())
+                            .limit(_MAX_TOPICS_SCAN)
+                        )
+                    ).scalars().all()
+                )
+                q_tokens = tokens(question)
+                best: Optional[tuple[str, str, str]] = None
+                best_score = 0
+                for action in action_rows:
+                    label = f"{action.title} {action.why or ''} {action.source_problem or ''}"
+                    overlap = len(q_tokens & tokens(label))
+                    if overlap > best_score:
+                        best_score = overlap
+                        best = ("action", action.id, action.title)
+                if best is None or best_score < 1:
+                    scanned = await self._scan_topics(
+                        db, organization_id=organization_id, access=access
+                    )
+                    for topic_id, entry in scanned.items():
+                        topic: KnowledgeTopic = entry["topic"]
+                        t_tokens = tokens(f"{topic.name} {' '.join(_json_loads(topic.aliases_json, []))}")
+                        overlap = len(q_tokens & t_tokens)
+                        if overlap > best_score:
+                            best_score = overlap
+                            best = ("topic", topic.id, topic.name)
+                if best is None or best_score < 1:
+                    return {
+                        "question": question,
+                        "intent": "why",
+                        "total": 0,
+                        "answer": "No company subject matches this question closely enough to explain.",
+                        "reasons": [],
+                        "evidence": [],
+                        "scope": "org" if access.org_wide else "project",
+                        "generated_at": _utcnow_iso(),
+                    }
+                from app.knowledge.learning_engine import learning_engine
+
+                result = await learning_engine.explain(
+                    db, organization_id=organization_id,
+                    subject_type=best[0], subject_id=best[1], user=user,
+                )
+                return {
+                    **result,
+                    "question": question,
+                    "intent": "why",
+                    "scope": result.get("scope", "org" if access.org_wide else "project"),
+                    "generated_at": _utcnow_iso(),
+                }
+            # should / decisions — the decision-feedback board, built
+            # deterministically from measured outcomes and lessons.
+            outcome_rows = list(
+                (
+                    await db.execute(
+                        select(DecisionOutcome)
+                        .where(DecisionOutcome.organization_id == organization_id)
+                        .order_by(DecisionOutcome.measured_at.desc())
+                        .limit(40)
+                    )
+                ).scalars().all()
+            )
+            lesson_rows = list(
+                (
+                    await db.execute(
+                        select(OrganizationalLearning)
+                        .where(OrganizationalLearning.organization_id == organization_id)
+                        .order_by(OrganizationalLearning.observed_at.desc())
+                        .limit(30)
+                    )
+                ).scalars().all()
+            )
+            met = sum(1 for r in outcome_rows if r.assessment in ("met", "outperformed"))
+            decisions = [
+                {
+                    "id": r.id,
+                    "decision_id": r.decision_id,
+                    "expected_metric": r.expected_metric,
+                    "expected_value": r.expected_value,
+                    "actual_value": r.actual_value,
+                    "variance_pct": r.variance_pct,
+                    "assessment": r.assessment,
+                    "outcome_type": r.outcome_type,
+                    "factors": _json_loads(r.factors_json, []),
+                    "measured_at": ensure_aware(r.measured_at).isoformat(),
+                }
+                for r in outcome_rows
+            ]
+            lessons = [
+                {
+                    "id": r.id,
+                    "kind": r.kind,
+                    "title": r.title,
+                    "lesson": r.lesson,
+                    "observed_at": ensure_aware(r.observed_at).isoformat(),
+                }
+                for r in lesson_rows
+            ]
+            underperformed = [d for d in decisions if d["assessment"] == "underperformed"]
+            track = (
+                f"{met} of {len(decisions)} measured {'decision' if len(decisions) == 1 else 'decisions'} met or "
+                f"exceeded their expectation" if decisions
+                else "The company has not measured a decision outcome yet"
+            )
+            answer = (
+                f"Decision history is the evidence: {track}. "
+                + (
+                    f"{len(underperformed)} underperformed (e.g. "
+                    f"'{underperformed[0]['expected_metric']}') — review the detected factors before "
+                    "committing to a similar move."
+                    if underperformed
+                    else "No similar move has underperformed on record."
+                )
+            )
+            return {
+                "question": question,
+                "intent": intent,
+                "total": len(decisions),
+                "answer": answer,
+                "decisions": decisions[:20],
+                "lessons": lessons[:10],
+                "recommendation_quality": [],
+                "scope": "org" if access.org_wide else "project",
                 "generated_at": _utcnow_iso(),
             }
         result = await self.discover(

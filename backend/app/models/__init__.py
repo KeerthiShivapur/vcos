@@ -341,6 +341,18 @@ from app.models.company_actions import (  # noqa: F401
     CompanyActionEvent,
     CompanyActionOutcome,
 )
+from app.models.organizational_learning import (  # noqa: F401
+    OutcomeAssessment,
+    OrganizationalLearning,
+    LearningEvidence,
+    DecisionOutcome,
+    RecommendationOutcome,
+    CompanyChange,
+    CompanyHealthSignal,
+    ImpactAssessment,
+    KnowledgeClaimLifecycle,
+    OperatingInsight,
+)
 
 __all__ = [
     "Organization",
@@ -690,4 +702,14 @@ __all__ = [
     "CompanyAction",
     "CompanyActionEvent",
     "CompanyActionOutcome",
+    "OutcomeAssessment",
+    "OrganizationalLearning",
+    "LearningEvidence",
+    "DecisionOutcome",
+    "RecommendationOutcome",
+    "CompanyChange",
+    "CompanyHealthSignal",
+    "ImpactAssessment",
+    "KnowledgeClaimLifecycle",
+    "OperatingInsight",
 ]

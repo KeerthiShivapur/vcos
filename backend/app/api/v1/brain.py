@@ -15,12 +15,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_organization, require_permission
+from app.core.timeutils import ensure_aware
 from app.db.database import get_db
 from app.intelligence.company_brain import MAX_TIMELINE
 from app.intelligence.graph_engine import graph_engine as company_graph
 from app.intelligence.insight_engine import insight_engine
 from app.intelligence.pattern_engine import pattern_engine
 from app.kernel.organization_kernel import organization_kernel
+from app.knowledge.intelligence_engine import _utcnow_iso
+from app.knowledge.synthesis_engine import _json_loads
 from app.models.knowledge import KnowledgeTopic
 from app.models.organization import Organization
 from app.models.user import User
@@ -853,6 +856,55 @@ class BrainActionOutcomeIn(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Slice 4E.7 — universal knowledge operating loop (learn / evolve / measure)
+# ---------------------------------------------------------------------------
+
+
+class BrainLoopOutcomeIn(BaseModel):
+    """Expected-vs-actual for a verified governed action: recording it runs
+    the full learning chain (assessment -> lesson -> knowledge lifecycle ->
+    recommendation feedback). Replays are exact-once."""
+
+    action_id: str
+    expected_metric: str = "the intended result"
+    expected_value: float = 0.0
+    actual_value: float = 0.0
+    expected_units: Optional[str] = None
+    factors: Optional[list[str]] = None
+    summary: Optional[str] = None
+
+
+class BrainLoopAssessIn(BaseModel):
+    subject_type: str
+    subject_id: str
+    expected_metric: str = "the intended result"
+    expected_value: float = 0.0
+    actual_value: float = 0.0
+    expected_units: Optional[str] = None
+    factors: Optional[list[str]] = None
+    summary: Optional[str] = None
+
+
+class BrainLoopDecisionOutcomeIn(BaseModel):
+    expected_metric: str = "the intended result"
+    expected_value: float = 0.0
+    actual_value: float = 0.0
+    expected_units: Optional[str] = None
+    factors: Optional[list[str]] = None
+    summary: Optional[str] = None
+
+
+class BrainLoopImpactIn(BaseModel):
+    subject_type: str
+    subject_id: str
+
+
+class BrainLoopContradictionIn(BaseModel):
+    authoritative_claim_id: str
+    reason: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
 # Slice 4E.5 — knowledge intelligence operating layer (knowledge-to-action)
 # ---------------------------------------------------------------------------
 
@@ -1228,6 +1280,403 @@ async def brain_knowledge_action_outcome(
         raise HTTPException(status_code=404, detail="action not found")
     await db.commit()
     return result
+
+
+# ---------------------------------------------------- 4E.7 knowledge loop
+
+
+@router.get("/knowledge/loop/learning")
+async def brain_knowledge_loop_learning(
+    kind: Optional[str] = Query(None),
+    limit: int = Query(40, ge=1, le=100),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.7 — the company's learning feed: every lesson the company
+    learned, with its evidence, governance-filtered."""
+    from app.knowledge.learning_engine import learning_engine
+
+    result = await learning_engine.learning_feed(
+        db, organization_id=org.id, user=user, kind=kind, limit=limit,
+    )
+    await db.commit()
+    return result
+
+
+@router.get("/knowledge/loop/learning/{learning_id}")
+async def brain_knowledge_loop_learning_detail(
+    learning_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.7 — one lesson with its full evidence trail."""
+    from app.knowledge.learning_engine import learning_engine
+
+    feed = await learning_engine.learning_feed(
+        db, organization_id=org.id, user=user, limit=100,
+    )
+    item = next((i for i in feed["items"] if i["id"] == learning_id), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail="learning not found")
+    return item
+
+
+@router.post("/knowledge/loop/outcomes")
+async def brain_knowledge_loop_outcome(
+    body: BrainLoopOutcomeIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.7 — close the loop for a governed action: record what was
+    expected vs what actually happened, then learn from it (assessment ->
+    lesson with evidence -> canonical knowledge lifecycle -> recommendation
+    feedback). Idempotent: replaying never duplicates."""
+    from app.knowledge.learning_engine import learning_engine
+
+    try:
+        assessment = await learning_engine.assess_outcome(
+            db, organization_id=org.id,
+            subject_type="action", subject_id=body.action_id,
+            expected_metric=body.expected_metric, expected_value=body.expected_value,
+            actual_value=body.actual_value, expected_units=body.expected_units,
+            factors=body.factors, summary=body.summary, user=user,
+        )
+        learning = await learning_engine.learn_from_outcome(
+            db, organization_id=org.id, action_id=body.action_id, user=user,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await db.commit()
+    return {**learning, "assessment": assessment}
+
+
+@router.post("/knowledge/loop/assessments")
+async def brain_knowledge_loop_assess(
+    body: BrainLoopAssessIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.7 — record one expected-vs-actual assessment (no learning):
+    idempotent upsert per (subject_type, subject_id)."""
+    from app.knowledge.learning_engine import learning_engine
+
+    try:
+        result = await learning_engine.assess_outcome(
+            db, organization_id=org.id,
+            subject_type=body.subject_type, subject_id=body.subject_id,
+            expected_metric=body.expected_metric, expected_value=body.expected_value,
+            actual_value=body.actual_value, expected_units=body.expected_units,
+            factors=body.factors, summary=body.summary, user=user,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await db.commit()
+    return result
+
+
+@router.get("/knowledge/loop/assessments")
+async def brain_knowledge_loop_assessments(
+    subject_type: Optional[str] = Query(None),
+    subject_id: Optional[str] = Query(None),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.7 — the outcome ledger: every expected-vs-actual assessment."""
+    from app.models.organizational_learning import OutcomeAssessment
+
+    statement = (
+        select(OutcomeAssessment)
+        .where(OutcomeAssessment.organization_id == org.id)
+        .order_by(OutcomeAssessment.assessed_at.desc())
+        .limit(100)
+    )
+    if subject_type:
+        statement = statement.where(OutcomeAssessment.subject_type == subject_type)
+    if subject_id:
+        statement = statement.where(OutcomeAssessment.subject_id == subject_id)
+    rows = list((await db.execute(statement)).scalars().all())
+    return {
+        "assessments": [
+            {
+                "id": r.id,
+                "subject_type": r.subject_type,
+                "subject_id": r.subject_id,
+                "expected_metric": r.expected_metric,
+                "expected_value": r.expected_value,
+                "expected_units": r.expected_units,
+                "actual_value": r.actual_value,
+                "variance_pct": r.variance_pct,
+                "assessment": r.assessment,
+                "factors": _json_loads(r.factors_json, []),
+                "summary": r.summary,
+                "assessed_by": r.assessed_by,
+                "assessed_at": ensure_aware(r.assessed_at).isoformat(),
+            }
+            for r in rows
+        ],
+        "total": len(rows),
+        "generated_at": _utcnow_iso(),
+    }
+
+
+@router.post("/knowledge/loop/decisions/{decision_id}/outcome")
+async def brain_knowledge_loop_decision_outcome(
+    decision_id: str,
+    body: BrainLoopDecisionOutcomeIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.7 — decision feedback loop: a decision's expected vs actual
+    result becomes a measured decision outcome + a lesson."""
+    from app.knowledge.learning_engine import learning_engine
+
+    try:
+        result = await learning_engine.learn_from_decision(
+            db, organization_id=org.id, decision_id=decision_id,
+            expected_metric=body.expected_metric, expected_value=body.expected_value,
+            actual_value=body.actual_value, expected_units=body.expected_units,
+            factors=body.factors, summary=body.summary, user=user,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await db.commit()
+    return result
+
+
+@router.get("/knowledge/loop/decisions")
+async def brain_knowledge_loop_decisions(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.7 — decision performance: every measured decision outcome."""
+    from app.models.organizational_learning import DecisionOutcome
+
+    rows = list(
+        (
+            await db.execute(
+                select(DecisionOutcome)
+                .where(DecisionOutcome.organization_id == org.id)
+                .order_by(DecisionOutcome.measured_at.desc())
+                .limit(100)
+            )
+        ).scalars().all()
+    )
+    return {
+        "decisions": [
+            {
+                "id": r.id,
+                "decision_id": r.decision_id,
+                "expected_metric": r.expected_metric,
+                "expected_value": r.expected_value,
+                "expected_units": r.expected_units,
+                "actual_value": r.actual_value,
+                "variance_pct": r.variance_pct,
+                "assessment": r.assessment,
+                "outcome_type": r.outcome_type,
+                "factors": _json_loads(r.factors_json, []),
+                "summary": r.summary,
+                "measured_by": r.measured_by,
+                "measured_at": ensure_aware(r.measured_at).isoformat(),
+            }
+            for r in rows
+        ],
+        "total": len(rows),
+        "generated_at": _utcnow_iso(),
+    }
+
+
+@router.get("/knowledge/loop/recommendation-quality")
+async def brain_knowledge_loop_recommendation_quality(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.7 — deterministic per-kind recommendation quality from the
+    outcome ledger: explainable, auditable, never a silent rewrite."""
+    from app.knowledge.learning_engine import learning_engine
+
+    return await learning_engine.recommendation_quality(db, organization_id=org.id)
+
+
+@router.post("/knowledge/loop/contradictions/{topic_name}/resolution")
+async def brain_knowledge_loop_contradiction_resolution(
+    topic_name: str,
+    body: BrainLoopContradictionIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.7 — settle a contradiction by authority: the authoritative
+    claim is retained and advanced, losing evidence stays as historical
+    truth, and the resolution is learned."""
+    from app.knowledge.learning_engine import learning_engine
+
+    try:
+        result = await learning_engine.record_contradiction_resolution(
+            db, organization_id=org.id, topic_name=topic_name,
+            authoritative_claim_id=body.authoritative_claim_id,
+            user=user, reason=body.reason,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await db.commit()
+    return result
+
+
+@router.get("/knowledge/loop/changes")
+async def brain_knowledge_loop_changes(
+    since_hours: int = Query(24, ge=1, le=24 * 30),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.7 — company "what changed?" feed: deterministically
+    materialized, exact-once, grouped critical / important / normal."""
+    from app.knowledge.learning_engine import learning_engine
+
+    result = await learning_engine.company_changes(
+        db, organization_id=org.id, since_hours=since_hours, user=user,
+    )
+    await db.commit()
+    return result
+
+
+@router.get("/knowledge/loop/health")
+async def brain_knowledge_loop_health(
+    window_hours: int = Query(24, ge=1, le=24 * 30),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.7 — company health: ten explainable dimensions where every
+    signal carries metric + evidence + time window + confidence + explanation."""
+    from app.knowledge.learning_engine import learning_engine
+
+    result = await learning_engine.company_health(
+        db, organization_id=org.id, user=user, window_hours=window_hours,
+    )
+    await db.commit()
+    return result
+
+
+@router.post("/knowledge/loop/impact")
+async def brain_knowledge_loop_impact(
+    body: BrainLoopImpactIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.7 — company-wide impact analysis: "if we change X, what does
+    it reach?" Direct/indirect reach, risks, owners, customers, deadlines,
+    financial assumptions and mitigations — governance-filtered, persisted."""
+    from app.knowledge.learning_engine import learning_engine
+
+    try:
+        result = await learning_engine.impact_analysis(
+            db, organization_id=org.id,
+            subject_type=body.subject_type, subject_id=body.subject_id, user=user,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await db.commit()
+    return result
+
+
+@router.get("/knowledge/loop/insights")
+async def brain_knowledge_loop_insights(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.7 — the Universal Action Center: one consolidated governed
+    board (critical issues, recommended actions, pending approvals, knowledge
+    gaps, contradictions, emerging risks, overdue actions, decisions awaiting
+    attention, customer-impacting changes, learning opportunities)."""
+    from app.knowledge.learning_engine import learning_engine
+
+    result = await learning_engine.operating_insights(
+        db, organization_id=org.id, user=user,
+    )
+    await db.commit()
+    return result
+
+
+@router.get("/knowledge/loop/insights/{insight_id}")
+async def brain_knowledge_loop_insight_detail(
+    insight_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.7 — one operating insight with its why/impact/evidence."""
+    from app.knowledge.learning_engine import learning_engine
+
+    result = await learning_engine.insight_detail(
+        db, organization_id=org.id, insight_id=insight_id,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="insight not found")
+    return result
+
+
+@router.post("/knowledge/loop/insights/{insight_id}/resolve")
+async def brain_knowledge_loop_insight_resolve(
+    insight_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.7 — governed human resolution of an operating insight (never
+    deleted, always audited with the acting user)."""
+    from app.knowledge.learning_engine import learning_engine
+
+    result = await learning_engine.resolve_insight(
+        db, organization_id=org.id, insight_id=insight_id, user=user,
+    )
+    await db.commit()
+    return result
+
+
+@router.get("/knowledge/loop/explain")
+async def brain_knowledge_loop_explain(
+    subject_type: str = Query(...),
+    subject_id: str = Query(...),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.7 — 'why?': a subject's state decomposed into explicit
+    reasons, each backed by evidence the caller may see."""
+    from app.knowledge.learning_engine import learning_engine
+
+    return await learning_engine.explain(
+        db, organization_id=org.id, subject_type=subject_type,
+        subject_id=subject_id, user=user,
+    )
+
+
+@router.get("/knowledge/loop/authorization")
+async def brain_knowledge_loop_authorization(
+    risk: str = Query(...),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Slice 4E.7 — the risk ladder: LOW automatic, MEDIUM approval, HIGH
+    explicit human authorization."""
+    from app.knowledge.learning_engine import learning_engine
+
+    try:
+        return await learning_engine.authorization_for(db, organization_id=org.id, risk=risk)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/knowledge/query")
