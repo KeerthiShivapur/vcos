@@ -213,6 +213,10 @@ _POSTGRES_ALTERS: list[str] = [
     "ALTER TABLE expertise ADD COLUMN IF NOT EXISTS distinct_lineages INTEGER DEFAULT 0",
     "ALTER TABLE expertise ADD COLUMN IF NOT EXISTS corroborated_kinds INTEGER DEFAULT 0",
     "ALTER TABLE expertise ADD COLUMN IF NOT EXISTS freshness VARCHAR(12) DEFAULT 'historical'",
+    # Slice 4F.4: ownership & responsibility — one active window per
+    # (object, responsibility type), enforced atomically so concurrent event
+    # replays converge instead of duplicating or losing windows.
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_ownership_rel_active ON ownership_relationships (organization_id, object_type, object_id, responsibility_type) WHERE status = 'active'",
 ]
 
 

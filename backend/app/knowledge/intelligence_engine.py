@@ -163,6 +163,23 @@ _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
                    "does anyone know", "who can help with", "who could help",
                    "is good at", "is known for", "good at whats",
                    "recently", "who has shown", "who demonstrated")),
+    # Slice 4F.4 — ownership & responsibility questions. "who owns" stays the
+    # knowledge meaning (above); these surface the canonical responsibility
+    # record: who holds it, who held it before, who takes over if they leave,
+    # where responsibility is missing or dangerously concentrated.
+    ("responsibility", ("whose responsibility", "responsible for",
+                        "in charge of", "who is accountable",
+                        "who is responsible")),
+    ("continuity", ("who takes over", "backup owner", "would take over",
+                    "takes over when", "single point of failure",
+                    "single-person dependency", "too many responsibilities",
+                    "overloaded with work")),
+    ("responsibility_history", ("who used to own", "who owned", "who previously",
+                                "was responsible for", "used to be responsible",
+                                "responsibility history")),
+    ("responsibility_gaps", ("missing owner", "no owner", "who should own",
+                             "ownership gap", "unowned", "without an owner",
+                             "owner left", "who owns nothing", "gap analysis")),
 ]
 
 _CHANGE_SIGNAL = re.compile(
@@ -1293,6 +1310,215 @@ class IntelligenceEngine:
         }
 
     # ------------------------------------------------------------------
+    # 4.4.6 — 4F.4 universal ownership & responsibility questions
+    # ------------------------------------------------------------------
+
+    async def _resolve_owned_object(
+        self, db: AsyncSession, *, organization_id: str, question: str, access: Any,
+    ) -> Optional[tuple[str, str, str]]:
+        """Best-effort bounded resolution of the object in a responsibility
+        question (project/customer/partner/budget/unit by name overlap)."""
+        q_tokens = tokens(question)
+        best: Optional[tuple[int, str, str, str]] = None
+        try:
+            from app.models.customer import Customer
+            from app.models.finance import Budget
+            from app.models.partner import Partner
+            from app.models.project import Project
+            from app.models.team import Team
+        except Exception:
+            return None
+        for model, otype, name_col in (
+            (Project, "project", "name"),
+            (Customer, "customer", "name"),
+            (Partner, "partner", "name"),
+            (Budget, "budget", "name"),
+            (Team, "unit", "name"),
+        ):
+            try:
+                rows = (
+                    await db.execute(
+                        select(model.id, getattr(model, name_col))
+                        .where(model.organization_id == organization_id)
+                        .limit(50)
+                    )
+                ).all()
+            except Exception:
+                continue
+            for rid, name in rows:
+                label = str(name or "")[:255]
+                overlap = len(q_tokens & tokens(label))
+                if not overlap:
+                    continue
+                if (not getattr(access, "org_wide", False)
+                        and otype == "project"
+                        and rid not in getattr(access, "project_ids", frozenset())):
+                    continue
+                if best is None or overlap > best[0]:
+                    best = (overlap, otype, rid, label)
+        if best is None:
+            return None
+        return best[1], best[2], best[3]
+
+    async def _ownership_query(
+        self, db: AsyncSession, *, organization_id: str,
+        question: str, user: Any, intent: str,
+    ) -> dict[str, Any]:
+        """Slice 4F.4 universal ownership answers: current owner, history,
+        continuity and advisory findings - all bounded, all read-only."""
+        from app.intelligence.ownership_engine import ownership_engine
+
+        access = await self._access(db, organization_id=organization_id, user=user)
+        scope_label = "org" if access.org_wide else "project"
+
+        if intent == "responsibility_gaps":
+            signals = await ownership_engine.signals(
+                db, organization_id=organization_id, kind="gap",
+                status="open", limit=10,
+            )
+            items = signals["signals"]
+            lines = [
+                f"{s['object_name']} ({s['object_type']}) - {s['detail'][:140]}"
+                for s in items
+            ]
+            answer = (
+                f"{len(items)} responsibility gap{'s' if len(items) != 1 else ''} "
+                f"open (owner left or never assigned). "
+                f"Responsibilities are never auto-assigned; " +
+                f"leadership reviews: " + ("; ".join(lines) if lines else "none.")
+                if items else "No open responsibility gaps - every recorded "
+                "ownership window has an active owner."
+            )
+            return {
+                "question": question, "intent": intent, "kind": "responsibility_gaps",
+                "total": len(items), "answers": items,
+                "answer": answer,
+                "scope": scope_label, "generated_at": _utcnow_iso(),
+            }
+
+        concentration = False
+        if intent == "continuity" and any(
+            m in question.lower()
+            for m in ("single point", "overloaded", "too many", "concentrat", "dependency risk")
+        ):
+            concentration = True
+        if concentration or intent in ("single_point",):
+            signals = await ownership_engine.signals(
+                db, organization_id=organization_id, kind="single_point",
+                status="open", limit=10,
+            )
+            items = signals["signals"]
+            answer = (
+                f"{len(items)} single-person dependency risk{'s' if len(items) != 1 else ''} "
+                "flagged (an owner holding responsibilities with no backup - "
+                "advisory only, never auto-changed): " +
+                ("; ".join(f"{s['object_name']} - {s['detail'][:120]}" for s in items)
+                 if items else "none.")
+            )
+            return {
+                "question": question, "intent": intent, "kind": "single_point",
+                "total": len(items), "answers": items,
+                "answer": answer,
+                "scope": scope_label, "generated_at": _utcnow_iso(),
+            }
+
+        resolved = await self._resolve_owned_object(
+            db, organization_id=organization_id, question=question, access=access)
+        if resolved is None and intent not in ("responsibility_history",):
+            return {
+                "question": question, "intent": intent, "total": 0,
+                "answers": [], "scope": scope_label,
+                "answer": (
+                    "I could not identify which project, customer, partner, "
+                    "budget or team this question is about. Ask e.g. \"who is "
+                    "responsible for the Payments Platform?\""
+                ),
+                "generated_at": _utcnow_iso(),
+            }
+
+        if intent == "responsibility_history":
+            if resolved is None:
+                history: dict[str, Any] = {
+                    "object_type": "?", "object_id": "?", "events": [], "total": 0,
+                }
+            else:
+                history = await ownership_engine.history(
+                    db, organization_id=organization_id,
+                    object_type=resolved[0], object_id=resolved[1], access=access,
+                    limit=10,
+                )
+            events = history.get("events", [])
+            lines = []
+            for ev in events:
+                if ev.get("action") == "assigned":
+                    lines.append(f"assigned to {ev['to_owner_label']} "
+                                 f"({_clean_topic_name(ev['occurred_at'].strftime('%Y-%m-%d') if ev.get('occurred_at') else '')})")
+                elif ev.get("action") == "transferred":
+                    lines.append(f"transferred from {ev.get('from_owner_label')} "
+                                 f"to {ev.get('to_owner_label')}")
+                elif ev.get("action") == "closed":
+                    lines.append(f"closed (was {ev.get('from_owner_label')})")
+                else:
+                    lines.append(f"{ev.get('action')} ({ev.get('to_owner_label') or ev.get('from_owner_label')})")
+            answer = (
+                f"Responsibility history for {resolved[2] if resolved else '? '}- "
+                + ("; ".join(lines) if lines else "no recorded windows yet.")
+            )
+            return {
+                "question": question, "intent": intent, "kind": "responsibility_history",
+                "total": len(events), "answers": events,
+                "answer": answer,
+                "scope": scope_label, "generated_at": _utcnow_iso(),
+            }
+
+        current = await ownership_engine.current(
+            db, organization_id=organization_id,
+            object_type=resolved[0], object_id=resolved[1], access=access, limit=20,
+        )
+        primary = current.get("primary")
+        if primary is None:
+            answer = (
+                f"No declared owner for {current.get('object_name') or resolved[2]}. "
+                "Assign one explicitly - VCOS never invents owners."
+            )
+        else:
+            since = (
+                primary.get("declared_start", "").strftime("%Y-%m-%d")
+                if primary.get("declared_start") else "?"
+            )
+            backup = (
+                f", backed up by {primary['backup_owner_label']}"
+                if primary.get("backup_owner_id") else ""
+            )
+            answer = (
+                f"{primary['owner_label']} is responsible for "
+                f"{current.get('object_name') or resolved[2]} "
+                f"({primary['responsibility_type']}, since {since}{backup})."
+            )
+        if intent == "continuity":
+            continuity = await ownership_engine.continuity(
+                db, organization_id=organization_id,
+                object_type=resolved[0], object_id=resolved[1], access=access,
+            )
+            if continuity.get("backup"):
+                answer = (
+                    f"If {continuity['primary']['owner_label']} is unavailable, "
+                    f"{continuity['backup']['owner_label']} steps in as backup "
+                    f"for {continuity.get('object_name')}."
+                )
+            elif continuity.get("delegation"):
+                answer = answer + " Governed 4C delegation exists at this scope."
+            else:
+                answer = answer + " No backup or governed delegation is set."
+        return {
+            "question": question, "intent": intent, "kind": "ownership",
+            "total": len(current.get("relationships", [])),
+            "answers": current.get("relationships", []),
+            "answer": answer,
+            "scope": scope_label, "generated_at": _utcnow_iso(),
+        }
+
+    # ------------------------------------------------------------------
     # 4.4.6 — knowledge health
     # ------------------------------------------------------------------
 
@@ -2392,6 +2618,13 @@ class IntelligenceEngine:
                     best_score = overlap
                     best_topic = topic
             if best_topic is None:
+                if intent == "ownership":
+                    # "who owns X" matched no knowledge topic: answer with the
+                    # universal responsibility record instead of a dead end.
+                    return await self._ownership_query(
+                        db, organization_id=organization_id,
+                        question=question, user=user, intent="responsibility",
+                    )
                 return {
                     "question": question,
                     "intent": intent,
@@ -2424,6 +2657,12 @@ class IntelligenceEngine:
                 }
             return {**result, "question": question, "intent": intent,
                     "generated_at": _utcnow_iso()}
+        if intent in ("responsibility", "continuity", "responsibility_history",
+                      "responsibility_gaps", "single_point"):
+            return await self._ownership_query(
+                db, organization_id=organization_id,
+                question=question, user=user, intent=intent,
+            )
         if intent in ("affected", "stakeholders", "provenance"):
             from app.knowledge.action_engine import action_engine
 

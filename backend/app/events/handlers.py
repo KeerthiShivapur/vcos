@@ -2673,3 +2673,120 @@ async def handle_people_employee_transferred(db, event, payload):
         },
         event_id=event.id,
     )
+
+
+# ---------------------------------------------------------------------------
+# Slice 4F.4 - Ownership & Responsibility Intelligence (event bridge).
+# Declared ownership in the app's own entities lands in the canonical temporal
+# ownership record through change-driven handlers. Replay safety is inherited
+# from the engine: reconcile is exact-once (same owner -> refresh, different
+# owner -> spaced transfer window, nothing ever overwrites history).
+# Handlers never assign new owners; they only reflect what the app declared.
+# ---------------------------------------------------------------------------
+
+
+@on("project.created")
+async def handle_ownership_project_created(db, event, payload):
+    org_id = payload.get("organization_id") or event.organization_id
+    project_id = payload.get("project_id") or payload.get("id")
+    if not project_id:
+        return
+    from app.models.project import Project
+    from app.intelligence.ownership_engine import ownership_engine
+
+    project = await db.get(Project, project_id)
+    if project is None or project.organization_id != org_id:
+        return
+    if project.owner_id:
+        await ownership_engine.reconcile(
+            db, organization_id=org_id,
+            object_type="project", object_id=project.id,
+            object_name=project.name, owner_id=project.owner_id,
+            scope_id=project.department_id or project.team_id or None,
+            source="declared", evidence={"event": "project.created"},
+            actor_id=event.actor_id, event=event,
+        )
+
+
+@on("project.updated")
+async def handle_ownership_project_updated(db, event, payload):
+    org_id = payload.get("organization_id") or event.organization_id
+    project_id = payload.get("project_id") or payload.get("id")
+    if not project_id:
+        return
+    from app.models.project import Project
+    from app.intelligence.ownership_engine import ownership_engine
+
+    project = await db.get(Project, project_id)
+    if project is None or project.organization_id != org_id:
+        return
+    await ownership_engine.reconcile(
+        db, organization_id=org_id,
+        object_type="project", object_id=project.id,
+        object_name=project.name, owner_id=project.owner_id,
+        scope_id=project.department_id or project.team_id or None,
+        source="declared", evidence={"event": "project.updated"},
+        actor_id=event.actor_id, event=event,
+    )
+
+
+@on("project.completed")
+@on("project.cancelled")
+@on("project.archived")
+async def handle_ownership_project_terminal(db, event, payload):
+    """A finished/cancelled project closes its responsibility window - the
+    window stays in history, never overwritten."""
+    org_id = payload.get("organization_id") or event.organization_id
+    project_id = payload.get("project_id") or payload.get("id")
+    if not project_id:
+        return
+    from app.intelligence.ownership_engine import ownership_engine
+
+    await ownership_engine.close(
+        db, organization_id=org_id,
+        object_type="project", object_id=project_id,
+        responsibility_type="primary",
+        reason="project state reached a terminal state",
+        actor_id=event.actor_id, event=event,
+    )
+
+
+@on("employee.offboarded")
+async def handle_ownership_owner_offboarded(db, event, payload):
+    """An explicit departure closes every responsibility window of the person
+    (bounded, indexed) and leaves the record for gap analysis - NEVER
+    reassigns."""
+    org_id = payload.get("organization_id") or event.organization_id
+    employee_id = payload.get("employee_id") or payload.get("person_id")
+    if not employee_id:
+        return
+    from app.intelligence.ownership_engine import ownership_engine
+
+    await ownership_engine.close_all_for_owner(
+        db, organization_id=org_id, owner_id=employee_id,
+        reason="owner offboarded",
+        actor_id=event.actor_id, event=event,
+    )
+
+
+@on("employee.status.changed")
+async def handle_ownership_owner_left(db, event, payload):
+    """Departure/inactive status transitions close responsibility windows."""
+    org_id = payload.get("organization_id") or event.organization_id
+    employee_id = payload.get("employee_id") or payload.get("person_id")
+    if not employee_id:
+        return
+    from app.models.employee import Employee
+
+    employee = await db.get(Employee, employee_id)
+    status = (payload.get("to") or (employee.status if employee else "") or "").lower()
+    if status in ("active", "probation", "notice", "suspended", "external",
+                  "contractor", "consultant", "partner", "invited"):
+        return
+    from app.intelligence.ownership_engine import ownership_engine
+
+    await ownership_engine.close_all_for_owner(
+        db, organization_id=org_id, owner_id=employee_id,
+        reason=f"owner status became {status}",
+        actor_id=event.actor_id, event=event,
+    )

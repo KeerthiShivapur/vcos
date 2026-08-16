@@ -361,6 +361,19 @@ EVENT_CATALOG: dict[str, str] = {
     "insight.updated": "An insight recomposed from changed evidence",
     "insight.faded": "An insight stopped having active support and faded",
     "insight.resolved": "An insight was resolved (underlying evidence closed)",
+    # --- Slice 4F.4 — ownership & responsibility intelligence
+    "ownership.assigned": "A responsibility was assigned",
+    "ownership.transferred": "A responsibility was transferred to a new owner",
+    "ownership.closed": "A responsibility window was closed",
+    "ownership.expired": "A responsibility window expired",
+    "ownership.backup_set": "A backup owner was set for a responsibility",
+    "ownership.backup_removed": "A backup owner was removed from a responsibility",
+    "ownership.reopened": "A responsibility was reassigned after being closed",
+    "ownership.gap_detected": "Ownership analysis surfaced a responsibility gap",
+    "ownership.single_point_detected": "Ownership analysis surfaced a single-person dependency",
+    "ownership.mismatch_detected": "Ownership analysis surfaced a declared-vs-observed mismatch",
+    "ownership.signal_resolved": "An ownership signal was resolved",
+    "ownership.coverage_checked": "A bounded ownership coverage check completed",
 }
 # Events that feed the expertise engine (entity employee).
 EXPERTISE_EVENTS: dict[str, tuple[float, str]] = {
@@ -421,6 +434,11 @@ GRAPH_EVENTS: dict[str, str] = {
     "decision.made": "decided",
     "decision.executed": "produces",
     "decision.implemented": "implemented",
+    # Slice 4F.4 — ownership edges (temporal record lives in ownership tables;
+    # the graph mirrors active state for traversal and discovery).
+    "ownership.assigned": "owns",
+    "ownership.transferred": "owns",
+    "ownership.backup_set": "backup_for",
 }
 
 

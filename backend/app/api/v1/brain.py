@@ -22,6 +22,7 @@ from app.intelligence.company_context import CallerAccess, resolve_caller_access
 from app.intelligence.expertise_engine import expertise_engine
 from app.intelligence.graph_engine import graph_engine as company_graph
 from app.intelligence.insight_engine import insight_engine
+from app.intelligence.ownership_engine import ownership_engine
 from app.intelligence.pattern_engine import pattern_engine
 from app.kernel.organization_kernel import organization_kernel
 from app.knowledge.intelligence_engine import _utcnow_iso
@@ -3330,3 +3331,338 @@ async def brain_expertise_evidence_item(
         raise HTTPException(status_code=404, detail="evidence not found")
     await _require_visible_person(db, org, access, item["person_id"])
     return item
+
+
+# ---------------------------------------------------------------------------
+# Slice 4F.4 — Ownership & Responsibility Intelligence
+# ---------------------------------------------------------------------------
+# The governed "who is responsible for what" surface: canonical temporal
+# responsibility windows with types, scopes, backups, escalation, full history
+# and advisory analysis (mismatch / gap / single-point) that NEVER auto-fixes.
+
+
+class OwnershipAssignIn(BaseModel):
+    object_type: str
+    object_id: str
+    object_name: Optional[str] = None
+    responsibility_type: str = "primary"
+    owner_id: str
+    scope_id: Optional[str] = None
+    backup_owner_id: Optional[str] = None
+    declared_start: Optional[datetime] = None
+    declared_end: Optional[datetime] = None
+    reason: Optional[str] = None
+
+
+class OwnershipTransferIn(BaseModel):
+    object_type: str
+    object_id: str
+    to_owner_id: str
+
+
+class OwnershipBackupIn(BaseModel):
+    object_type: str
+    object_id: str
+    backup_owner_id: str
+
+
+class OwnershipCloseIn(BaseModel):
+    object_type: str
+    object_id: str
+    reason: Optional[str] = None
+
+
+class OwnershipCoverageIn(BaseModel):
+    objects: list[dict[str, Any]]
+
+
+async def _ownership_access(db: AsyncSession, org: Organization, user: User) -> CallerAccess:
+    return await resolve_caller_access(db, organization_id=org.id, user=user)
+
+
+@router.get("/ownership/objects/{object_type}/{object_id}")
+async def brain_ownership_object(
+    object_type: str,
+    object_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """The current responsibility world of one object: primary owner, stacked
+    responsibility types, backup and any open advisory signals."""
+    from app.intelligence.ownership_engine import OwnershipError, ownership_engine
+
+    access = await _ownership_access(db, org, user)
+    current = await ownership_engine.current(
+        db, organization_id=org.id, object_type=object_type,
+        object_id=object_id, access=access,
+    )
+    signals = await ownership_engine.signals(
+        db, organization_id=org.id, status="open", limit=20,
+    )
+    object_signals = [
+        s for s in signals["signals"]
+        if s["object_type"] == object_type and s["object_id"] == object_id
+    ]
+    return {**current, "signals": object_signals}
+
+
+@router.get("/ownership/objects/{object_type}/{object_id}/history")
+async def brain_ownership_object_history(
+    object_type: str,
+    object_id: str,
+    limit: int = Query(default=50, ge=1, le=200),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Full responsibility history of one object: every assigned/transferred/
+    closed window, newest first — "who owned X six months ago"."""
+    access = await _ownership_access(db, org, user)
+    return await ownership_engine.history(
+        db, organization_id=org.id, object_type=object_type,
+        object_id=object_id, access=access, limit=limit,
+    )
+
+
+@router.get("/ownership/objects/{object_type}/{object_id}/as-of")
+async def brain_ownership_object_as_of(
+    object_type: str,
+    object_id: str,
+    at: Optional[datetime] = None,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Temporal reconstruction: the responsibility world of an object at one
+    moment in time (e.g. when an incident happened)."""
+    access = await _ownership_access(db, org, user)
+    return await ownership_engine.as_of(
+        db, organization_id=org.id, object_type=object_type,
+        object_id=object_id, at=at or ensure_aware(datetime.utcnow()), access=access,
+    )
+
+
+@router.get("/ownership/objects/{object_type}/{object_id}/continuity")
+async def brain_ownership_object_continuity(
+    object_type: str,
+    object_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Who takes over: primary -> backup -> governed 4C delegation (read-only)
+    -> escalation scope. Never invents a successor."""
+    access = await _ownership_access(db, org, user)
+    return await ownership_engine.continuity(
+        db, organization_id=org.id, object_type=object_type,
+        object_id=object_id, access=access,
+    )
+
+
+@router.get("/ownership/people/{person_id}/responsibilities")
+async def brain_ownership_person_responsibilities(
+    person_id: str,
+    active_only: bool = True,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Everything one person is responsible for (and has been), plus backup
+    roles held."""
+    access = await _ownership_access(db, org, user)
+    await _require_visible_person(db, org, access, person_id)
+    return await ownership_engine.responsibilities_of(
+        db, organization_id=org.id, owner_id=person_id,
+        access=access, active_only=active_only,
+    )
+
+
+@router.post("/ownership/assign")
+async def brain_ownership_assign(
+    body: OwnershipAssignIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("employees:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """The governed write: assign (or transfer) a responsibility. History is
+    preserved; analysis findings are never auto-applied here."""
+    from app.intelligence.ownership_engine import OwnershipError, ownership_engine
+
+    try:
+        result = await ownership_engine.record(
+            db, organization_id=org.id,
+            object_type=body.object_type, object_id=body.object_id,
+            object_name=body.object_name, responsibility_type=body.responsibility_type,
+            owner_id=body.owner_id, scope_id=body.scope_id,
+            backup_owner_id=body.backup_owner_id,
+            declared_start=body.declared_start, declared_end=body.declared_end,
+            source="declared",
+            evidence={"reason": body.reason, "actor": user.id},
+            actor_id=user.id,
+        )
+    except OwnershipError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+    await db.commit()
+    return result
+
+
+@router.post("/ownership/transfer")
+async def brain_ownership_transfer(
+    body: OwnershipTransferIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("employees:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    from app.intelligence.ownership_engine import OwnershipError, ownership_engine
+
+    try:
+        result = await ownership_engine.record(
+            db, organization_id=org.id,
+            object_type=body.object_type, object_id=body.object_id,
+            responsibility_type="primary", owner_id=body.to_owner_id,
+            source="transfer", evidence={"actor": user.id},
+            actor_id=user.id,
+        )
+    except OwnershipError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+    await db.commit()
+    return result
+
+
+@router.post("/ownership/backup")
+async def brain_ownership_backup(
+    body: OwnershipBackupIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("employees:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    from app.intelligence.ownership_engine import OwnershipError, ownership_engine
+
+    try:
+        result = await ownership_engine.set_backup(
+            db, organization_id=org.id,
+            object_type=body.object_type, object_id=body.object_id,
+            backup_owner_id=body.backup_owner_id, actor_id=user.id,
+        )
+    except OwnershipError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+    await db.commit()
+    return result
+
+
+@router.post("/ownership/close")
+async def brain_ownership_close(
+    body: OwnershipCloseIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("employees:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    from app.intelligence.ownership_engine import ownership_engine
+
+    result = await ownership_engine.close(
+        db, organization_id=org.id,
+        object_type=body.object_type, object_id=body.object_id,
+        responsibility_type="primary", reason=body.reason, actor_id=user.id,
+    )
+    await db.commit()
+    return result
+
+
+@router.get("/ownership/analyze")
+async def brain_ownership_analyze_read(
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=200, ge=1, le=200),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Advisory analysis (dry run): what the next bounded batch WOULD surface.
+    Nothing is persisted."""
+    from app.intelligence.ownership_engine import ownership_engine
+
+    candidate_rows = await ownership_engine.active_batch(
+        db, organization_id=org.id, offset=offset, limit=limit,
+    )
+    return {
+        "dry_run": True,
+        "would_scan": len(candidate_rows),
+        "note": "Run POST /ownership/analyze to persist advisory signals.",
+    }
+
+
+@router.post("/ownership/analyze")
+async def brain_ownership_analyze_write(
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=200, ge=1, le=200),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("employees:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Persist one bounded batch of advisory signals (mismatch / gap /
+    single-point). Analysis never changes a responsibility."""
+    from app.intelligence.ownership_engine import ownership_engine
+
+    result = await ownership_engine.analyze(
+        db, organization_id=org.id, offset=offset, limit=limit,
+        commit=True, actor_id=user.id,
+    )
+    await db.commit()
+    return result
+
+
+@router.get("/ownership/signals")
+async def brain_ownership_signals(
+    kind: Optional[str] = Query(default=None),
+    status: str = Query(default="open"),
+    limit: int = Query(default=200, ge=1, le=200),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    return await ownership_engine.signals(
+        db, organization_id=org.id, kind=kind, status=status, limit=limit,
+    )
+
+
+@router.post("/ownership/signals/{signal_id}/resolve")
+async def brain_ownership_signal_resolve(
+    signal_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("employees:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    from app.intelligence.ownership_engine import OwnershipError, ownership_engine
+
+    try:
+        result = await ownership_engine.resolve_signal(
+            db, organization_id=org.id, signal_id=signal_id, actor_id=user.id,
+        )
+    except OwnershipError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+    await db.commit()
+    return result
+
+
+@router.get("/ownership/summary")
+async def brain_ownership_summary(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """One-glance ownership posture: active responsibilities and open signals."""
+    return await ownership_engine.summary(db, organization_id=org.id)
+
+
+@router.post("/ownership/coverage-check")
+async def brain_ownership_coverage_check(
+    body: OwnershipCoverageIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """For an explicitly named bounded list of objects: which lack a primary
+    responsibility? Analysis only — nothing is created."""
+    return await ownership_engine.coverage_check(
+        db, organization_id=org.id, candidates=body.objects,
+    )

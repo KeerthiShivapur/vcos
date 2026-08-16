@@ -28,6 +28,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { Spinner } from "@/components/ui/Spinner";
 import { Avatar } from "@/components/ui/Avatar";
 import ExpertiseEvidencePanel from "@/components/people/ExpertiseEvidencePanel";
+import { ResponsibilitiesCard } from "@/components/people/ResponsibilitiesPanel";
 import { formatDate, timeAgo } from "@/lib/utils";
 import { toastError, toastSuccess } from "@/components/ui/Toaster";
 
@@ -243,6 +244,10 @@ function ProfileContent() {
                 ))}
               </div>
             )}
+          </Card>
+
+          <Card title="Responsibilities" subtitle="Declared and observed ownership — never assumed.">
+            <ResponsibilitiesCard personId={id} personName={employee.full_name} />
           </Card>
 
           <Card title="Timeline" subtitle="Every milestone â€” nothing lost.">

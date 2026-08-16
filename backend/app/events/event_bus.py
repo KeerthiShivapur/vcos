@@ -112,10 +112,15 @@ class EventBus:
         *,
         limit: int = 100,
         event_names: Optional[list[str]] = None,
+        organization_id: Optional[str] = None,
     ) -> int:
         """One worker pass: dispatch queued events to their handlers.
 
         Returns the number of events fully processed.
+
+        ``organization_id`` scopes the pass to a single tenant (used by the
+        on-demand drain endpoint); ``None`` drains the whole platform (the
+        standalone event worker).
 
         Concurrency & reliability guarantees:
         - Jobs are claimed atomically (compare-and-set on queued/retry -> running),
@@ -163,6 +168,9 @@ class EventBus:
                         BackgroundJob.next_retry_at.is_(None),
                         BackgroundJob.next_retry_at <= now,
                     ),
+                    BackgroundJob.organization_id == organization_id
+                    if organization_id is not None
+                    else True,
                 )
                 .order_by(BackgroundJob.created_at.asc())
                 .limit(limit)
@@ -178,16 +186,22 @@ class EventBus:
                 BackgroundJob.name == DISPATCH_JOB,
                 BackgroundJob.event_id.isnot(None),
                 BackgroundJob.status.in_(("queued", "retry", "running")),
+                BackgroundJob.organization_id == organization_id
+                if organization_id is not None
+                else True,
             )
         )
+        orphan_where = [
+            EventRow.processed_at.is_(None),
+            EventRow.id.not_in(owned_event_ids),
+            EventRow.id.not_in(list(job_event_ids)) if job_event_ids else True,
+        ]
+        if organization_id is not None:
+            orphan_where.append(EventRow.organization_id == organization_id)
         orphans = (
             await db.execute(
                 select(EventRow)
-                .where(
-                    EventRow.processed_at.is_(None),
-                    EventRow.id.not_in(owned_event_ids),
-                    EventRow.id.not_in(list(job_event_ids)) if job_event_ids else True,
-                )
+                .where(*orphan_where)
                 .order_by(EventRow.occurred_at.asc())
                 .limit(limit)
             )

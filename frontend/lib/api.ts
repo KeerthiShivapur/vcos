@@ -8253,3 +8253,269 @@ export async function brainGraphRelationshipTraverse(
     query: { node_type: nodeType, node_id: nodeId, max_depth: maxDepth },
   });
 }
+
+// ------------------------------------------- Slice 4F.4 ownership & responsibility
+
+export interface OwnershipRelationshipRow {
+  id: string;
+  object_type: string;
+  object_id: string;
+  object_name: string;
+  responsibility_type: string;
+  owner_id: string;
+  owner_label: string;
+  scope_id?: string | null;
+  status: string;
+  declared_start: string;
+  declared_end?: string | null;
+  source: string;
+  backup_owner_id?: string | null;
+  backup_owner_label?: string | null;
+  escalation_scope_id?: string | null;
+  confidence: number;
+  evidence: Record<string, unknown>;
+  closed_at?: string | null;
+  closed_reason?: string | null;
+  superseded_by_id?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OwnershipObjectView {
+  object_type: string;
+  object_id: string;
+  object_name: string;
+  primary: OwnershipRelationshipRow | null;
+  relationships: OwnershipRelationshipRow[];
+  total: number;
+  signals: OwnershipSignalRow[];
+}
+
+export interface OwnershipChangeEvent {
+  id: string;
+  relationship_id: string;
+  object_type: string;
+  object_id: string;
+  object_name: string;
+  responsibility_type: string;
+  action: string;
+  from_owner_id?: string | null;
+  from_owner_label?: string | null;
+  to_owner_id?: string | null;
+  to_owner_label?: string | null;
+  reason?: string | null;
+  actor_id?: string | null;
+  event_name?: string | null;
+  source_event_id?: string | null;
+  occurred_at: string;
+}
+
+export interface OwnershipHistoryResponse {
+  object_type: string;
+  object_id: string;
+  events: OwnershipChangeEvent[];
+  total: number;
+}
+
+export interface OwnershipAsOfResponse {
+  object_type: string;
+  object_id: string;
+  object_name: string;
+  at: string;
+  primary: OwnershipRelationshipRow | null;
+  relationships: OwnershipRelationshipRow[];
+}
+
+export interface OwnershipDelegationGrant {
+  permission_code: string;
+  granted_to_user: string;
+  expires_at: string;
+}
+
+export interface OwnershipContinuityResponse {
+  object_type: string;
+  object_id: string;
+  object_name: string;
+  primary: OwnershipRelationshipRow | null;
+  backup: OwnershipRelationshipRow | null;
+  delegation: { scope_id?: string | null; grants: OwnershipDelegationGrant[] } | null;
+  escalation: { scope_id?: string | null; scope_name?: string | null } | null;
+  gaps: string[];
+}
+
+export interface PersonResponsibilitiesResponse {
+  owner_id: string;
+  active: OwnershipRelationshipRow[];
+  history: OwnershipRelationshipRow[];
+  backup_roles: number;
+  total: number;
+}
+
+export interface OwnershipSignalRow {
+  id: string;
+  kind: string;
+  object_type: string;
+  object_id: string;
+  object_name: string;
+  owner_id?: string | null;
+  severity: string;
+  detail: string;
+  status: string;
+  resolved_at?: string | null;
+  noted_by?: string | null;
+  created_at: string;
+}
+
+export interface OwnershipSignalsResponse {
+  signals: OwnershipSignalRow[];
+  total: number;
+}
+
+export interface OwnershipSummary {
+  active_relationships: number;
+  open_signals: Record<string, number>;
+}
+
+export interface OwnershipAnalysisSummary {
+  scanned: number;
+  signals_written: number;
+  mismatch: number;
+  gap: number;
+  single_point: number;
+  next_offset: number;
+}
+
+export async function brainOwnershipObject(
+  objectType: string,
+  objectId: string
+): Promise<OwnershipObjectView> {
+  return api<OwnershipObjectView>(
+    `/brain/ownership/objects/${objectType}/${objectId}`
+  );
+}
+
+export async function brainOwnershipHistory(
+  objectType: string,
+  objectId: string,
+  limit = 50
+): Promise<OwnershipHistoryResponse> {
+  return api<OwnershipHistoryResponse>(
+    `/brain/ownership/objects/${objectType}/${objectId}/history`,
+    { query: { limit } }
+  );
+}
+
+export async function brainOwnershipAsOf(
+  objectType: string,
+  objectId: string,
+  at?: string
+): Promise<OwnershipAsOfResponse> {
+  return api<OwnershipAsOfResponse>(
+    `/brain/ownership/objects/${objectType}/${objectId}/as-of`,
+    { query: { at } }
+  );
+}
+
+export async function brainOwnershipContinuity(
+  objectType: string,
+  objectId: string
+): Promise<OwnershipContinuityResponse> {
+  return api<OwnershipContinuityResponse>(
+    `/brain/ownership/objects/${objectType}/${objectId}/continuity`
+  );
+}
+
+export async function getPersonResponsibilities(
+  personId: string,
+  activeOnly = true
+): Promise<PersonResponsibilitiesResponse> {
+  return api<PersonResponsibilitiesResponse>(
+    `/brain/ownership/people/${personId}/responsibilities`,
+    { query: { active_only: String(activeOnly) } }
+  );
+}
+
+export async function assignOwnership(payload: {
+  object_type: string;
+  object_id: string;
+  object_name?: string;
+  responsibility_type?: string;
+  owner_id: string;
+  scope_id?: string;
+  backup_owner_id?: string;
+  declared_start?: string;
+  declared_end?: string;
+  reason?: string;
+}): Promise<{ relationship: OwnershipRelationshipRow; change: OwnershipChangeEvent; transferred: boolean }> {
+  return api("/brain/ownership/assign", { method: "POST", body: payload });
+}
+
+export async function transferOwnership(payload: {
+  object_type: string;
+  object_id: string;
+  to_owner_id: string;
+}): Promise<{ relationship: OwnershipRelationshipRow; change: OwnershipChangeEvent; transferred: boolean }> {
+  return api("/brain/ownership/transfer", { method: "POST", body: payload });
+}
+
+export async function setOwnershipBackup(payload: {
+  object_type: string;
+  object_id: string;
+  backup_owner_id: string;
+}): Promise<{ relationship: OwnershipRelationshipRow; change: OwnershipChangeEvent | null }> {
+  return api("/brain/ownership/backup", { method: "POST", body: payload });
+}
+
+export async function closeOwnership(payload: {
+  object_type: string;
+  object_id: string;
+  reason?: string;
+}): Promise<{ relationship: OwnershipRelationshipRow; change: OwnershipChangeEvent }> {
+  return api("/brain/ownership/close", { method: "POST", body: payload });
+}
+
+export async function brainOwnershipDryRun(
+  offset = 0,
+  limit = 200
+): Promise<{ dry_run: boolean; would_scan: number; note: string }> {
+  return api("/brain/ownership/analyze", { query: { offset, limit } });
+}
+
+export async function runOwnershipAnalysis(
+  offset = 0,
+  limit = 200
+): Promise<OwnershipAnalysisSummary> {
+  return api("/brain/ownership/analyze", {
+    method: "POST",
+    query: { offset, limit },
+  });
+}
+
+export async function getOwnershipSignals(
+  kind?: string,
+  status = "open",
+  limit = 200
+): Promise<OwnershipSignalsResponse> {
+  return api<OwnershipSignalsResponse>("/brain/ownership/signals", {
+    query: { kind, status, limit },
+  });
+}
+
+export async function resolveOwnershipSignal(
+  signalId: string
+): Promise<{ signal: OwnershipSignalRow }> {
+  return api<{ signal: OwnershipSignalRow }>(
+    `/brain/ownership/signals/${signalId}/resolve`,
+    { method: "POST" }
+  );
+}
+
+export async function getOwnershipSummary(): Promise<OwnershipSummary> {
+  return api<OwnershipSummary>("/brain/ownership/summary");
+}
+
+export async function ownershipCoverageCheck(
+  objects: { object_type: string; object_id: string; object_name?: string }[]
+): Promise<{ checked: number; unassigned: { object_type: string; object_id: string; object_name: string }[]; unassigned_total: number }> {
+  return api("/brain/ownership/coverage-check", { method: "POST", body: { objects } });
+}

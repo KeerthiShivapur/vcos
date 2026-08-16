@@ -368,6 +368,11 @@ from app.models.skills_intelligence import (  # noqa: F401
     PersonSkill,
     SkillAlias,
 )
+from app.models.ownership_intelligence import (  # noqa: F401
+    OwnershipChange,
+    OwnershipRelationship,
+    OwnershipSignal,
+)
 
 __all__ = [
     "Organization",
@@ -738,4 +743,7 @@ __all__ = [
     "Expertise",
     "ExpertiseEvidence",
     "CapabilityAggregate",
+    "OwnershipChange",
+    "OwnershipRelationship",
+    "OwnershipSignal",
 ]

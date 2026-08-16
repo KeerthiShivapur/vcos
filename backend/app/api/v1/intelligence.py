@@ -121,8 +121,14 @@ async def process_pending_events(
     db: AsyncSession = Depends(get_db),
     limit: int = Query(50, ge=1, le=500),
 ):
-    """Trigger the event dispatcher on demand (normally the event worker does this)."""
-    count = await event_bus.process_pending(db, limit=limit)
+    """Trigger the event dispatcher on demand (normally the event worker does this).
+
+    Scoped to the requesting organization - a tenant drain never touches
+    other tenants' queues.
+    """
+    count = await event_bus.process_pending(
+        db, limit=limit, organization_id=org.id
+    )
     await db.commit()
     return {"processed": count}
 
