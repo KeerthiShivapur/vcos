@@ -3666,3 +3666,230 @@ async def brain_ownership_coverage_check(
     return await ownership_engine.coverage_check(
         db, organization_id=org.id, candidates=body.objects,
     )
+
+
+# ---------------------------------------------------------------------------
+# Slice 4F.5 — Work Collaboration Intelligence
+#
+# One governed collaboration surface: the canonical Work Collaboration Graph
+# (person <-> person, team <-> team, project). Everything is evidence-derived
+# and explainable (counters, strength formula, confidence, health, quality,
+# monthly evolution); every read is governance-scoped; signals are advisory
+# only — nothing here changes people, teams or projects. Bottlenecks are
+# "potential concentration risk" findings, never labels; gaps name a missing
+# relationship, never a failing team.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/collaboration/overview")
+async def brain_collaboration_overview(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """One-glance collaboration posture: relationship health distribution,
+    strongest pairs, weakening pairs, open advisory signals and org-level
+    accumulators."""
+    from app.intelligence.work_collaboration_engine import work_collaboration_engine
+
+    access = await resolve_caller_access(db, organization_id=org.id, user=user)
+    return await work_collaboration_engine.overview(
+        db, organization_id=org.id, access=access,
+    )
+
+
+@router.get("/collaboration/relationships/people/{person_a}/with/{person_b}")
+async def brain_collaboration_pair(
+    person_a: str,
+    person_b: str,
+    limit: int = Query(default=10, ge=1, le=50),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """One canonical relationship: counters, strength, confidence, health,
+    quality, monthly markers, recent evidence and the strength explanation —
+    "why does the record say these two collaborate?"."""
+    from app.intelligence.work_collaboration_engine import CollaborationError, work_collaboration_engine
+
+    access = await resolve_caller_access(db, organization_id=org.id, user=user)
+    for person_id in (person_a, person_b):
+        await _require_visible_person(db, org, access, person_id)
+    try:
+        return await work_collaboration_engine.relationship_detail(
+            db, organization_id=org.id, person_a=person_a,
+            person_b=person_b, access=access, limit=limit,
+        )
+    except CollaborationError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+@router.get("/collaboration/people/{person_id}")
+async def brain_collaboration_person(
+    person_id: str,
+    limit: int = Query(default=20, ge=1, le=50),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """One person's collaboration world: strongest partners (ranked), their
+    relationship record, and the person's share of org collaboration strength
+    (concentration context — advisory only)."""
+    from app.intelligence.work_collaboration_engine import work_collaboration_engine
+
+    access = await resolve_caller_access(db, organization_id=org.id, user=user)
+    await _require_visible_person(db, org, access, person_id)
+    return await work_collaboration_engine.person_relationships(
+        db, organization_id=org.id, person_id=person_id, access=access, limit=limit,
+    )
+
+
+@router.get("/collaboration/units/{unit_type}/{unit_id}")
+async def brain_collaboration_unit(
+    unit_type: str,
+    unit_id: str,
+    limit: int = Query(default=20, ge=1, le=50),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Cross-unit collaboration: how strongly a team/department collaborates
+    with every other unit, with health and quality per pair."""
+    from app.intelligence.work_collaboration_engine import CollaborationError, work_collaboration_engine
+
+    access = await resolve_caller_access(db, organization_id=org.id, user=user)
+    try:
+        return await work_collaboration_engine.unit_relationships(
+            db, organization_id=org.id, unit_type=unit_type,
+            unit_id=unit_id, access=access, limit=limit,
+        )
+    except CollaborationError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+@router.get("/collaboration/projects/{project_id}")
+async def brain_collaboration_project(
+    project_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Project collaboration evidence: top pairs, per-person evidence share,
+    and a potential dependency-concentration advisory (never a verdict)."""
+    from app.intelligence.work_collaboration_engine import CollaborationError, work_collaboration_engine
+
+    access = await resolve_caller_access(db, organization_id=org.id, user=user)
+    try:
+        return await work_collaboration_engine.project_view(
+            db, organization_id=org.id, project_id=project_id, access=access,
+        )
+    except CollaborationError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+@router.get("/collaboration/changes")
+async def brain_collaboration_changes(
+    days: int = Query(default=30, ge=1, le=365),
+    limit: int = Query(default=20, ge=1, le=100),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """What changed recently in the collaboration graph: emerging,
+    strengthening, weakening and dormant relationships with their evidence —
+    "which teams are becoming disconnected" lives here."""
+    from app.intelligence.work_collaboration_engine import work_collaboration_engine
+
+    access = await resolve_caller_access(db, organization_id=org.id, user=user)
+    return await work_collaboration_engine.changes(
+        db, organization_id=org.id, access=access, days=days, limit=limit,
+    )
+
+
+@router.get("/collaboration/signals")
+async def brain_collaboration_signals(
+    kind: Optional[str] = Query(default=None),
+    status: str = Query(default="open"),
+    limit: int = Query(default=20, ge=1, le=100),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """All advisory collaboration signals (concentration risk, slowdown,
+    negative shift, gap) — findings that never change the organization."""
+    from app.intelligence.work_collaboration_engine import work_collaboration_engine
+
+    access = await resolve_caller_access(db, organization_id=org.id, user=user)
+    return await work_collaboration_engine.signals(
+        db, organization_id=org.id, access=access, kind=kind, status=status, limit=limit,
+    )
+
+
+@router.get("/collaboration/gaps")
+async def brain_collaboration_gaps(
+    status: str = Query(default="open"),
+    limit: int = Query(default=20, ge=1, le=100),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Required-but-low-evidence collaboration between units (e.g. shared
+    project work whose pair shows almost no collaboration). A gap names a
+    missing relationship — never a failing team."""
+    from app.intelligence.work_collaboration_engine import work_collaboration_engine
+
+    return await work_collaboration_engine.signals(
+        db, organization_id=org.id, kind="gap", status=status, limit=limit,
+    )
+
+
+@router.get("/collaboration/bottlenecks")
+async def brain_collaboration_bottlenecks(
+    status: str = Query(default="open"),
+    limit: int = Query(default=20, ge=1, le=100),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Potential collaboration concentration risk: people carrying a large
+    share of the org's collaboration strength. Advisory — never a label."""
+    from app.intelligence.work_collaboration_engine import work_collaboration_engine
+
+    return await work_collaboration_engine.signals(
+        db, organization_id=org.id, kind="concentration", status=status, limit=limit,
+    )
+
+
+@router.post("/collaboration/analyze")
+async def brain_collaboration_analyze(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """One bounded gap-analysis pass (active projects -> shared departments ->
+    evidence check). Persists or auto-resolves advisory gap signals only."""
+    from app.intelligence.work_collaboration_engine import work_collaboration_engine
+
+    result = await work_collaboration_engine.analyze_gaps(
+        db, organization_id=org.id,
+    )
+    await db.commit()
+    return result
+
+
+@router.post("/collaboration/signals/{signal_id}/resolve")
+async def brain_collaboration_signal_resolve(
+    signal_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("employees:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Acknowledge/resolve an advisory signal by id (bounded single lookup).
+    Resolving a signal changes nothing in the collaboration graph."""
+    from app.intelligence.work_collaboration_engine import work_collaboration_engine
+
+    await work_collaboration_engine.resolve_signal_by_id(
+        db, organization_id=org.id, signal_id=signal_id, actor_id=user.id,
+    )
+    await db.commit()
+    return {"resolved": signal_id}

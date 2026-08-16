@@ -180,6 +180,32 @@ _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
     ("responsibility_gaps", ("missing owner", "no owner", "who should own",
                              "ownership gap", "unowned", "without an owner",
                              "owner left", "who owns nothing", "gap analysis")),
+    # Slice 4F.5 — work collaboration questions. These surface the canonical
+    # Work Collaboration Graph: who works most closely with whom, who connects
+    # two teams, why collaboration between units is weak, who is involved in a
+    # project, whether a project depends on one person, and how collaboration
+    # is changing. All answers are evidence-backed and advisory-only.
+    ("collaboration_person", ("works most closely with", "works closest with",
+                              "closest collaborator", "collaborates most with",
+                              "best collaborator", "works closely with",
+                              "strongest collaboration")),
+    ("collaboration_bridge", ("who connects", "connects the", "bridge between",
+                              "bridge the", "link between", "connects our")),
+    ("collaboration_weak", ("collaboration between", "why is collaboration",
+                            "collaboration weak", "not collaborating",
+                            "weak collaboration", "barely collaborate",
+                            "become disconnected", "becoming disconnected")),
+    ("collaboration_gaps", ("collaboration gap", "missing collaboration",
+                            "who should i involve", "who should we involve",
+                            "who to involve", "should be involved",
+                            "collaboration risk", "collaboration risks")),
+    ("collaboration_project", ("overly dependent on one person",
+                               "overly dependent", "too dependent on",
+                               "single person", "key person risk",
+                               "one person", "depends on one")),
+    ("collaboration_changes", ("collaboration changed", "collaboration changes",
+                               "how has collaboration", "changes in collaboration",
+                               "collaboration this month", "collaboration this quarter")),
 ]
 
 _CHANGE_SIGNAL = re.compile(
@@ -1519,6 +1545,304 @@ class IntelligenceEngine:
         }
 
     # ------------------------------------------------------------------
+    # 4F.5 — universal work collaboration questions
+    # ------------------------------------------------------------------
+
+    async def _collaboration_query(
+        self, db: AsyncSession, *, organization_id: str,
+        question: str, user: Any, intent: str,
+    ) -> dict[str, Any]:
+        """Slice 4F.5 universal collaboration answers: who works most closely
+        with X, who connects two units, why a unit pair is weak, who should be
+        involved, project dependency concentration, collaboration changes and
+        collaboration risks. Every answer is evidence-backed and advisory-only
+        (the collaboration graph is never changed by analysis)."""
+        from app.intelligence.work_collaboration_engine import work_collaboration_engine
+        from app.people.people_engine import people_engine
+
+        access = await self._access(db, organization_id=organization_id, user=user)
+        scope_label = "org" if access.org_wide else "project"
+        lowered = question.lower()
+
+        async def resolve_person(phrase: str):
+            phrase = phrase.strip().strip("?")
+            if not phrase:
+                return None
+            search = await people_engine.search(
+                db, organization_id=organization_id, access=access, q=phrase, limit=5,
+            )
+            for person in search["people"]:
+                return person
+            return None
+
+        # -- who works most closely with X ---------------------------------
+        if intent == "collaboration_person":
+            for marker in ("works most closely with", "works closest with",
+                           "closest collaborator", "collaborates most with",
+                           "best collaborator", "works closely with",
+                           "strongest collaboration with", "strongest collaboration between"):
+                if marker in lowered:
+                    phrase = lowered.split(marker, 1)[1]
+                    break
+            else:
+                phrase = lowered.replace("who", "").replace("is", "").strip("? ").strip()
+            person = await resolve_person(phrase)
+            if person is None:
+                return {
+                    "question": question, "intent": intent, "kind": "collaboration_person",
+                    "total": 0, "answers": [], "scope": scope_label,
+                    "answer": "I could not identify that person. Ask e.g. \"who works most closely with Rahul?\"",
+                    "generated_at": _utcnow_iso(),
+                }
+            result = await work_collaboration_engine.person_relationships(
+                db, organization_id=organization_id, person_id=person["id"],
+                access=access, limit=8,
+            )
+            edges = result.get("relationships", [])
+            if not edges:
+                answer = (
+                    f"No collaboration evidence found for {person['name']} yet - "
+                    "the graph only records what actually happened."
+                )
+            else:
+                top = edges[0]
+                others = ", ".join(
+                    f"{e['other_person_label']} ({e['strength']:.2f})" for e in edges[1:3]
+                )
+                answer = (
+                    f"{person['name']} works most closely with {top['other_person_label']} "
+                    f"(strength {top['strength']:.2f}, {top['shared_tasks']} shared tasks, "
+                    f"{top['shared_meetings']} shared meetings, "
+                    f"{top['meaningful_messages']} meaningful messages, "
+                    f"confidence {top['confidence']:.2f})."
+                    + (f" Also close: {others}." if others else "")
+                )
+            return {
+                "question": question, "intent": intent, "kind": "collaboration_person",
+                "total": len(edges), "answers": edges,
+                "answer": answer, "scope": scope_label, "generated_at": _utcnow_iso(),
+            }
+
+        # -- who connects two units / bridge -------------------------------
+        if intent == "collaboration_bridge":
+            markers = ("who connects", "connects the", "bridge between",
+                       "bridge the", "link between", "connects our")
+            start = max([lowered.find(m) for m in markers if m in lowered])
+            phrase = lowered[start:].split("?", 1)[0]
+            for marker in markers:
+                if marker in phrase:
+                    phrase = phrase.split(marker, 1)[1]
+                    break
+            phrase = phrase.replace("the", " ", 1).strip(" ?")
+            if not phrase:
+                phrase = lowered
+            unit_name = phrase.replace(" and ", "|").split("|")[0].strip()
+            unit_name = unit_name.split(" with ")[0].split(" to ")[0].strip("? ")
+
+            bridges = await work_collaboration_engine.people_across_units(
+                db, organization_id=organization_id, unit_name=unit_name,
+                access=access, limit=8,
+            )
+            if not bridges:
+                return {
+                    "question": question, "intent": intent, "kind": "collaboration_bridge",
+                    "total": 0, "answers": [], "scope": scope_label,
+                    "answer": (
+                        f"No visible bridge people found for {unit_name or 'that unit'} - "
+                        "either the unit has no cross-unit collaboration evidence or "
+                        "none is visible to you."
+                    ),
+                    "generated_at": _utcnow_iso(),
+                }
+            names = ", ".join(
+                f"{b['person_label']} ({b['cross_units']} cross-unit relationships)" for b in bridges[:3]
+            )
+            answer = (
+                f"People who connect {unit_name} to other units: {names}. "
+                "Bridges are advisory - the graph records collaboration, it never labels people."
+            )
+            return {
+                "question": question, "intent": intent, "kind": "collaboration_bridge",
+                "total": len(bridges), "answers": bridges,
+                "answer": answer, "scope": scope_label, "generated_at": _utcnow_iso(),
+            }
+
+        # -- why is collaboration between X and Y weak ----------------------
+        if intent == "collaboration_weak":
+            start = lowered.find("collaboration")
+            if start < 0:
+                start = 0
+            rest = lowered[start:]
+            if "between" in rest:
+                parts = rest.split("between", 1)[1].strip("? ").replace(" and ", "|").split("|")
+            else:
+                parts = rest.replace(" and ", "|").split("|")
+            unit_a = parts[0].strip() if parts else ""
+            unit_b = parts[1].strip() if len(parts) > 1 else ""
+            if not unit_a:
+                return {
+                    "question": question, "intent": intent, "kind": "collaboration_weak",
+                    "total": 0, "answers": [], "scope": scope_label,
+                    "answer": "Which two units are you asking about? e.g. \"why is collaboration between Sales and Engineering weak?\"",
+                    "generated_at": _utcnow_iso(),
+                }
+            result = await work_collaboration_engine.unit_pair_explain(
+                db, organization_id=organization_id,
+                unit_a_name=unit_a, unit_b_name=unit_b or "all",
+                access=access,
+            )
+            pair = result.get("pair")
+            if pair is None:
+                answer = (
+                    f"No collaboration evidence between {unit_a}"
+                    + (f" and {unit_b}" if unit_b else " and any other unit")
+                    + " - if they should collaborate, that absence itself is the finding (a gap, never a blame)."
+                )
+            else:
+                answer = (
+                    f"Collaboration between {pair['unit_a_label']} and {pair['unit_b_label']} is "
+                    f"{pair['health_state']} (strength {pair['strength']:.2f}, confidence "
+                    f"{pair['confidence']:.2f}): {pair['shared_tasks']} shared tasks, "
+                    f"{pair['shared_meetings']} shared meetings, "
+                    f"{pair['successful_interactions']} successful and "
+                    f"{pair['failed_interactions']} failed interactions, "
+                    f"{pair['evidence_count']} evidence items. Evidence explains it; "
+                    "no unit is ever labeled 'failing'."
+                )
+            return {
+                "question": question, "intent": intent, "kind": "collaboration_weak",
+                "total": 1 if pair else 0, "answers": [result],
+                "answer": answer, "scope": scope_label, "generated_at": _utcnow_iso(),
+            }
+
+        # -- collaboration gaps / who should I involve ----------------------
+        if intent == "collaboration_gaps":
+            signals = await work_collaboration_engine.signals(
+                db, organization_id=organization_id, kind="gap",
+                status="open", limit=10,
+            )
+            items = signals["signals"]
+            involve_target = None
+            for marker in ("who should i involve", "who should we involve",
+                           "who to involve", "should be involved"):
+                if marker in lowered:
+                    involve_target = True
+                    break
+            if involve_target:
+                person = await resolve_person(
+                    lowered.split("involve", 1)[1] if "involve" in lowered else ""
+                )
+                if person is not None:
+                    result = await work_collaboration_engine.person_relationships(
+                        db, organization_id=organization_id, person_id=person["id"],
+                        access=access, limit=8,
+                    )
+                    edges = result.get("relationships", [])
+                    if edges:
+                        cross = [e for e in edges if e.get("relationship_kind") == "cross_department"]
+                        names = ", ".join(
+                            f"{e['other_person_label']} ({e['health_state']})" for e in edges[:3]
+                        )
+                        answer = (
+                            f"People with the strongest collaboration evidence around "
+                            f"{person['name']}: {names}. "
+                            + ("The strongest cross-unit connections are likely to matter most." if cross else "")
+                        )
+                    else:
+                        answer = f"No collaboration evidence found around {person['name']} yet."
+                    return {
+                        "question": question, "intent": intent, "kind": "collaboration_gaps",
+                        "total": len(edges), "answers": edges,
+                        "answer": answer, "scope": scope_label, "generated_at": _utcnow_iso(),
+                    }
+            lines = [
+                f"{s['subject_label']} - {s['detail'][:140]}" for s in items
+            ]
+            answer = (
+                f"{len(items)} collaboration gap{'s' if len(items) != 1 else ''} "
+                "open (required work with little evidence - advisory only): "
+                + ("; ".join(lines) if lines else "none. No gaps found in visible scopes.")
+            )
+            return {
+                "question": question, "intent": intent, "kind": "collaboration_gaps",
+                "total": len(items), "answers": items,
+                "answer": answer, "scope": scope_label, "generated_at": _utcnow_iso(),
+            }
+
+        # -- is this project overly dependent on one person ------------------
+        if intent == "collaboration_project":
+            from app.models.project import Project
+
+            q_tokens = tokens(question)
+            best: Optional[tuple[int, str]] = None
+            rows = (
+                await db.execute(
+                    select(Project.id, Project.name).where(
+                        Project.organization_id == organization_id
+                    ).limit(50)
+                )
+            ).all()
+            for pid, pname in rows:
+                label = str(pname or "")[:255]
+                overlap = len(q_tokens & tokens(label))
+                if not overlap:
+                    continue
+                if not getattr(access, "org_wide", False) and pid not in getattr(access, "project_ids", frozenset()):
+                    continue
+                if best is None or overlap > best[0]:
+                    best = (overlap, pid)
+            if best is None:
+                return {
+                    "question": question, "intent": intent, "kind": "collaboration_project",
+                    "total": 0, "answers": [], "scope": scope_label,
+                    "answer": "I could not identify the project. Ask e.g. \"is the Apollo project overly dependent on one person?\"",
+                    "generated_at": _utcnow_iso(),
+                }
+            view = await work_collaboration_engine.project_view(
+                db, organization_id=organization_id, project_id=best[1], access=access,
+            )
+            dep = view.get("dependency_concentration")
+            if dep is None:
+                answer = (
+                    f"No concentration risk detected in {view['project_name']} - "
+                    "project evidence is spread across people (advisory, never a verdict)."
+                )
+            else:
+                answer = (
+                    f"{view['project_name']} shows potential concentration: "
+                    f"{dep['person_a_label']} and {dep['person_b_label']} account for "
+                    f"{dep['share_of_project_evidence']:.0%} of project collaboration "
+                    "evidence. This is an advisory signal to review, not a diagnosis."
+                )
+            return {
+                "question": question, "intent": intent, "kind": "collaboration_project",
+                "total": len(view.get("top_pairs", [])), "answers": [view],
+                "answer": answer, "scope": scope_label, "generated_at": _utcnow_iso(),
+            }
+
+        # -- collaboration changes / risks -----------------------------------
+        result = await work_collaboration_engine.changes(
+            db, organization_id=organization_id, access=access, days=30, limit=10,
+        )
+        changes = result.get("changes", [])
+        lines = []
+        for c in changes:
+            if c.get("change") in ("emerging", "strengthening", "weakening", "dormant"):
+                lines.append(
+                    f"{c['person_a_label']} <-> {c['person_b_label']} {c['change']}"
+                    f" ({c['health_state']}, strength {c['strength']:.2f})"
+                )
+        answer = (
+            f"{len(lines)} collaboration change{'s' if len(lines) != 1 else ''} in the last 30 days: "
+            + ("; ".join(lines[:6]) if lines else "no visible changes in visible scopes.")
+        )
+        return {
+            "question": question, "intent": intent, "kind": "collaboration_changes",
+            "total": len(changes), "answers": changes,
+            "answer": answer, "scope": scope_label, "generated_at": _utcnow_iso(),
+        }
+
+    # ------------------------------------------------------------------
     # 4.4.6 — knowledge health
     # ------------------------------------------------------------------
 
@@ -2660,6 +2984,11 @@ class IntelligenceEngine:
         if intent in ("responsibility", "continuity", "responsibility_history",
                       "responsibility_gaps", "single_point"):
             return await self._ownership_query(
+                db, organization_id=organization_id,
+                question=question, user=user, intent=intent,
+            )
+        if intent.startswith("collaboration"):
+            return await self._collaboration_query(
                 db, organization_id=organization_id,
                 question=question, user=user, intent=intent,
             )

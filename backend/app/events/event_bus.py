@@ -19,6 +19,7 @@ Reliability model:
 - Every dispatch is idempotent: an event with processed_at set is skipped.
 """
 
+import asyncio
 import json
 import logging
 from datetime import timedelta
@@ -38,6 +39,14 @@ _BACKOFF_BASE_SECONDS = 60
 _BACKOFF_CAP_SECONDS = 3600
 _STALE_JOB_AFTER_SECONDS = 900
 _MAX_ATTEMPTS_CAP = 10
+
+# In the single-process deployment (web app + in-process 60s event worker)
+# dispatch passes share one event loop and multiple PostgreSQL sessions.
+# Two concurrent passes (manual drain + worker) that both check-then-INSERT
+# into uniqueness-keyed handler tables (e.g. org_graph_edges) can deadlock,
+# so passes are serialized with a process-wide lock. Cross-process safety is
+# still provided by the bus's atomic job claim (compare-and-set).
+_PROCESS_PASS_LOCK = asyncio.Lock()
 
 
 def _parse_payload(raw: Optional[str]) -> dict[str, Any]:
@@ -107,6 +116,27 @@ class EventBus:
     # ------------------------------------------------------------------ processing
 
     async def process_pending(
+        self,
+        db: AsyncSession,
+        *,
+        limit: int = 100,
+        event_names: Optional[list[str]] = None,
+        organization_id: Optional[str] = None,
+    ) -> int:
+        """One worker pass: dispatch queued events to their handlers.
+
+        Serialized process-wide (see ``_PROCESS_PASS_LOCK``): concurrent
+        passes from the periodic event worker and an on-demand drain share
+        one transaction-safe ordering, avoiding check-then-INSERT deadlocks
+        on uniqueness-keyed handler tables.
+        """
+        async with _PROCESS_PASS_LOCK:
+            return await self._process_pending_unlocked(
+                db, limit=limit, event_names=event_names,
+                organization_id=organization_id,
+            )
+
+    async def _process_pending_unlocked(
         self,
         db: AsyncSession,
         *,

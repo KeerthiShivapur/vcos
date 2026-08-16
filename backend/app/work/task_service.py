@@ -258,7 +258,7 @@ class TaskService:
     async def update(
         self, db, *, organization_id: str, task: Task, data: dict[str, Any],
         actor: Optional[Employee] = None, ip_address: Optional[str] = None,
-        force: bool = False,
+        force: bool = False, via_transition: bool = False,
     ) -> Task:
         for key in ("project_id", "epic_id", "milestone_id", "sprint_id", "assignee_id", "reporter_id", "parent_task_id", "goal_id", "decision_id"):
             if data.get(key):
@@ -321,6 +321,11 @@ class TaskService:
             await self._alert_completed(db, organization_id, task, actor)
             if task.decision_id:
                 await self._refresh_decision(db, organization_id, task.decision_id, actor, ip_address)
+        if task.status == "blocked" and old_status != "blocked" and not via_transition:
+            # direct PATCH-to-blocked (no transition): emit the blocked event.
+            # transition() emits it itself when blockers exist and delegates
+            # here with via_transition=True to avoid double-firing.
+            await self._emit(db, "task.blocked", organization_id, actor, ip_address, task)
         if "assignee_id" in data and task.assignee_id:
             await self._alert_assigned(db, organization_id, task, actor)
         from app.services.work_audit import record
@@ -367,7 +372,7 @@ class TaskService:
             await self._emit(db, "task.transitioned", organization_id, actor, ip_address, task)
         return await self.update(
             db, organization_id=organization_id, task=task, data={"status": status},
-            actor=actor, ip_address=ip_address, force=force,
+            actor=actor, ip_address=ip_address, force=force, via_transition=True,
         )
 
     async def delete(

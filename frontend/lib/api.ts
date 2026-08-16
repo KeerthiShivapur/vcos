@@ -8519,3 +8519,248 @@ export async function ownershipCoverageCheck(
 ): Promise<{ checked: number; unassigned: { object_type: string; object_id: string; object_name: string }[]; unassigned_total: number }> {
   return api("/brain/ownership/coverage-check", { method: "POST", body: { objects } });
 }
+
+// ------------------------------------------- Slice 4F.5 work collaboration graph
+// Evidence-backed person <-> person, team <-> team and project collaboration,
+// with strength/health/quality, recent changes and advisory signals only.
+
+export interface CollaborationRelationshipRow {
+  id: string;
+  person_a_id: string;
+  person_a_label: string | null;
+  person_b_id: string;
+  person_b_label: string | null;
+  relationship_kind: string;
+  scope_type: string;
+  scope_id: string | null;
+  shared_tasks: number;
+  shared_decisions: number;
+  shared_meetings: number;
+  meaningful_messages: number;
+  successful_interactions: number;
+  failed_interactions: number;
+  strength: number;
+  confidence: number;
+  health_state: string;
+  quality: string;
+  status: string;
+  month_key: string | null;
+  points_cur_month: number;
+  points_prev_month: number;
+  source_type: string | null;
+  last_source_id: string | null;
+  last_source_title: string | null;
+  first_seen: string | null;
+  last_seen: string | null;
+  last_activity_at: string | null;
+  evidence_count: number;
+  recent_evidence: unknown[];
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface CollaborationSignalRow {
+  id: string;
+  kind: string;
+  subject_type: string;
+  subject_id: string;
+  subject_label: string;
+  severity: string;
+  detail: string;
+  evidence: unknown[];
+  status: string;
+  resolved_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface CollaborationOverview {
+  organization_id: string;
+  total_relationships: number;
+  cross_functional_relationships: number;
+  health: Record<string, number>;
+  strongest: CollaborationRelationshipRow[];
+  weakening: CollaborationRelationshipRow[];
+  open_signals: CollaborationSignalRow[];
+  org_rollup: {
+    active_relationships: number;
+    total_strength: number;
+    total_evidence: number;
+  } | null;
+}
+
+export interface CollaborationPairDetail extends CollaborationRelationshipRow {
+  evidence: {
+    id: string;
+    event_name: string;
+    outcome: string;
+    points: number;
+    source_type: string | null;
+    source_id: string | null;
+    source_title: string | null;
+    project_id: string | null;
+    detail: string | null;
+    occurred_at: string | null;
+  }[];
+  explain: {
+    formula: string;
+    weighted_positive: number;
+    failure_ratio: number;
+    evidence_count: number;
+  };
+}
+
+export interface CollaborationPersonView {
+  person_id: string;
+  person_label: string | null;
+  relationships: (CollaborationRelationshipRow & {
+    other_person_id: string;
+    other_person_label: string | null;
+  })[];
+  rollup: {
+    active_relationships: number;
+    total_strength: number;
+    total_evidence: number;
+    share_of_org_strength: number | null;
+  } | null;
+}
+
+export interface CollaborationUnitView {
+  unit_type: string;
+  unit_id: string;
+  unit_label: string | null;
+  pairs: ({
+    id: string;
+    unit_a_label: string | null;
+    unit_b_label: string | null;
+    shared_tasks: number;
+    failed_interactions: number;
+    evidence_count: number;
+    strength: number;
+    confidence: number;
+    health_state: string;
+    quality: string;
+    last_activity_at: string | null;
+  } & {
+    other_unit_id: string;
+    other_unit_label: string | null;
+  })[];
+}
+
+export interface CollaborationProjectView {
+  project_id: string;
+  project_name: string;
+  total_evidence: number;
+  people: { person_id: string; evidence_count: number; share_of_project_evidence: number }[];
+  top_pairs: {
+    person_a_id: string;
+    person_a_label: string | null;
+    person_b_id: string;
+    person_b_label: string | null;
+    evidence_count: number;
+    successes: number;
+    failures: number;
+  }[];
+  dependency_concentration: {
+    person_a_id: string;
+    person_a_label: string | null;
+    person_b_id: string;
+    person_b_label: string | null;
+    share_of_project_evidence: number;
+    advisory: string;
+  } | null;
+}
+
+export interface CollaborationChangesResponse {
+  days: number;
+  total: number;
+  changes: (CollaborationRelationshipRow & { change: string })[];
+}
+
+export interface CollaborationSignalsResponse {
+  kind: string | null;
+  status: string;
+  total: number;
+  signals: CollaborationSignalRow[];
+}
+
+export interface CollaborationAnalyzeSummary {
+  projects_scanned: number;
+  unit_pairs_checked: number;
+  gaps: number;
+}
+
+export async function getCollaborationOverview(): Promise<CollaborationOverview> {
+  return api<CollaborationOverview>("/brain/collaboration/overview");
+}
+
+export async function getCollaborationPair(
+  personA: string,
+  personB: string,
+  limit = 10
+): Promise<CollaborationPairDetail> {
+  return api<CollaborationPairDetail>(
+    `/brain/collaboration/relationships/people/${personA}/with/${personB}`,
+    { query: { limit } }
+  );
+}
+
+export async function getCollaborationPerson(
+  personId: string,
+  limit = 20
+): Promise<CollaborationPersonView> {
+  return api<CollaborationPersonView>(`/brain/collaboration/people/${personId}`, {
+    query: { limit },
+  });
+}
+
+export async function getCollaborationUnit(
+  unitType: "team" | "department",
+  unitId: string,
+  limit = 20
+): Promise<CollaborationUnitView> {
+  return api<CollaborationUnitView>(
+    `/brain/collaboration/units/${unitType}/${unitId}`,
+    { query: { limit } }
+  );
+}
+
+export async function getCollaborationProject(
+  projectId: string
+): Promise<CollaborationProjectView> {
+  return api<CollaborationProjectView>(`/brain/collaboration/projects/${projectId}`);
+}
+
+export async function getCollaborationChanges(
+  days = 30,
+  limit = 20
+): Promise<CollaborationChangesResponse> {
+  return api<CollaborationChangesResponse>("/brain/collaboration/changes", {
+    query: { days, limit },
+  });
+}
+
+export async function getCollaborationSignals(
+  kind?: string,
+  status = "open",
+  limit = 50
+): Promise<CollaborationSignalsResponse> {
+  return api<CollaborationSignalsResponse>("/brain/collaboration/signals", {
+    query: { kind, status, limit },
+  });
+}
+
+export async function runCollaborationGapAnalysis(): Promise<CollaborationAnalyzeSummary> {
+  return api<CollaborationAnalyzeSummary>("/brain/collaboration/analyze", {
+    method: "POST",
+  });
+}
+
+export async function resolveCollaborationSignal(
+  signalId: string
+): Promise<{ resolved: string; kind: string }> {
+  return api<{ resolved: string; kind: string }>(
+    `/brain/collaboration/signals/${signalId}/resolve`,
+    { method: "POST" }
+  );
+}

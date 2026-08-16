@@ -2790,3 +2790,45 @@ async def handle_ownership_owner_left(db, event, payload):
         reason=f"owner status became {status}",
         actor_id=event.actor_id, event=event,
     )
+
+
+# ---------------------------------------------------------------------------
+# Slice 4F.5 — Work Collaboration Intelligence (event bridge)
+# ---------------------------------------------------------------------------
+# The canonical Work Collaboration Graph is fed from the SAME durable events
+# the platform already emits: task.*, project.*, decision.*, meeting.*,
+# approval.* and messaging.message_sent. Every handler is replay-safe: the
+# evidence ledger is keyed on (organization_id, source_event_id, pair) so a
+# replay converges exactly-once and NEVER double-counts. Handlers never
+# commit — the EventBus owns the transaction (same law as 4F.1/4F.4). The
+# engine is bounded per event (hard caps on attendees, recipients,
+# participants and project members) and NEVER rescans the org.
+# ---------------------------------------------------------------------------
+
+
+@on("task.created")
+@on("task.completed")
+@on("task.transitioned")
+@on("task.blocked")
+@on("task.unblocked")
+@on("project.started")
+@on("project.completed")
+@on("project.cancelled")
+@on("decision.made")
+@on("decision.executed")
+@on("decision.implemented")
+@on("approval.approved")
+@on("approval.rejected")
+@on("meeting.ended")
+@on("meeting.completed")
+@on("messaging.message_sent")
+async def handle_work_collaboration(db, event, payload):
+    """Feed the canonical Work Collaboration Graph from durable events."""
+    from app.intelligence.work_collaboration_engine import work_collaboration_engine
+
+    org_id = payload.get("organization_id") or event.organization_id
+    if not org_id:
+        return
+    await work_collaboration_engine.record_event(
+        db, organization_id=org_id, event=event, payload=payload,
+    )

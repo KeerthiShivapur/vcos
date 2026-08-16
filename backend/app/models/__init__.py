@@ -373,6 +373,14 @@ from app.models.ownership_intelligence import (  # noqa: F401
     OwnershipRelationship,
     OwnershipSignal,
 )
+from app.models.collaboration_intelligence import (  # noqa: F401
+    CollaborationEvidence,
+    CollaborationOrgRollup,
+    CollaborationPersonRollup,
+    CollaborationRelationship,
+    CollaborationSignal,
+    CollaborationUnitPair,
+)
 
 __all__ = [
     "Organization",
@@ -746,4 +754,10 @@ __all__ = [
     "OwnershipChange",
     "OwnershipRelationship",
     "OwnershipSignal",
+    "CollaborationEvidence",
+    "CollaborationOrgRollup",
+    "CollaborationPersonRollup",
+    "CollaborationRelationship",
+    "CollaborationSignal",
+    "CollaborationUnitPair",
 ]

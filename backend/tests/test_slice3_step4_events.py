@@ -336,6 +336,17 @@ async def test_work_events_process_without_failures(client, db_session_factory):
         if processed == 0:
             break
 
+    # Slice 4D.3: task.blocked also enqueues a memory.formation job; drain the
+    # formation worker so every enqueued job reaches a terminal state.
+    from app.workers import memory_formation_worker
+
+    for _ in range(8):
+        async with db_session_factory() as session:
+            processed = await memory_formation_worker.run_once(db=session, limit=50)
+            await session.commit()
+        if processed == 0:
+            break
+
     async with db_session_factory() as db:
         jobs = (await db.execute(select(BackgroundJob))).scalars().all()
         assert jobs, "events should have been claimed by the worker"
