@@ -9112,3 +9112,222 @@ export async function peopleDecisionWhatIf(
 ): Promise<{ person: { id: string; name: string }; verdict: string; deltas: Record<string, unknown>; generated_at: string }> {
   return api(`/brain/decisions/${id}/what-if`, { method: "POST", body: { person_id: personId } });
 }
+
+// ---------------------------------------------------------------------------
+// 4G.1 — Project & Execution Intelligence (the Execution Command Center)
+// ---------------------------------------------------------------------------
+
+export interface ExecutionHealthCounts {
+  overdue_tasks: number;
+  overdue_milestones: number;
+  blocked_tasks: number;
+  critical_overdue_tasks: number;
+  no_owner_tasks: number;
+  [key: string]: unknown;
+}
+
+export interface ExecutionCommandRow {
+  project_id: string;
+  code: string;
+  name: string;
+  owner_label: string | null;
+  status: string;
+  health_status: string;
+  health_score: number;
+  primary_cause: string | null;
+  explain: string;
+  last_change: string | null;
+  last_event_at: string | null;
+  counts: ExecutionHealthCounts;
+  capacity_constraints: string[];
+  pending_decisions: number;
+}
+
+export interface ExecutionCommandResponse {
+  total_projects: number;
+  counts: {
+    active_projects: number;
+    at_risk: number;
+    blocked_projects: number;
+    pending_decisions: number;
+    capacity_constraints: number;
+  };
+  projects: ExecutionCommandRow[];
+  generated_at: string;
+}
+
+export interface ExecutionNextItem {
+  priority: number;
+  kind: "decision" | "critical" | "blocked" | "milestone" | "ready" | string;
+  title: string;
+  project_name: string;
+  reason: string;
+}
+
+export interface ExecutionNextResponse {
+  total: number;
+  items: ExecutionNextItem[];
+  generated_at: string;
+}
+
+export interface ExecutionBlockerChainRow {
+  task_id: string;
+  title: string;
+  status: string;
+}
+
+export interface ExecutionBlockerRow {
+  task_id: string;
+  title: string;
+  assignee_label: string | null;
+  chain_depth: number;
+  chain: ExecutionBlockerChainRow[];
+}
+
+export interface ExecutionSystemicBlocker {
+  kind: string;
+  subject_id: string;
+  subject_label: string;
+  affected_count: number;
+  affected_tasks: string[];
+  explain: string;
+}
+
+export interface ExecutionCriticalPathRow {
+  task_id: string;
+  title: string;
+  status: string;
+  estimate_hours: number;
+  early_start_hours: number;
+  slack_hours: number;
+  due_date: string | null;
+  critical: boolean;
+}
+
+export interface ExecutionCriticalPath {
+  total_hours: number;
+  projected_finish_hours: number;
+  min_slack: number | null;
+  critical_task_ids: string[];
+  overdue_critical_ids: number;
+  tasks: ExecutionCriticalPathRow[];
+}
+
+export interface ExecutionPendingDecision {
+  id: string;
+  title: string;
+  open_actions: number;
+  [key: string]: unknown;
+}
+
+export interface ExecutionGoalChainRow {
+  type: string;
+  id: string;
+  title: string;
+  status: string | null;
+  [key: string]: unknown;
+}
+
+export interface ExecutionCapacityConstraint {
+  skill_name: string;
+  capacity_state: string;
+  severity: number;
+  [key: string]: unknown;
+}
+
+export interface ExecutionOutcome {
+  status: string;
+  planned_outcome: string | null;
+  actual_outcome: string | null;
+  assessment: string | null;
+  recorded_by: string;
+  recorded_at: string;
+}
+
+export interface ExecutionHistoryRow {
+  id: string;
+  event_name: string;
+  health_score: number;
+  health_status: string;
+  primary_cause: string | null;
+  explain: string;
+  occurred_at: string;
+}
+
+export interface ExecutionProjectDetail {
+  project_id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  status: string;
+  priority: string;
+  start_date: string | null;
+  end_date: string | null;
+  health_status: string;
+  health_score: number;
+  primary_cause: string | null;
+  explain: string;
+  factors: Record<string, unknown>;
+  counts: ExecutionHealthCounts;
+  critical_path: ExecutionCriticalPath;
+  blockers: ExecutionBlockerRow[];
+  systemic_blockers: ExecutionSystemicBlocker[];
+  capacity_constraints: ExecutionCapacityConstraint[];
+  pending_decisions: ExecutionPendingDecision[];
+  goal_chain: ExecutionGoalChainRow[];
+  outcome: ExecutionOutcome | null;
+  history: ExecutionHistoryRow[];
+  generated_at: string;
+}
+
+export interface ExecutionQueryResponse {
+  question: string;
+  intent: string;
+  scope: string;
+  project: ExecutionProjectDetail | null;
+  command_center?: {
+    total_projects: number;
+    counts: ExecutionCommandResponse["counts"];
+    projects: ExecutionCommandRow[];
+  } | null;
+  execution_next?: ExecutionNextResponse | null;
+  answers?: ExecutionCommandRow[];
+  total?: number;
+  items?: ExecutionNextItem[];
+  answer?: string;
+  generated_at: string;
+}
+
+export async function getExecutionCommand(): Promise<ExecutionCommandResponse> {
+  return api<ExecutionCommandResponse>("/brain/execution/command");
+}
+
+export async function getExecutionNext(): Promise<ExecutionNextResponse> {
+  return api<ExecutionNextResponse>("/brain/execution/next");
+}
+
+export async function getExecutionProjectDetail(projectId: string): Promise<ExecutionProjectDetail> {
+  return api<ExecutionProjectDetail>(`/brain/execution/projects/${projectId}`);
+}
+
+export async function recordExecutionOutcome(
+  projectId: string,
+  body: {
+    status: "successful" | "partial" | "unsuccessful";
+    planned_outcome?: string;
+    actual_outcome?: string;
+    assessment?: string;
+  }
+): Promise<ExecutionOutcome> {
+  return api<ExecutionOutcome>(`/brain/execution/projects/${projectId}/outcome`, {
+    method: "POST",
+    body,
+  });
+}
+
+export async function askExecution(question: string): Promise<ExecutionQueryResponse> {
+  return api<ExecutionQueryResponse>("/brain/knowledge/query", {
+    method: "POST",
+    body: { question },
+  });
+}

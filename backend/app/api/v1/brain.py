@@ -4329,3 +4329,120 @@ design: it is not the prediction engine, only the decision's own scope."""
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await db.commit()
     return {**result, "decision_id": decision_id, "generated_at": _utcnow_iso()}
+
+
+# ---------------------------------------------------------------------------
+# Slice 4G.1 — Project & Execution Intelligence (the Execution Command
+# Center). The canonical per-project execution record: goal -> project ->
+# milestone -> task chain, deterministic health (healthy|watch|at_risk|
+# critical) with factors and primary cause, blocker root-cause chains with
+# systemic grouping, the real CPM critical path, capacity constraints
+# (4F.6), pending 4A decisions, the mandatory outcome record, and the
+# deterministic "what should happen next" prioritization. Change-driven:
+# fed exclusively from the durable event bus, replay-safe and exact-once;
+# advisory-only — the engine never writes projects/tasks/people/capacity.
+#
+# Governance: command/next are ORG-WIDE surfaces — scoped callers get 404
+# (same idiom as 4F.6/4F.7). Project detail is visible to scoped callers on
+# projects inside their governance scope. Recording an outcome requires
+# projects:manage — a human writes the outcome; the system never evaluates
+# itself.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/execution/command")
+async def brain_execution_command(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """The Execution Command Center: every active project's execution state,
+    health + explain, primary cause, last change and bounded counts."""
+    from app.intelligence.execution_engine import execution_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await execution_engine.command_center(
+        db, organization_id=org.id,
+    )
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/next")
+async def brain_execution_next(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """'What should happen next?' — deterministic prioritized bounded list:
+    unresolved decisions first, then critical-path pressure, blocked work on
+    the path, overdue milestones, then high-priority ready work."""
+    from app.intelligence.execution_engine import execution_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await execution_engine.execution_next(db, organization_id=org.id)
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/projects/{project_id}")
+async def brain_execution_project_detail(
+    project_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """One project's full execution record: health + factors + explain +
+    primary cause, critical path, blocker chains, systemic blockers,
+    capacity constraints, pending decisions, goal chain and outcome."""
+    from app.intelligence.execution_engine import execution_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide and project_id not in access.project_ids:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await execution_engine.project_detail(
+        db, organization_id=org.id, project_id=project_id,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.post("/execution/projects/{project_id}/outcome")
+async def brain_execution_record_outcome(
+    project_id: str,
+    body: dict[str, Any],
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("projects:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """The mandatory outcome record: planned vs actual + assessment in
+    successful|partial|unsuccessful statuses. Outcomes become evidence and
+    are snapshotted — they never rewrite the project."""
+    from app.intelligence.execution_engine import execution_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide and project_id not in access.project_ids:
+        raise HTTPException(status_code=404, detail="scope not found")
+    status = str(body.get("status", "")).strip()
+    if status not in ("successful", "partial", "unsuccessful"):
+        raise HTTPException(
+            status_code=400,
+            detail="status must be one of: successful, partial, unsuccessful",
+        )
+    result = await execution_engine.record_outcome(
+        db, organization_id=org.id, project_id=project_id,
+        outcome={
+            "status": status,
+            "planned_outcome": body.get("planned_outcome"),
+            "actual_outcome": body.get("actual_outcome"),
+            "assessment": body.get("assessment"),
+        },
+        recorded_by=user.id,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    await db.commit()
+    return {**result, "generated_at": _utcnow_iso()}

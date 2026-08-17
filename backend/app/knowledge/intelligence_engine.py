@@ -141,6 +141,23 @@ _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
         "prevents us from doing", "prevents us from taking",
         "blocking us from doing", "gap prevents us",
     )),
+    # Slice 4G.1 — Project & Execution command questions route second so the
+    # execution meaning wins over the knowledge/health meanings: "is X on
+    # track" is the execution health view (not claim health), "why is the
+    # project at risk" is the deterministic primary cause (not the knowledge
+    # why), "critical path" is the CPM analysis. Every answer comes from the
+    # change-driven execution record; nothing is answered live beyond the
+    # bounded lazy materialization of a missing record on first read.
+    ("execution", (
+        "command center", "execution status", "execution state",
+        "execution record", "how are our projects", "how is the project",
+        "is the project on track", "is the project behind",
+        "is the project at risk", "is the project healthy", "project health",
+        "projects at risk", "project at risk", "why is the project",
+        "the project on track", "the project behind", "on track",
+        "critical path", "critical paths", "projected finish",
+        "what is the status of", "status of the project", "status of the projects",
+    )),
     # Slice 4E.7 — the company-level loop surfaces route FIRST so the company
     # meaning wins over the knowledge-only meaning ("what changed in the
     # company since yesterday" is company change, not claim change).
@@ -2913,6 +2930,95 @@ class IntelligenceEngine:
             "generated_at": _utcnow_iso(),
         }
 
+    # ------------------------------------------------------------------
+    # 4G.1 — Project & Execution command questions
+    # ------------------------------------------------------------------
+
+    async def _resolve_execution_project(
+        self, db: AsyncSession, *, organization_id: str, question: str,
+    ) -> Optional[str]:
+        """Best-effort bounded project resolution by name overlap; falls
+        back to the sole active project when the question just says
+        'the project'."""
+        from app.models.project import Project
+
+        rows = list(
+            (
+                await db.execute(
+                    select(Project.id, Project.name).where(
+                        Project.organization_id == organization_id,
+                        Project.status.in_(("draft", "active", "paused")),
+                    ).limit(50)
+                )
+            ).all()
+        )
+        q_tokens = tokens(question)
+        best: Optional[tuple[int, str]] = None
+        for pid, name in rows:
+            overlap = len(q_tokens & tokens(str(name or "")))
+            if best is None or overlap > best[0]:
+                best = (overlap, pid)
+        if best and best[0] >= 2:
+            return best[1]
+        for pid, name in rows:
+            label = str(name or "")
+            if label and label.lower() in question.lower():
+                return pid
+        if "the project" in question and len(rows) == 1:
+            return rows[0][0]
+        return None
+
+    async def _execution_query(
+        self, db: AsyncSession, *, organization_id: str, question: str, user: Any,
+    ) -> dict[str, Any]:
+        """Slice 4G.1 — Project & Execution command questions.
+
+        "is X on track", "why is the project at risk", "critical path"
+        resolve the project by name and answer from its deterministic
+        execution record; the bare command questions ("execution status",
+        "command center") return the org-wide center. Scoped callers only
+        ever see their own projects and never the aggregated counts.
+        """
+        from app.intelligence.execution_engine import execution_engine
+
+        access = await self._access(db, organization_id=organization_id, user=user)
+        scope_label = "org" if access.org_wide else "project"
+        project_id = await self._resolve_execution_project(
+            db, organization_id=organization_id, question=question,
+        )
+        if project_id is not None and (
+            access.org_wide or project_id in access.project_ids
+        ):
+            detail = await execution_engine.project_detail(
+                db, organization_id=organization_id, project_id=project_id,
+            )
+            return {
+                "question": question, "intent": "execution",
+                "scope": scope_label,
+                "project": detail,
+                "generated_at": _utcnow_iso(),
+            }
+        if access.org_wide:
+            result = await execution_engine.command_center(
+                db, organization_id=organization_id,
+            )
+            return {**result, "question": question, "intent": "execution",
+                    "scope": scope_label, "generated_at": _utcnow_iso()}
+        rows = []
+        for pid in list(access.project_ids)[:_MAX_TOPICS_SCAN]:
+            detail = await execution_engine.project_detail(
+                db, organization_id=organization_id, project_id=pid,
+            )
+            if detail:
+                rows.append(detail)
+        return {
+            "total_projects": len(rows),
+            "counts": {"active_projects": len(rows)},
+            "projects": rows,
+            "question": question, "intent": "execution",
+            "scope": scope_label, "generated_at": _utcnow_iso(),
+        }
+
     async def _capability_query(
         self,
         db: AsyncSession,
@@ -3179,6 +3285,11 @@ class IntelligenceEngine:
                 db, organization_id=organization_id,
                 question=question, user=user,
             )
+        if intent == "execution":
+            return await self._execution_query(
+                db, organization_id=organization_id,
+                question=question, user=user,
+            )
         if intent in ("impact", "ownership"):
             access = await self._access(db, organization_id=organization_id, user=user)
             scanned = await self._scan_topics(
@@ -3302,6 +3413,18 @@ class IntelligenceEngine:
                 query=question, user=user, limit=limit,
             )
             return {**result, "intent": intent, "question": question}
+        if intent == "next":
+            from app.intelligence.execution_engine import execution_engine
+
+            access = await self._access(db, organization_id=organization_id, user=user)
+            if access.org_wide:
+                result = await execution_engine.execution_next(
+                    db, organization_id=organization_id,
+                )
+                if result.get("total", 0):
+                    return {**result, "question": question,
+                            "intent": "execution_next", "scope": "org",
+                            "generated_at": _utcnow_iso()}
         if intent in ("worry", "decide", "missing", "next", "confident"):
             from app.knowledge.action_engine import action_engine
 
@@ -3330,6 +3453,31 @@ class IntelligenceEngine:
                 "scope": insights["scope"],
                 "generated_at": _utcnow_iso(),
             }
+        if intent in ("blocked", "overdue"):
+            from app.intelligence.execution_engine import execution_engine
+
+            access = await self._access(db, organization_id=organization_id, user=user)
+            if access.org_wide:
+                center = await execution_engine.command_center(
+                    db, organization_id=organization_id,
+                )
+                rows = {
+                    "blocked": [
+                        r for r in center["projects"]
+                        if (r["counts"] or {}).get("blocked_tasks")
+                    ],
+                    "overdue": [
+                        r for r in center["projects"]
+                        if (r["counts"] or {}).get("critical_overdue_tasks")
+                        or (r["counts"] or {}).get("overdue_tasks")
+                    ],
+                }[intent]
+                if rows:
+                    return {
+                        "question": question, "intent": "execution_" + intent,
+                        "total": len(rows), "answers": rows, "scope": "org",
+                        "generated_at": _utcnow_iso(),
+                    }
         if intent in ("actions", "attention", "blocked", "overdue", "escalation"):
             from app.knowledge.action_ops_engine import action_ops_engine
 

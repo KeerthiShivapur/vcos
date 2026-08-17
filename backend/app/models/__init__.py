@@ -394,6 +394,10 @@ from app.models.people_decision import (  # noqa: F401
     DecisionSimulation,
     PeopleDecision,
 )
+from app.models.execution_intelligence import (  # noqa: F401
+    ProjectExecutionSnapshot,
+    ProjectExecutionState,
+)
 
 __all__ = [
     "Organization",
@@ -778,4 +782,6 @@ __all__ = [
     "DecisionEvidenceItem",
     "DecisionSimulation",
     "DecisionAudit",
+    "ProjectExecutionState",
+    "ProjectExecutionSnapshot",
 ]

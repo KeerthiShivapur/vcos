@@ -122,6 +122,9 @@ EVENT_CATALOG: dict[str, str] = {
     # Slice 4F.7 — People Decision Intelligence (human-governed lifecycle).
     "decision.recommendation.approved": "A people decision recommendation was approved",
     "decision.recommendation.rejected": "A people decision recommendation was rejected",
+    # Slice 4G.1 — Project & Execution Intelligence (change-driven).
+    "execution.state_changed": "A project execution state was recomputed",
+    "execution.outcome_recorded": "A project outcome was recorded as evidence",
     # --- risks
     "risk.detected": "A risk was detected",
     "risk.updated": "A risk was updated",

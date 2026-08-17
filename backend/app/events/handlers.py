@@ -2904,3 +2904,51 @@ async def handle_people_decision(db, event, payload):
     await people_decision_engine.detect_from_event(
         db, organization_id=org_id, event=event, payload=payload,
     )
+
+
+# ---------------------------------------------------------------------------
+# Slice 4G.1 — Project & Execution Intelligence (change-driven, advisory).
+# The canonical execution record is fed EXCLUSIVELY from the durable events
+# the platform already emits: project.* status changes, task.* transitions
+# (created/transitioned/completed/blocked/unblocked), milestone.*, dependency
+# cycles, decision.* (4A registry feeds pending-decision load) and goal.*
+# (chain materialization). record_event is replay-safe: each state row is
+# keyed on (organization_id, project_id, source_event_id) so replays converge
+# exactly-once. Handlers never commit — the EventBus owns the transaction
+# (same law as 4F.1/4F.4/4F.5/4F.6/4F.7). All work is bounded per event.
+# ---------------------------------------------------------------------------
+
+
+@on("project.created")
+@on("project.started")
+@on("project.paused")
+@on("project.resumed")
+@on("project.completed")
+@on("project.cancelled")
+@on("project.updated")
+@on("task.created")
+@on("task.transitioned")
+@on("task.completed")
+@on("task.blocked")
+@on("task.unblocked")
+@on("milestone.created")
+@on("milestone.completed")
+@on("milestone.updated")
+@on("dependency.added")
+@on("dependency.removed")
+@on("decision.made")
+@on("decision.executed")
+@on("decision.implemented")
+@on("goal.created")
+@on("goal.updated")
+@on("goal.completed")
+async def handle_execution_state(db, event, payload):
+    """Feed the canonical Project & Execution Intelligence record from events."""
+    from app.intelligence.execution_engine import execution_engine
+
+    org_id = payload.get("organization_id") or event.organization_id
+    if not org_id:
+        return
+    await execution_engine.record_event(
+        db, organization_id=org_id, event=event, payload=payload,
+    )
