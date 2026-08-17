@@ -381,6 +381,12 @@ from app.models.collaboration_intelligence import (  # noqa: F401
     CollaborationSignal,
     CollaborationUnitPair,
 )
+from app.models.org_capability_intelligence import (  # noqa: F401
+    CapabilityHistory,
+    CapabilityProjectLink,
+    CapabilitySignal,
+    OrgCapability,
+)
 
 __all__ = [
     "Organization",

@@ -2832,3 +2832,56 @@ async def handle_work_collaboration(db, event, payload):
     await work_collaboration_engine.record_event(
         db, organization_id=org_id, event=event, payload=payload,
     )
+
+
+# ---------------------------------------------------------------------------
+# Slice 4F.6 — Organizational Capability & Capacity Intelligence (bridge)
+# ---------------------------------------------------------------------------
+# The canonical capability record is fed from the SAME durable events the
+# platform already emits: expertise.updated (every expertise-feeding event),
+# task.* and project.* (project <-> capability demand links), decision.* and
+# approval.* (person capabilities), ownership.* (capacity owners), skill.*
+# and people-membership events (scope changes). Every handler is replay-safe:
+# capability recompute is idempotent and project links are keyed on
+# (organization_id, project_id, skill_id, source_event_id) so a replay
+# converges exactly-once. Handlers never commit — the EventBus owns the
+# transaction (same law as 4F.1/4F.4/4F.5). All work is bounded per event.
+# ---------------------------------------------------------------------------
+
+
+@on("expertise.updated")
+@on("task.created")
+@on("task.completed")
+@on("task.transitioned")
+@on("task.blocked")
+@on("task.unblocked")
+@on("project.started")
+@on("project.completed")
+@on("project.cancelled")
+@on("decision.made")
+@on("decision.executed")
+@on("decision.implemented")
+@on("approval.approved")
+@on("approval.rejected")
+@on("ownership.assigned")
+@on("ownership.transferred")
+@on("ownership.closed")
+@on("ownership.expired")
+@on("ownership.backup_set")
+@on("ownership.backup_removed")
+@on("ownership.reopened")
+@on("skill.created")
+@on("skill.updated")
+@on("team.member.added")
+@on("team.member.removed")
+@on("employee.transferred")
+async def handle_org_capability(db, event, payload):
+    """Feed the canonical Organizational Capability record from events."""
+    from app.intelligence.org_capability_engine import org_capability_engine
+
+    org_id = payload.get("organization_id") or event.organization_id
+    if not org_id:
+        return
+    await org_capability_engine.record_event(
+        db, organization_id=org_id, event=event, payload=payload,
+    )

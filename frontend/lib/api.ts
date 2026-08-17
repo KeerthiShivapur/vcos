@@ -8764,3 +8764,177 @@ export async function resolveCollaborationSignal(
     { method: "POST" }
   );
 }
+
+// ------------------------------------------- Slice 4F.6 org capability intelligence
+// Evidence-backed organizational capabilities: lifecycle, capacity =
+// potential - committed - reserved, demand, concentration, gaps and
+// adjacency. Advisory signals only — analysis never changes the org.
+
+export interface CapabilityBrief {
+  skill_id: string;
+  name: string;
+  category: string | null;
+  lifecycle: string;
+  confidence: number;
+  expert_count: number;
+  evidence_count: number;
+  capacity_state: string;
+  capacity_potential: number;
+  capacity_available: number;
+  capacity_committed: number;
+  capacity_reserved: number;
+  demand_state: string;
+  demand_count: number;
+  concentration_share: number;
+  explain: string;
+}
+
+export interface CapabilityOverview {
+  scope_type: string;
+  total: number;
+  by_state: Record<string, number>;
+  strong: CapabilityBrief[];
+  emerging: CapabilityBrief[];
+  constrained: CapabilityBrief[];
+  concentration_risks: CapabilityBrief[];
+  gaps: CapabilityBrief[];
+  capabilities: CapabilityBrief[];
+  generated_at: string;
+}
+
+export interface CapabilitySignalRow {
+  signal_id: string;
+  skill_id: string;
+  skill_name: string;
+  kind: string;
+  severity: string;
+  detail: string;
+  status: string;
+  created_at: string | null;
+}
+
+export interface CapabilitySignalsResponse {
+  total: number;
+  signals: CapabilitySignalRow[];
+  generated_at: string;
+}
+
+export interface CapabilityExpertRow {
+  person_id: string;
+  name: string;
+  score: number;
+  evidence_count: number;
+  lifecycle: string;
+  confidence: number;
+  last_observed: string | null;
+}
+
+export interface CapabilityProjectLinkRow {
+  project_id: string;
+  project_name: string;
+  status: string;
+  first_seen: string | null;
+  last_seen: string | null;
+}
+
+export interface CapabilityHistoryRow {
+  month: string;
+  lifecycle: string;
+  expert_count: number;
+  strong_expert_count: number;
+  evidence_count: number;
+  capacity_committed: number;
+  demand_count: number;
+  points: number;
+}
+
+export interface CapabilityDetail {
+  skill_id: string;
+  name: string;
+  category: string | null;
+  lifecycle: string;
+  confidence: number;
+  expert_count: number;
+  strong_expert_count: number;
+  evidence_count: number;
+  corroborated_kinds: string[];
+  outcome_ratio: number;
+  capacity: {
+    state: string;
+    potential: number;
+    committed: number;
+    reserved: number;
+    available: number;
+  };
+  demand: { state: string; count: number };
+  concentration: { share: number; second_share: number };
+  counts: { owners: number; teams: number; knowledge: number };
+  explain: string;
+  factors: Record<string, number | string | boolean>;
+  experts: CapabilityExpertRow[];
+  teams: { team_id: string; name: string; experts: number }[];
+  owners: {
+    owner_id: string;
+    owner_label: string | null;
+    object_type: string;
+    object_id: string;
+    object_name: string | null;
+    responsibility_type: string | null;
+  }[];
+  projects: CapabilityProjectLinkRow[];
+  knowledge: { topic_id: string; name: string; category: string | null }[];
+  history: CapabilityHistoryRow[];
+  evidence_by_kind: { kind: string; count: number }[];
+  signals: { signal_id: string; kind: string; severity: string; detail: string; status: string }[];
+  adjacent: { skill_id: string; name: string; category: string | null; shared_experts: number }[];
+  generated_at: string;
+}
+
+export interface CapabilityInitiativeAnswer {
+  skill_id: string;
+  skill_name: string;
+  readiness: "ready" | "partial" | "gap";
+  reason: string;
+  lifecycle: string;
+  capacity_state?: string;
+  capacity_available?: number;
+}
+
+export interface CapabilityInitiativeResponse {
+  intent: string;
+  total: number;
+  answers: CapabilityInitiativeAnswer[];
+  answer: string;
+  question?: string;
+  generated_at: string;
+}
+
+export async function getCapabilityOverview(): Promise<CapabilityOverview> {
+  return api<CapabilityOverview>("/brain/capabilities/overview");
+}
+
+export async function getCapabilitySignals(): Promise<CapabilitySignalsResponse> {
+  return api<CapabilitySignalsResponse>("/brain/capabilities/signals");
+}
+
+export async function getCapabilityDetail(skillId: string): Promise<CapabilityDetail> {
+  return api<CapabilityDetail>(`/brain/capabilities/${skillId}`);
+}
+
+export async function acknowledgeCapabilitySignal(
+  signalId: string
+): Promise<{ signal_id: string; skill_name: string; kind: string; status: string }> {
+  return api<{ signal_id: string; skill_name: string; kind: string; status: string }>(
+    `/brain/capabilities/signals/${signalId}/acknowledge`,
+    { method: "PATCH" }
+  );
+}
+
+export async function analyzeCapabilityInitiative(
+  question: string
+): Promise<CapabilityInitiativeResponse> {
+  return api<CapabilityInitiativeResponse>("/brain/capabilities/initiative", {
+    method: "POST",
+    body: { question },
+  });
+}

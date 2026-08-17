@@ -196,6 +196,7 @@ export function Sidebar({ unread }: { unread: number }) {
     { href: "/knowledge/graph", label: "Knowledge Graph", icon: Network, permission: PERMISSIONS.KNOWLEDGE_READ },
     { href: "/knowledge/analytics", label: "Knowledge Analytics", icon: BarChart3, permission: PERMISSIONS.KNOWLEDGE_READ },
     { href: "/collaboration", label: "Work Collaboration", icon: Network, permission: PERMISSIONS.BRAIN_READ },
+    { href: "/capabilities", label: "Capability Center", icon: Boxes, permission: PERMISSIONS.BRAIN_READ },
   ];
 
   const community: NavItem[] = [
@@ -246,6 +247,7 @@ if (href === "/rooms") return pathname === "/rooms" || pathname.startsWith("/roo
 if (href === "/recordings") return pathname === "/recordings" || pathname.startsWith("/recordings/");
     if (href === "/knowledge") return pathname === "/knowledge" || pathname.startsWith("/knowledge/");
     if (href === "/collaboration") return pathname === "/collaboration" || pathname.startsWith("/collaboration/");
+    if (href === "/capabilities") return pathname === "/capabilities" || pathname.startsWith("/capabilities/");
     if (href === "/learning" || href.startsWith("/learning?"))
       return pathname === "/learning" || pathname.startsWith("/learning/");
     if (href === "/documents") return pathname === "/documents" || pathname.startsWith("/documents/");

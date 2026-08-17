@@ -3893,3 +3893,162 @@ async def brain_collaboration_signal_resolve(
     )
     await db.commit()
     return {"resolved": signal_id}
+
+
+# ---------------------------------------------------------------------------
+# Slice 4F.6 — Organizational Capability & Capacity Intelligence
+# ---------------------------------------------------------------------------
+# One governed surface for the capability record: what the organization can
+# do, how much is free right now, where it is concentrated and whether an
+# initiative can be taken on. Org-wide views require org-wide governance
+# (like the 4F.2 org capability map — a hidden person can never leak through
+# a capability rollup). Scoped callers see only the project-anchored
+# capability surface, without member counts. Analysis never changes the
+# organization: the only write surface acknowledges advisory signals.
+
+MAX_CAPABILITY_INITIATIVE = 50
+
+
+@router.get("/capabilities/overview")
+async def brain_capabilities_overview(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """The Organizational Capability Center: lifecycle distribution, strong /
+    emerging / constrained capabilities, concentration risks and gaps —
+    every row evidence-backed and explainable. Org-wide callers only."""
+    from app.intelligence.org_capability_engine import org_capability_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await org_capability_engine.overview(
+        db, organization_id=org.id,
+    )
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/capabilities/signals")
+async def brain_capabilities_signals(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """All open advisory capability signals (concentration risk, single-person
+    dependency, capacity constraint, gaps) — findings that never change the
+    organization. Org-wide callers only."""
+    from app.intelligence.org_capability_engine import org_capability_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await org_capability_engine.signals(
+        db, organization_id=org.id,
+    )
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.patch("/capabilities/signals/{signal_id}/acknowledge")
+async def brain_capabilities_signal_acknowledge(
+    signal_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("employees:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Acknowledge an advisory capability signal by id (bounded single
+    lookup). Acknowledging changes nothing in the organization."""
+    from app.intelligence.org_capability_engine import org_capability_engine
+
+    result = await org_capability_engine.acknowledge_signal(
+        db, organization_id=org.id, signal_id=signal_id, noted_by=user.id,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="signal not found")
+    await db.commit()
+    return result
+
+
+@router.get("/capabilities/projects/{project_id}")
+async def brain_capabilities_project(
+    project_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Capabilities evidenced on one project, with lifecycle and free
+    capacity — leak-free for scoped callers (no member counts)."""
+    from app.intelligence.org_capability_engine import org_capability_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide and project_id not in access.project_ids:
+        raise HTTPException(status_code=404, detail="scope not found")
+    return await org_capability_engine.project_capabilities(
+        db, organization_id=org.id, project_id=project_id,
+    )
+
+
+@router.post("/capabilities/initiative")
+async def brain_capabilities_initiative(
+    body: dict[str, Any],
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """"Can we take this on?" — deterministic, evidence-backed capability gap
+    analysis for an initiative. Every required capability resolves to the
+    canonical taxonomy and answers with its lifecycle, evidence and free
+    capacity. Org-wide callers see the full surface; scoped callers only
+    the capabilities anchored to their visible projects (no member counts).
+    Never a forecast and never a guarantee."""
+    from app.intelligence.org_capability_engine import org_capability_engine
+
+    question = str(body.get("question", "")).strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="question is required")
+    if len(question) > 500:
+        raise HTTPException(status_code=400, detail="question too long")
+    access = await _people_access(db, org, user)
+    if access.org_wide:
+        result = await org_capability_engine.initiative_gap(
+            db, organization_id=org.id, question=question, access=access,
+        )
+    else:
+        result = await org_capability_engine.initiative_gap(
+            db, organization_id=org.id, question=question, access=access,
+        )
+        visible: set[str] = set()
+        for project_id in list(access.project_ids)[:MAX_CAPABILITY_INITIATIVE]:
+            view = await org_capability_engine.project_capabilities(
+                db, organization_id=org.id, project_id=project_id,
+            )
+            visible.update(c["skill_id"] for c in view["capabilities"])
+        result["answers"] = [
+            a for a in result["answers"] if a["skill_id"] in visible
+        ]
+        result["total"] = len(result["answers"])
+        result["scope"] = "project"
+    return {**result, "question": question, "generated_at": _utcnow_iso()}
+
+
+@router.get("/capabilities/{skill_id}")
+async def brain_capabilities_detail(
+    skill_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Full evidence-backed detail of one organizational capability: state,
+    capacity model, demand, concentration, experts, owners, teams, projects,
+    knowledge, history and open signals. Org-wide callers only."""
+    from app.intelligence.org_capability_engine import org_capability_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await org_capability_engine.capability_detail(
+        db, organization_id=org.id, skill_id=skill_id,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="capability not found")
+    return {**result, "generated_at": _utcnow_iso()}

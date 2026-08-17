@@ -295,6 +295,7 @@ class EventBus:
                 except Exception as exc:  # noqa: BLE001 - per-handler retry semantics
                     failures.append(f"{handler.__name__}: {exc}")
                     logger.warning("handler %s failed for %s: %s", handler.__name__, event.name, exc)
+                    logger.debug("handler traceback", exc_info=True)
 
             await self._run_automation(db, event, event_payload)
 

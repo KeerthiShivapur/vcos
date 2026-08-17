@@ -152,6 +152,39 @@ _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
                          "still current", "their expertise", "should we trust",
                          "can we trust", "how much do we trust", "do you trust",
                          "rated for", "how did you rate")),
+    # Slice 4F.6 — organizational capability & capacity questions. Kept
+    # before expertise so "what are we really good at" wins over "good at",
+    # and before people/continuity so capability concentration never steals
+    # "single point of failure" (that stays the 4F.4 responsibility meaning).
+    # The lifecycle questions sit BEFORE the bare "capabilities" catch-all so
+    # "which emerging capabilities..." routes to capability_emerging.
+    ("capability_emerging", ("emerging capability", "emerging capabilities",
+                             "growing capability", "new capability",
+                             "new capabilities", "developing capability",
+                             "what are we getting good at")),
+    ("capability_declining", ("declining capability", "declining capabilities",
+                              "weakening capability", "weakening capabilities",
+                              "losing our", "losing the capability",
+                              "what happened to our", "capability gone")),
+    ("capability_strength", ("what are we really good at", "what are we best at",
+                             "strongest capability", "core capability",
+                             "core capabilities", "what can the company do well",
+                             "what can we do well", "organizational capabilities",
+                             "our capabilities", "capability map", "capabilities")),
+    ("capability_constraint", ("capacity constrained", "at capacity",
+                               "no spare capacity", "spare capacity",
+                               "over capacity", "capacity constraints",
+                               "no one free", "no experts free",
+                               "do we have capacity", "enough capacity")),
+    ("capability_concentration", ("capability concentrated", "concentrated in",
+                                  "all in one person", "one person has all",
+                                  "too much depends on")),
+    ("capability_gaps", ("can we take on", "can we handle",
+                         "take on this initiative", "take on the initiative",
+                         "this initiative", "required capabilities",
+                         "missing capability", "missing capabilities",
+                         "capability gap", "capability gaps",
+                         "are we ready for")),
     # Slice 4F.2 — universal skills & expertise questions. Kept after people
     # so "who knows X" never steals the reporting/unit meanings, but before
     # the discovery default. "what does X know" is person expertise.
@@ -2840,6 +2873,176 @@ class IntelligenceEngine:
             "generated_at": _utcnow_iso(),
         }
 
+    async def _capability_query(
+        self,
+        db: AsyncSession,
+        *,
+        organization_id: str,
+        question: str,
+        user: Any,
+        intent: str,
+    ) -> dict[str, Any]:
+        """Slice 4F.6 — organizational capability & capacity questions.
+
+        Deterministic routing: "what are we really good at" -> the capability
+        center (evidence-backed strengths); "where are we capacity
+        constrained" -> constrained capabilities with their free-expert
+        numbers; "is X concentrated in one person" -> concentration findings;
+        "can we take on <initiative>" -> the evidence-backed readiness
+        assessment; emerging/declining ask for the lifecycle lists. Results
+        are governance-scoped (org-wide callers see counts; scoped callers
+        only the project-anchored names/states — hidden people never leak
+        through counts) and every row carries its explanation.
+        """
+        from app.intelligence.org_capability_engine import org_capability_engine
+
+        access = await self._access(db, organization_id=organization_id, user=user)
+        scope_label = "org" if access.org_wide else "project"
+
+        if intent == "capability_gaps":
+            result = await org_capability_engine.initiative_gap(
+                db, organization_id=organization_id, question=question,
+                access=access,
+            )
+            return {
+                **result,
+                "question": question,
+                "intent": "capability_gaps",
+                "scope": scope_label,
+                "generated_at": _utcnow_iso(),
+            }
+
+        if access.org_wide:
+            view = await org_capability_engine.overview(
+                db, organization_id=organization_id,
+            )
+        else:
+            view = {"capabilities": [], "constrained": [], "strong": [],
+                    "emerging": [], "concentration_risks": [], "gaps": []}
+            seen: set[str] = set()
+            for project_id in list(access.project_ids)[:_MAX_TOPICS_SCAN]:
+                pv = await org_capability_engine.project_capabilities(
+                    db, organization_id=organization_id, project_id=project_id,
+                )
+                for c in pv["capabilities"]:
+                    if c["skill_id"] in seen:
+                        continue
+                    seen.add(c["skill_id"])
+                    view["capabilities"].append({
+                        "skill_id": c["skill_id"],
+                        "name": c["skill_name"],
+                        "lifecycle": c["lifecycle"],
+                        "capacity_state": c["capacity_state"],
+                        "capacity_available": c["capacity_available"],
+                        "demand_state": c["demand_state"],
+                    })
+
+        caps = view["capabilities"]
+        if intent == "capability_strength":
+            strong = [c for c in caps if c["lifecycle"] in ("strong", "strategic")]
+            strong = sorted(
+                strong, key=lambda c: c.get("evidence_count", 0), reverse=True,
+            )[:_MAX_ANSWER_EVIDENCE]
+            top = strong[0] if strong else None
+            if top is None:
+                answer = "No evidence-backed strong capability is visible yet."
+            else:
+                answer = (
+                    f"Our strongest capability is {top['name']}: "
+                    f"{top['expert_count']} expert(s), "
+                    f"{top['evidence_count']} evidence item(s), "
+                    f"{top.get('explain', 'evidence-backed')}."
+                )
+            return {
+                "question": question, "intent": "capability_strength",
+                "kind": "strengths", "total": len(strong),
+                "answers": strong, "answer": answer,
+                "scope": scope_label, "generated_at": _utcnow_iso(),
+            }
+        if intent == "capability_constraint":
+            constrained = [
+                c for c in caps
+                if c.get("capacity_state") in ("stretched", "constrained")
+            ][:_MAX_ANSWER_EVIDENCE]
+            answer = (
+                f"{len(constrained)} capability/ies currently have no spare "
+                f"capacity." if constrained else
+                "No capability is currently capacity constrained."
+            )
+            return {
+                "question": question, "intent": "capability_constraint",
+                "kind": "constrained", "total": len(constrained),
+                "answers": constrained, "answer": answer,
+                "scope": scope_label, "generated_at": _utcnow_iso(),
+            }
+        if intent == "capability_concentration":
+            concentrated = [
+                c for c in caps
+                if c.get("concentration_share", 0) >= 0.6
+            ][:_MAX_ANSWER_EVIDENCE]
+            answer = (
+                self._concentration_answer(concentrated) if concentrated
+                else "No capability evidence is dangerously concentrated."
+            )
+            return {
+                "question": question, "intent": "capability_concentration",
+                "kind": "concentration", "total": len(concentrated),
+                "answers": concentrated, "answer": answer,
+                "scope": scope_label, "generated_at": _utcnow_iso(),
+            }
+        if intent == "capability_emerging":
+            emerging = [
+                c for c in caps
+                if c["lifecycle"] in ("emerging", "established")
+            ][:_MAX_ANSWER_EVIDENCE]
+            answer = (
+                "Capabilities still developing: " + ", ".join(
+                    c["name"] for c in emerging
+                ) + "." if emerging else "No emerging capability is visible yet."
+            )
+            return {
+                "question": question, "intent": "capability_emerging",
+                "kind": "emerging", "total": len(emerging),
+                "answers": emerging, "answer": answer,
+                "scope": scope_label, "generated_at": _utcnow_iso(),
+            }
+        if intent == "capability_declining":
+            declining = [
+                c for c in caps
+                if c["lifecycle"] in ("declining", "dormant")
+            ][:_MAX_ANSWER_EVIDENCE]
+            answer = (
+                "Capabilities in decline: " + ", ".join(
+                    c["name"] for c in declining
+                ) + "." if declining else
+                "No capability is currently declining."
+            )
+            return {
+                "question": question, "intent": "capability_declining",
+                "kind": "declining", "total": len(declining),
+                "answers": declining, "answer": answer,
+                "scope": scope_label, "generated_at": _utcnow_iso(),
+            }
+        return {
+            "question": question, "intent": intent, "total": 0,
+            "answers": [], "scope": scope_label,
+            "generated_at": _utcnow_iso(),
+        }
+
+    def _concentration_answer(self, rows: list[dict[str, Any]]) -> str:
+        if not rows:
+            return "No capability evidence is dangerously concentrated."
+        items = "; ".join(
+            f"{r['name']} ({r.get('concentration_share', 0):.0%} from one "
+            f"expert, next {r.get('second_share', 0):.0%})"
+            for r in rows[:4]
+        )
+        return (
+            "Capability evidence is concentrated in one person: " + items
+            + ". Advisory only — consider secondary ownership or knowledge "
+            "transfer; nothing is reassigned automatically."
+        )
+
     async def query(
         self,
         db: AsyncSession,
@@ -2925,6 +3128,11 @@ class IntelligenceEngine:
         if intent == "expertise_trust":
             return await self._expertise_trust_query(
                 db, organization_id=organization_id, question=question, user=user
+            )
+        if intent.startswith("capability"):
+            return await self._capability_query(
+                db, organization_id=organization_id,
+                question=question, user=user, intent=intent,
             )
         if intent in ("impact", "ownership"):
             access = await self._access(db, organization_id=organization_id, user=user)
