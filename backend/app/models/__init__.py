@@ -387,6 +387,13 @@ from app.models.org_capability_intelligence import (  # noqa: F401
     CapabilitySignal,
     OrgCapability,
 )
+from app.models.people_decision import (  # noqa: F401
+    DecisionAudit,
+    DecisionCandidate,
+    DecisionEvidenceItem,
+    DecisionSimulation,
+    PeopleDecision,
+)
 
 __all__ = [
     "Organization",
@@ -766,4 +773,9 @@ __all__ = [
     "CollaborationRelationship",
     "CollaborationSignal",
     "CollaborationUnitPair",
+    "PeopleDecision",
+    "DecisionCandidate",
+    "DecisionEvidenceItem",
+    "DecisionSimulation",
+    "DecisionAudit",
 ]

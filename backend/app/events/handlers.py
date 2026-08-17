@@ -2885,3 +2885,22 @@ async def handle_org_capability(db, event, payload):
     await org_capability_engine.record_event(
         db, organization_id=org_id, event=event, payload=payload,
     )
+
+
+@on("project.started")
+async def handle_people_decision(db, event, payload):
+    """Slice 4F.7 — change-driven decision DETECTION (signal only).
+
+    A project starting surfaces a candidate "who should staff this?"
+    decision in 'detected' state. The system never evaluates or recommends
+    autonomously; a human asks the decision surface to reason. Exact-once
+    via the triggering event id.
+    """
+    from app.intelligence.people_decision_engine import people_decision_engine
+
+    org_id = payload.get("organization_id") or event.organization_id
+    if not org_id:
+        return
+    await people_decision_engine.detect_from_event(
+        db, organization_id=org_id, event=event, payload=payload,
+    )

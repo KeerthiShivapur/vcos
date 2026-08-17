@@ -8938,3 +8938,177 @@ export async function analyzeCapabilityInitiative(
     body: { question },
   });
 }
+
+// ------------------------------------------- Slice 4F.7 people decision intelligence
+// Evidence-backed, human-governed people decisions: an objective ->
+// required capabilities -> available people -> recommendation with
+// alternatives, trade-offs, confidence and provenance. Never a score,
+// never an automatic decision; writes are governed by humans.
+
+export interface PeopleDecisionRequirement {
+  id: string;
+  name: string;
+}
+
+export interface PeopleDecisionCandidate {
+  person_id: string;
+  person_label: string;
+  role: "recommended" | "alternative" | "excluded";
+  rank: number;
+  rationale: string;
+  trade_off: string | null;
+  why_not: string | null;
+  evidence: Record<string, unknown>;
+}
+
+export interface PeopleDecisionEvidenceItem {
+  skill_id: string;
+  skill_name: string;
+  dimension: string;
+  claim: string;
+  sources: number;
+  grade: string;
+  positive: boolean;
+}
+
+export interface PeopleDecisionRecommendation {
+  person_id: string | null;
+  person_label: string | null;
+  confidence: number;
+  rationale: string;
+}
+
+export interface PeopleDecisionRecord {
+  id: string;
+  decision_type: string;
+  risk_tier: string;
+  context: {
+    context_type: string;
+    context_id: string;
+    context_label: string | null;
+  };
+  objective: string;
+  requirements: PeopleDecisionRequirement[];
+  lifecycle: string;
+  decision?: string;
+  recommendation: PeopleDecisionRecommendation;
+  candidates: PeopleDecisionCandidate[];
+  evidence: PeopleDecisionEvidenceItem[];
+  simulations: PeopleDecisionSimulationRow[];
+  audit: PeopleDecisionAuditRow[];
+  outcome: { status: string | null; note: string | null; recorded_by: string | null } | null;
+  recommended_person_id?: string | null;
+  recommended_person_label?: string | null;
+  confidence?: number;
+  rationale?: string | null;
+  provenance?: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface PeopleDecisionSimulationRow {
+  id: string;
+  person_id: string;
+  person_label: string;
+  verdict: string;
+  deltas: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface PeopleDecisionAuditRow {
+  action: string;
+  actor_id: string;
+  note: string;
+  created_at: string;
+}
+
+export interface PeopleDecisionDetail extends PeopleDecisionRecord {
+  simulations: PeopleDecisionSimulationRow[];
+  audit: PeopleDecisionAuditRow[];
+  provenance: Record<string, unknown>;
+}
+
+export interface PeopleDecisionListResponse {
+  total: number;
+  decisions: PeopleDecisionRecord[];
+  generated_at: string;
+}
+
+export interface PeopleDecisionBrainResponse {
+  question: string;
+  intent: string;
+  scope: string;
+  kind: string;
+  decision_type: string;
+  requirements: PeopleDecisionRequirement[];
+  context: {
+    context_type: string | null;
+    context_id: string | null;
+    context_label: string | null;
+  };
+  recommendation: PeopleDecisionRecommendation;
+  candidates: PeopleDecisionCandidate[];
+  provenance: Record<string, unknown>;
+  answer: string;
+  person?: { id: string; name: string };
+  simulation?: { verdict: string; deltas: Record<string, unknown> } | null;
+  generated_at: string;
+}
+
+export async function askPeopleDecision(question: string): Promise<PeopleDecisionBrainResponse> {
+  return api<PeopleDecisionBrainResponse>("/brain/knowledge/query", {
+    method: "POST",
+    body: { question },
+  });
+}
+
+export async function getPeopleDecisions(
+  params: { limit?: number; lifecycle?: string; decision_type?: string } = {}
+): Promise<PeopleDecisionListResponse> {
+  return api<PeopleDecisionListResponse>("/brain/decisions", { query: params });
+}
+
+export async function getPeopleDecisionDetail(id: string): Promise<PeopleDecisionDetail> {
+  return api<PeopleDecisionDetail>(`/brain/decisions/${id}`);
+}
+
+export async function createPeopleDecision(
+  body: {
+    decision_type: string;
+    objective: string;
+    requirements: string[];
+    context_type?: string | null;
+    context_id?: string | null;
+    context_label?: string | null;
+    risk_tier?: string | null;
+  }
+): Promise<PeopleDecisionDetail> {
+  return api<PeopleDecisionDetail>("/brain/decisions", { method: "POST", body });
+}
+
+export async function peopleDecisionLifecycle(
+  id: string,
+  action: string
+): Promise<PeopleDecisionDetail> {
+  return api<PeopleDecisionDetail>(`/brain/decisions/${id}/lifecycle`, {
+    method: "POST",
+    body: { action },
+  });
+}
+
+export async function recordPeopleDecisionOutcome(
+  id: string,
+  status: "successful" | "unsuccessful",
+  note: string
+): Promise<PeopleDecisionDetail> {
+  return api<PeopleDecisionDetail>(`/brain/decisions/${id}/outcome`, {
+    method: "POST",
+    body: { status, note },
+  });
+}
+
+export async function peopleDecisionWhatIf(
+  id: string,
+  personId: string
+): Promise<{ person: { id: string; name: string }; verdict: string; deltas: Record<string, unknown>; generated_at: string }> {
+  return api(`/brain/decisions/${id}/what-if`, { method: "POST", body: { person_id: personId } });
+}

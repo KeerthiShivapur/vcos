@@ -61,6 +61,7 @@ import {
   Wallet,
   Columns3,
   Stamp,
+  Scale,
 } from "lucide-react";
 import { classNames } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
@@ -197,6 +198,7 @@ export function Sidebar({ unread }: { unread: number }) {
     { href: "/knowledge/analytics", label: "Knowledge Analytics", icon: BarChart3, permission: PERMISSIONS.KNOWLEDGE_READ },
     { href: "/collaboration", label: "Work Collaboration", icon: Network, permission: PERMISSIONS.BRAIN_READ },
     { href: "/capabilities", label: "Capability Center", icon: Boxes, permission: PERMISSIONS.BRAIN_READ },
+    { href: "/people-decisions", label: "People Decisions", icon: Scale, permission: PERMISSIONS.BRAIN_READ },
   ];
 
   const community: NavItem[] = [
@@ -248,6 +250,8 @@ if (href === "/recordings") return pathname === "/recordings" || pathname.starts
     if (href === "/knowledge") return pathname === "/knowledge" || pathname.startsWith("/knowledge/");
     if (href === "/collaboration") return pathname === "/collaboration" || pathname.startsWith("/collaboration/");
     if (href === "/capabilities") return pathname === "/capabilities" || pathname.startsWith("/capabilities/");
+    if (href === "/people-decisions")
+      return pathname === "/people-decisions" || pathname.startsWith("/people-decisions/");
     if (href === "/learning" || href.startsWith("/learning?"))
       return pathname === "/learning" || pathname.startsWith("/learning/");
     if (href === "/documents") return pathname === "/documents" || pathname.startsWith("/documents/");

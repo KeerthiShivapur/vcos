@@ -119,6 +119,9 @@ EVENT_CATALOG: dict[str, str] = {
     "decision.executed": "A decision follow-up action became a task",
     "decision.implemented": "A decision was implemented (all follow-up tasks done)",
     "decision.reviewed": "A decision was reviewed",
+    # Slice 4F.7 — People Decision Intelligence (human-governed lifecycle).
+    "decision.recommendation.approved": "A people decision recommendation was approved",
+    "decision.recommendation.rejected": "A people decision recommendation was rejected",
     # --- risks
     "risk.detected": "A risk was detected",
     "risk.updated": "A risk was updated",

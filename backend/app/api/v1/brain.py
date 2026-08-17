@@ -4052,3 +4052,280 @@ async def brain_capabilities_detail(
     if result is None:
         raise HTTPException(status_code=404, detail="capability not found")
     return {**result, "generated_at": _utcnow_iso()}
+
+# ---------------------------------------------------------------------------
+# Slice 4F.7 — People Decision Intelligence (the 4F capstone)
+#
+# "Given all that evidence, what people/organizational decision should we
+# consider, and why?" One governed surface that consumes 4F.2 expertise,
+# 4F.3 trust, 4F.4 ownership, 4F.5 collaboration and 4F.6 capability &
+# capacity to produce an evidence-backed recommendation with alternatives,
+# trade-offs, unknowns and confidence — then a HUMAN decides, acts, and the
+# outcome becomes evidence for the next decision.
+#
+# Hard rules (from the 4F.7 directive):
+#   * NO employee scores — candidates carry decision-specific evidence only.
+#   * Privacy pipeline LOCKED in order: Identity -> Authorization ->
+#     Governance scope -> Accessible evidence -> Reasoning -> Answer.
+#     Scoped callers only create/view decisions on projects they can see.
+#   * HIGH-tier people decisions (hiring, promotion, termination,
+#     compensation, disciplinary) are refused: they stay under human
+#     governance. Medium-tier writes (lifecycle, outcome) require
+#     employees:manage — humans decide, never the system.
+# ---------------------------------------------------------------------------
+
+MAX_DECISION_REQUIREMENTS = 12
+
+
+@router.post("/decisions")
+async def brain_decisions_create(
+    body: dict[str, Any],
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Create a people decision and reason over it immediately: the request,
+    context, requirements -> capabilities, candidate discovery, evidence and
+    a recommendation with alternatives, trade-offs and confidence. Project-
+    anchored decisions may be created by scoped callers on projects they can
+    see; org-wide decisions require org-wide governance."""
+    from app.intelligence.people_decision_engine import (
+        DECISION_TYPES,
+        people_decision_engine,
+    )
+
+    decision_type = str(body.get("decision_type", "")).strip()
+    if decision_type not in DECISION_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"decision_type must be one of: {', '.join(DECISION_TYPES)}",
+        )
+    requirements = body.get("requirements") or []
+    if isinstance(requirements, list) and len(requirements) > MAX_DECISION_REQUIREMENTS:
+        raise HTTPException(status_code=400, detail="too many requirements")
+    context_type = body.get("context_type") or None
+    context_id = body.get("context_id") or None
+    access = await _people_access(db, org, user)
+    if context_type == "project":
+        if not access.org_wide and context_id not in access.project_ids:
+            raise HTTPException(status_code=404, detail="scope not found")
+    elif context_type in ("org", None):
+        if not access.org_wide:
+            raise HTTPException(status_code=404, detail="scope not found")
+    else:
+        if not access.org_wide:
+            raise HTTPException(status_code=404, detail="scope not found")
+    try:
+        view = await people_decision_engine.create_and_evaluate(
+            db, organization_id=org.id, actor_id=user.id, body={
+                "decision_type": decision_type,
+                "objective": str(body.get("objective", "")).strip(),
+                "requirements": requirements,
+                "context_type": context_type,
+                "context_id": context_id,
+                "context_label": body.get("context_label"),
+                "risk_tier": body.get("risk_tier"),
+            },
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await db.commit()
+    return {**view, "generated_at": _utcnow_iso()}
+
+
+@router.get("/decisions")
+async def brain_decisions_list(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+    limit: int = 50,
+    lifecycle: Optional[str] = None,
+    decision_type: Optional[str] = None,
+) -> dict[str, Any]:
+    """Recent people decisions. Scoped callers only ever see decisions made
+    on projects inside their governance scope (conversation scope leaks
+    nothing)."""
+    from app.intelligence.people_decision_engine import people_decision_engine
+
+    access = await _people_access(db, org, user)
+    result = await people_decision_engine.list(
+        db, organization_id=org.id, limit=limit, lifecycle=lifecycle,
+        decision_type=decision_type, access=access,
+    )
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/decisions/{decision_id}")
+async def brain_decisions_detail(
+    decision_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Full decision record: recommendation, Why, alternatives with
+    trade-offs, why-not for others, evidence, bounded what-if runs,
+    provenance and the human governance audit trail."""
+    from app.intelligence.people_decision_engine import (
+        DECISION_TYPES,
+        people_decision_engine,
+    )
+
+    access = await _people_access(db, org, user)
+    view = await _require_visible_decision(db, org, access, decision_id)
+    return {**view, "generated_at": _utcnow_iso()}
+
+
+async def _require_visible_decision(
+    db: AsyncSession, org: Organization, access: CallerAccess, decision_id: str,
+) -> dict[str, Any]:
+    """Governance-scoped decision read: org-wide callers see everything;
+    scoped callers only decisions anchored to their visible projects."""
+    from app.intelligence.people_decision_engine import people_decision_engine
+
+    if access.org_wide:
+        try:
+            return await people_decision_engine.view(
+                db, organization_id=org.id, decision_id=decision_id
+            )
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail="decision not found") from exc
+    from app.models.people_decision import PeopleDecision
+
+    decision_row = (
+        await db.execute(
+            select(PeopleDecision).where(
+                PeopleDecision.organization_id == org.id,
+                PeopleDecision.id == decision_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if decision_row is None:
+        raise HTTPException(status_code=404, detail="decision not found")
+    if (
+        decision_row.context_type != "project"
+        or decision_row.context_id not in access.project_ids
+    ):
+        raise HTTPException(status_code=404, detail="scope not found")
+    try:
+        return await people_decision_engine.view(
+            db, organization_id=org.id, decision_id=decision_id
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="decision not found") from exc
+
+
+@router.post("/decisions/{decision_id}/lifecycle")
+async def brain_decisions_lifecycle(
+    decision_id: str,
+    body: dict[str, Any],
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("employees:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Human-governed lifecycle transition: review -> approve | reject ->
+    execute -> verify. Every transition is audit-logged with its actor.
+    High-impact people decisions never exist here — they stay in the
+    approvals/HR surfaces under people governance."""
+    from app.intelligence.people_decision_engine import people_decision_engine
+
+    action = str(body.get("action", "")).strip()
+    if not action:
+        raise HTTPException(status_code=400, detail="action is required")
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    try:
+        view = await people_decision_engine.transition(
+            db, organization_id=org.id, decision_id=decision_id,
+            action=action, actor_id=user.id,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="decision not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await db.commit()
+    return {**view, "generated_at": _utcnow_iso()}
+
+
+@router.post("/decisions/{decision_id}/outcome")
+async def brain_decisions_outcome(
+    decision_id: str,
+    body: dict[str, Any],
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("employees:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Record the REAL outcome a human observed after acting on (or
+    rejecting) the recommendation. Success AND failure are kept honestly —
+    both become evidence for the next evaluation (Decision -> Outcome ->
+    Learning)."""
+    from app.intelligence.people_decision_engine import people_decision_engine
+
+    status = str(body.get("status", "")).strip()
+    if not status:
+        raise HTTPException(status_code=400, detail="status is required")
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    try:
+        view = await people_decision_engine.record_outcome(
+            db, organization_id=org.id, decision_id=decision_id,
+            status=status, note=body.get("note"), actor_id=user.id,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="decision not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await db.commit()
+    return {**view, "generated_at": _utcnow_iso()}
+
+
+@router.post("/decisions/{decision_id}/what-if")
+async def brain_decisions_what_if(
+    decision_id: str,
+    body: dict[str, Any],
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Bounded decision simulation: what changes in THIS decision's context
+    if this person were assigned instead of the primary — capability
+    availability, concentration, workload, ownership conflicts. Bounded by
+design: it is not the prediction engine, only the decision's own scope."""
+    from app.intelligence.people_decision_engine import people_decision_engine
+
+    person_id = body.get("person_id")
+    if not person_id:
+        raise HTTPException(status_code=400, detail="person_id is required")
+    access = await _people_access(db, org, user)
+    from app.models.people_decision import PeopleDecision
+
+    decision_row = (
+        await db.execute(
+            select(PeopleDecision).where(
+                PeopleDecision.organization_id == org.id,
+                PeopleDecision.id == decision_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if decision_row is None:
+        raise HTTPException(status_code=404, detail="decision not found")
+    if (
+        not access.org_wide
+        and (
+            decision_row.context_type != "project"
+            or decision_row.context_id not in access.project_ids
+        )
+    ):
+        raise HTTPException(status_code=404, detail="scope not found")
+    try:
+        result = await people_decision_engine.what_if(
+            db, organization_id=org.id, decision_id=decision_id,
+            person_id=person_id,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="decision or person not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await db.commit()
+    return {**result, "decision_id": decision_id, "generated_at": _utcnow_iso()}

@@ -101,6 +101,46 @@ _FRESH_OK = frozenset({"very_high", "high", "medium"})
 
 # intent routing for the universal knowledge query (deterministic keywords)
 _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
+    # Slice 4F.7 — People Decision questions route FIRST because they are
+    # decision-specific and must win over generic meanings: "why is Bob
+    # recommended" is decision provenance (not the knowledge why), "who
+    # should own this" is a decision recommendation (not the 4F.4 ownership
+    # gap record), "why not Alice" is honest negative evidence, "what if we
+    # assign" is a bounded decision simulation. Every answer comes from
+    # LIVE analysis over 4F.2..4F.6 evidence and never persists.
+    ("people_decision", (
+        # who should do / own / lead (decision recommendations)
+        "who should own this", "who should own the", "who should own",
+        "who should be the owner", "who should be responsible for",
+        "who should do this", "who should do it", "who should handle",
+        "who should lead", "who should be the lead", "who should staff",
+        "who should be assigned", "who should take over",
+        "who should run", "who can run",
+        # capacity-aware assignments
+        "who can take this on", "who can take on", "who can handle this",
+        "who can absorb", "which team can absorb", "who is free to take",
+        "without creating a capacity problem", "who should take responsibility",
+        # trusted expertise discovery (decision flavor)
+        "strongest trusted expertise", "most trusted expert",
+        "most trusted expertise", "who do we trust most",
+        "who is our expert on",
+        # recommendation provenance: why / why not / alternatives
+        "why not", "why isn", "why isnt", "not recommended", "recommended",
+        "recommended for", "recommended person", "recommend someone",
+        "recommendation for",
+        "what are the alternatives", "the alternatives", "alternatives for",
+        # bounded what-if
+        "what if we assign", "what happens if we assign", "what if we move",
+        "what happens if we move", "what if we give", "what if we promote",
+        "should we assign", "should we move", "should we hand",
+        # single-person dependency (decision meaning)
+        "bus factor", "dependent on one person",
+        "dependent on a single person", "where are we dependent",
+        "who is indispensable",
+        # capability gaps that block a decision
+        "prevents us from doing", "prevents us from taking",
+        "blocking us from doing", "gap prevents us",
+    )),
     # Slice 4E.7 — the company-level loop surfaces route FIRST so the company
     # meaning wins over the knowledge-only meaning ("what changed in the
     # company since yesterday" is company change, not claim change).
@@ -3134,6 +3174,11 @@ class IntelligenceEngine:
                 db, organization_id=organization_id,
                 question=question, user=user, intent=intent,
             )
+        if intent == "people_decision":
+            return await self._people_decision_query(
+                db, organization_id=organization_id,
+                question=question, user=user,
+            )
         if intent in ("impact", "ownership"):
             access = await self._access(db, organization_id=organization_id, user=user)
             scanned = await self._scan_topics(
@@ -3465,6 +3510,401 @@ class IntelligenceEngine:
             query=question, user=user, limit=limit,
         )
         return {**result, "intent": "discovery"}
+
+    async def _people_decision_query(
+        self,
+        db: AsyncSession,
+        *,
+        organization_id: str,
+        question: str,
+        user: Any,
+    ) -> dict[str, Any]:
+        """Slice 4F.7 — People Decision questions, answered from LIVE
+        analysis over the canonical 4F.2..4F.6 evidence (a Company Brain
+        query never persists: only the governed decision surface records):
+        who should own / do / lead this, who can take it on without a
+        capacity problem, why this person is recommended, why not that
+        person, the alternatives with trade-offs, and the bounded "what if
+        we assign X". Governance-scoped: scoped callers only reason over
+        people and projects inside their visible scope.
+        """
+        import re as _re
+
+        from app.intelligence.people_decision_engine import people_decision_engine
+        from app.people.people_engine import people_engine
+
+        access = await self._access(db, organization_id=organization_id, user=user)
+        scope_label = "org" if access.org_wide else "project"
+        lowered = question.lower().strip()
+
+        # ---- single-person dependency summary (capability concentration)
+        if any(
+            k in lowered
+            for k in (
+                "bus factor", "dependent on one person",
+                "dependent on a single person", "where are we dependent",
+                "who is indispensable",
+            )
+        ):
+            return await self._decision_dependency(
+                db, organization_id=organization_id, question=question,
+                access=access, scope_label=scope_label,
+            )
+
+        # ---- decision flavor from the question
+        decision_type = "staffing"
+        if any(k in lowered for k in
+               ("should own", "be the owner", "should run", "be responsible for")):
+            decision_type = "ownership"
+        elif any(k in lowered for k in
+                 ("take this on", "take on", "absorb", "capacity problem",
+                  "free to take")):
+            decision_type = "capacity"
+        elif any(k in lowered for k in
+                 ("trusted expertise", "trusted expert", "trust most",
+                  "our expert")):
+            decision_type = "expertise"
+        elif any(k in lowered for k in
+                 ("prevents us", "gap prevents us", "blocking us")):
+            decision_type = "capability_gap"
+
+        # ---- strip the intent phrase for the subject
+        subject = lowered
+        for magic in (
+            "who should own this", "who should be the owner of",
+            "who should be the owner", "who should own the", "who should own",
+            "who should be responsible for", "who should take over",
+            "who should do this", "who should do it", "who should handle",
+            "who should lead", "who should be the lead", "who should staff",
+            "who should be assigned", "who should run", "who can run",
+            "who can take this on", "who can take on", "who can handle this",
+            "who can absorb", "which team can absorb", "who is free to take",
+            "without creating a capacity problem",
+            "who should take responsibility", "strongest trusted expertise",
+            "most trusted expert", "most trusted expertise",
+            "who do we trust most", "who is our expert on",
+            "what are the alternatives", "the alternatives", "alternatives for",
+            "why not", "why isn", "why isnt", "not recommended",
+            "recommended", "recommend someone", "recommendation for",
+            "what if we assign", "what happens if we assign", "what if we move",
+            "what happens if we move", "what if we give", "what if we promote",
+            "should we assign", "should we move", "should we hand",
+            "prevents us from doing", "prevents us from taking",
+            "blocking us from doing", "gap prevents us",
+        ):
+            if magic in subject:
+                subject = subject.replace(magic, " ", 1)
+                break
+        subject = _re.sub(r"[^a-z0-9 ]+", " ", subject).strip()
+
+        # ---- project context (bounded, governance-scoped)
+        context_type, context_id, context_label = None, None, None
+        if subject:
+            from app.models.project import Project
+
+            pq = select(Project.id, Project.name).where(
+                Project.organization_id == organization_id,
+                Project.status.in_(("active", "draft", "planned")),
+            )
+            if not access.org_wide and access.project_ids:
+                pq = pq.where(Project.id.in_(list(access.project_ids)))
+            rows = (
+                await db.execute(
+                    pq.order_by(Project.created_at.desc()).limit(_MAX_TOPICS_SCAN)
+                )
+            ).all()
+            subj_tokens = {t for t in tokens(subject) if len(t) >= 3}
+            for pid, pname in rows:
+                pname_l = str(pname or "").lower()
+                if not pname_l:
+                    continue
+                if (
+                    pname_l in lowered
+                    or any(t in pname_l for t in subj_tokens)
+                ):
+                    context_type = "project"
+                    context_id = pid
+                    context_label = pname
+                    break
+
+        # ---- requirements -> canonical capabilities (bounded)
+        terms = [t for t in tokens(subject) if len(t) >= 3]
+        requirements = terms[:8] if terms else []
+
+        # ---- person mention (why-not / why-recommended / what-if)
+        wants_person = any(
+            k in lowered
+            for k in (
+                "why not", "why isn", "why isnt", "not recommended",
+                "recommended", "what if we", "what happens if",
+                "should we assign", "should we move", "should we hand",
+            )
+        )
+        person = None
+        if wants_person:
+            tokens_sorted = sorted(
+                (t for t in tokens(subject) if len(t) >= 2),
+                key=len,
+                reverse=True,
+            )
+            for probe in [subject] + tokens_sorted[:6]:
+                search = await people_engine.search(
+                    db, organization_id=organization_id, access=access,
+                    q=probe, limit=3,
+                )
+                if search["people"]:
+                    person = search["people"][0]
+                    break
+            # Person questions without an explicit capability ("what if we
+            # assign Bob to the delivery?") reason over the person's OWN
+            # verified expertise — bounded to their top evidence.
+            if person:
+                person_terms = {
+                    t for t in tokens(str(person.get("name", ""))) if len(t) >= 2
+                }
+                terms = [
+                    t for t in terms
+                    if t not in person_terms
+                    and t not in ("delivery", "deliveries", "the", "this", "that")
+                ]
+                requirements = terms[:8]
+            if not requirements and person:
+                from app.models.skills_intelligence import (
+                    CanonicalSkill,
+                    Expertise as ExpertiseState,
+                )
+
+                skill_names = (
+                    (
+                        await db.execute(
+                            select(CanonicalSkill.canonical_name)
+                            .join(
+                                ExpertiseState,
+                                ExpertiseState.skill_id == CanonicalSkill.id,
+                            )
+                            .where(
+                                ExpertiseState.organization_id == organization_id,
+                                ExpertiseState.person_id == person["id"],
+                                ExpertiseState.score > 0,
+                            )
+                            .order_by(ExpertiseState.score.desc())
+                            .limit(4)
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                requirements = [str(n) for n in skill_names if n][:8]
+
+        view = await people_decision_engine.dry_run(
+            db, organization_id=organization_id,
+            decision_type=decision_type,
+            objective=question,
+            requirements=requirements,
+            context_type=context_type,
+            context_id=context_id,
+            context_label=context_label,
+        )
+        rec = view["recommendation"]
+        candidates = view["candidates"]
+        base = {
+            "question": question,
+            "intent": "people_decision",
+            "scope": scope_label,
+            "generated_at": _utcnow_iso(),
+            "decision_type": decision_type,
+            "requirements": view["requirements"],
+            "context": {
+                "context_type": context_type,
+                "context_id": context_id,
+                "context_label": context_label,
+            },
+            "recommendation": rec,
+            "candidates": candidates,
+            "provenance": view["provenance"],
+        }
+
+        if wants_person and person:
+            row = next(
+                (c for c in candidates if c["person_id"] == person["id"]), None
+            )
+            if any(k in lowered for k in
+                   ("why not", "why isn", "why isnt", "not recommended")):
+                if row is None:
+                    answer = (
+                        f"{person['name']} does not appear in the candidate pool "
+                        f"for this decision: no evidence places them in the "
+                        f"required capabilities or the context. "
+                        f"Recommendation stands: {rec['person_label']}."
+                    )
+                elif row["role"] == "recommended":
+                    answer = (
+                        f"{person['name']} IS the recommendation. "
+                        f"{rec['rationale'] or ''}"
+                    )
+                else:
+                    answer = (
+                        f"{person['name']} is not recommended because "
+                        f"{row['why_not'] or 'no disqualifying evidence on record'}. "
+                        f"Recommendation: {rec['person_label']} — "
+                        f"{rec['rationale'] or ''}"
+                    )
+                return {
+                    **base,
+                    "kind": "why_not",
+                    "person": {"id": person["id"], "name": person["name"]},
+                    "answer": answer,
+                }
+            if any(k in lowered for k in
+                   ("what if we", "what happens if", "should we assign",
+                    "should we move", "should we hand")):
+                if not rec["person_id"] or rec["person_id"] == person["id"]:
+                    sim = None
+                    answer = (
+                        f"{person['name']} is the current recommendation as "
+                        f"'{rec['person_label']}' — the bounded what-if must "
+                        f"target a different person. " + (rec["rationale"] or "")
+                    )
+                else:
+                    sim = await people_decision_engine.dry_what_if(
+                        db, organization_id=organization_id,
+                        primary_person_id=rec["person_id"],
+                        primary_label=rec["person_label"]
+                        or "the primary",
+                        person_id=person["id"],
+                        skill_ids=[s["id"] for s in view["requirements"]],
+                    )
+                    answer = sim["verdict"]
+                return {
+                    **base,
+                    "kind": "what_if",
+                    "person": {"id": person["id"], "name": person["name"]},
+                    "simulation": sim,
+                    "answer": answer,
+                }
+            if row is not None and row["role"] == "recommended":
+                answer = (
+                    f"{person['name']} is recommended because "
+                    f"{rec['rationale'] or 'the evidence supports them'}."
+                )
+            else:
+                answer = (rec["rationale"] or "") or (
+                    f"{rec['person_label'] if rec['person_label'] else 'No one'} "
+                    f"is the evidence-backed recommendation."
+                )
+            return {
+                **base,
+                "kind": "why_recommended",
+                "person": {"id": person["id"], "name": person["name"]},
+                "answer": answer,
+            }
+
+        if any(k in lowered for k in
+               ("alternatives", "recommendation for", "recommend someone",
+                "recommended")):
+            alts = [c for c in candidates if c["role"] == "alternative"]
+            if alts:
+                answer = (
+                    f"Primary: {rec['person_label']}. "
+                    + " ".join(
+                        f"Alternative {i}: {a['person_label']} — {a['trade_off']}."
+                        for i, a in enumerate(alts, 1)
+                    )
+                )
+            else:
+                answer = (
+                    f"Primary recommendation: {rec['person_label']}. "
+                    f"No further alternatives emerged from the evidence."
+                )
+            return {**base, "kind": "alternatives", "answer": answer}
+
+        if rec["person_id"]:
+            excluded = [c for c in candidates if c["role"] == "excluded"]
+            answer = (
+                f"Recommended: {rec['person_label']} (confidence "
+                f"{rec['confidence']}). {rec['rationale'] or ''}"
+                + (
+                    f" {len(excluded)} other candidate(s) were considered "
+                    f"and excluded on evidence."
+                    if excluded
+                    else ""
+                )
+            )
+        else:
+            answer = rec["rationale"] or (
+                "No one currently holds trusted evidence in the required "
+                "capabilities — the gap is itself the finding. Consider "
+                "growing or moving someone deliberately through the People "
+                "Decision Center."
+            )
+        return {**base, "kind": "recommendation", "answer": answer}
+
+    async def _decision_dependency(
+        self,
+        db: AsyncSession,
+        *,
+        organization_id: str,
+        question: str,
+        access: Any,
+        scope_label: str,
+    ) -> dict[str, Any]:
+        """"Where are we dependent on one person?" — capabilities with
+        concentration >= 0.6, from the canonical 4F.6 rollups. Advisory
+        only: it surfaces the risk, never reassigns anyone."""
+        from app.intelligence.org_capability_engine import org_capability_engine
+
+        caps: list[dict[str, Any]] = []
+        if access.org_wide:
+            view = await org_capability_engine.overview(
+                db, organization_id=organization_id,
+            )
+            caps = view["capabilities"]
+        else:
+            seen: set[str] = set()
+            for project_id in list(access.project_ids)[:_MAX_TOPICS_SCAN]:
+                pv = await org_capability_engine.project_capabilities(
+                    db, organization_id=organization_id, project_id=project_id,
+                )
+                for c in pv["capabilities"]:
+                    if c["skill_id"] in seen:
+                        continue
+                    seen.add(c["skill_id"])
+                    caps.append(c)
+        concentrated = [
+            c for c in caps if float(c.get("concentration_share") or 0.0) >= 0.6
+        ]
+        concentrated.sort(
+            key=lambda c: -float(c.get("concentration_share") or 0.0)
+        )
+        concentrated = concentrated[:10]
+        if not concentrated:
+            answer = (
+                "No capability with a concentration share of 0.6 or higher "
+                "is on record — no single-person dependency is currently "
+                "evidence-backed in your visible scope."
+            )
+        else:
+            answer = (
+                f"{len(concentrated)} capability(ies) are concentrated on a "
+                "single expert: "
+                + "; ".join(
+                    f"{c.get('name')} (concentration share "
+                    f"{c.get('concentration_share')}, "
+                    f"state {c.get('lifecycle')})"
+                    for c in concentrated
+                )
+                + ". Concentration is a risk note — consider secondary "
+                "ownership or knowledge transfer deliberately."
+            )
+        return {
+            "question": question,
+            "intent": "people_decision",
+            "kind": "dependency",
+            "answers": concentrated,
+            "answer": answer,
+            "scope": scope_label,
+            "generated_at": _utcnow_iso(),
+        }
 
     async def _temporal_query(
         self,
