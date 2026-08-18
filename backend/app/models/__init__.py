@@ -412,6 +412,12 @@ from app.models.execution_strategy import (  # noqa: F401
     StrategicOutcome,
     StrategicSnapshot,
 )
+from app.models.resource_allocation_intelligence import (  # noqa: F401
+    AllocationDemand,
+    CapacityAllocation,
+    CapacityHistory,
+    CapacitySnapshot,
+)
 
 __all__ = [
     "Organization",
@@ -808,4 +814,8 @@ __all__ = [
     "StrategicHistory",
     "StrategicOutcome",
     "StrategicSnapshot",
+    "AllocationDemand",
+    "CapacityAllocation",
+    "CapacityHistory",
+    "CapacitySnapshot",
 ]

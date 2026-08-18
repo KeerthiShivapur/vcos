@@ -141,6 +141,12 @@ EVENT_CATALOG: dict[str, str] = {
     "strategy.initiative.linked": "A project was linked to a strategic initiative",
     "strategy.initiative.unlinked": "A project was unlinked from a strategic initiative",
     "strategy.outcome.recorded": "A strategy->outcome observation was recorded",
+    # Slice 4G.4 — Universal Resource & Capacity Allocation Intelligence.
+    "capacity.demand.created": "A project declared a resource demand",
+    "capacity.demand.updated": "A project's resource demand changed",
+    "capacity.demand.removed": "A project's resource demand was removed",
+    "capacity.allocation.created": "A governed capacity allocation was committed",
+    "capacity.allocation.completed": "A governed capacity allocation recorded its outcome",
     # --- risks
     "risk.detected": "A risk was detected",
     "risk.updated": "A risk was updated",

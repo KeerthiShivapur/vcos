@@ -6,7 +6,7 @@ timeline, universal context, event stream, analytics and the continuous
 evolution cycle. Employees, managers and executives all ask the same brain.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -5143,3 +5143,487 @@ async def brain_strategy_record_outcome(
     )
     await db.commit()
     return {"recorded": True, "generated_at": _utcnow_iso()}
+
+
+# ---------------------------------------------------------------------------
+# Slice 4G.4 — Universal Resource & Capacity Allocation
+#
+# One governed surface for the capacity ledger: explicit project demands
+# (capability x units x window), human allocation decisions with outcomes,
+# and the advisory surfaces (center, gaps, contention, traceability,
+# overloads, capability detail, alternatives, what-if). Every payload the
+# brain returns is evidence-backed and deterministic; nothing here moves
+# people or capacity — a human decides. Reads are org-wide (brain:read);
+# writes are governed (projects:manage). Change events feed the engine's
+# exact-once snapshots via the capacity.* event handlers.
+# ---------------------------------------------------------------------------
+
+
+def _capacity_date(value: Any) -> Optional[date]:
+    """Parse a demand/allocation window date from the request body."""
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+async def _capacity_window(
+    body: dict[str, Any],
+) -> tuple[str, date, date]:
+    """Validate and return (capability, window_start, window_end)."""
+    capability = (body.get("capability") or "").strip()[:120]
+    window_start = _capacity_date(body.get("window_start"))
+    window_end = _capacity_date(body.get("window_end"))
+    if not capability:
+        raise HTTPException(status_code=400, detail="capability is required")
+    if not window_start or not window_end:
+        raise HTTPException(
+            status_code=400, detail="window_start and window_end (YYYY-MM-DD) are required"
+        )
+    if window_end < window_start:
+        raise HTTPException(
+            status_code=400, detail="window_end must be on or after window_start"
+        )
+    return capability, window_start, window_end
+
+
+@router.get("/execution/capacity/center")
+async def brain_capacity_center(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """CAPACITY CENTER: company utilization, critical bottlenecks,
+    overloaded capabilities, capability gaps, goals at risk and the top
+    constraint with a recommended action. Advisory, deterministic."""
+    from app.intelligence.resource_allocation_engine import resource_allocation_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await resource_allocation_engine.center(
+        db, organization_id=org.id,
+    )
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/capacity/gaps")
+async def brain_capacity_gaps(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Current capacity gaps (windows containing today) and FUTURE gaps
+    clearly labeled as projections — never presented as fact."""
+    from app.intelligence.resource_allocation_engine import resource_allocation_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await resource_allocation_engine.gaps(
+        db, organization_id=org.id,
+    )
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/capacity/contention")
+async def brain_capacity_contention(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Projects competing for the same scarce capability, ordered with
+    their strategic stakes. Advisory — humans decide the allocation."""
+    from app.intelligence.resource_allocation_engine import resource_allocation_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await resource_allocation_engine.contention(
+        db, organization_id=org.id,
+    )
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/capacity/traceability")
+async def brain_capacity_traceability(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """RESOURCE-TO-GOAL TRACEABILITY: how each capability's demand maps to
+    company goals, initiatives and unaligned work (the drill-down)."""
+    from app.intelligence.resource_allocation_engine import resource_allocation_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await resource_allocation_engine.traceability(
+        db, organization_id=org.id,
+    )
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/capacity/overloads")
+async def brain_capacity_overloads(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Overload and under-utilization at capability, team and person level —
+    evidence-backed, never a rank for people."""
+    from app.intelligence.resource_allocation_engine import resource_allocation_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await resource_allocation_engine.overloads(
+        db, organization_id=org.id,
+    )
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/capacity/capabilities/{capability}")
+async def brain_capacity_capability_detail(
+    capability: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """One capability's full capacity record: supply + demand in the latest
+    window, the gap with WHY, stakes, commitments and temporal history."""
+    from app.intelligence.resource_allocation_engine import resource_allocation_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await resource_allocation_engine.capability_detail(
+        db, organization_id=org.id, capability=capability[:120],
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="capability not found")
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/capacity/alternatives")
+async def brain_capacity_alternatives(
+    project_id: str,
+    capability: Optional[str] = None,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Three bounded allocation courses for one project's contention with
+    benefit/risk/confidence/evidence. Humans decide; nothing executes."""
+    from app.intelligence.resource_allocation_engine import resource_allocation_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await resource_allocation_engine.alternatives(
+        db, organization_id=org.id, project_id=project_id,
+        capability=(capability or None),
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/capacity/what-if")
+async def brain_capacity_what_if(
+    from_project_id: str,
+    to_project_id: str,
+    capability: str,
+    units: int = Query(default=1, ge=1),
+    window_days: int = Query(default=30, ge=1, le=365),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Bounded reallocation scenario: move N units of a capability from one
+    project to another. Simulated gaps + goal directions; NEVER a prediction
+    and never executed."""
+    from app.intelligence.resource_allocation_engine import resource_allocation_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await resource_allocation_engine.what_if(
+        db, organization_id=org.id,
+        from_project_id=from_project_id, to_project_id=to_project_id,
+        capability=capability[:120], units=units, window_days=window_days,
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=404, detail="no shared demand window found for this reallocation"
+        )
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.post("/execution/capacity/demands")
+async def brain_capacity_create_demand(
+    body: dict[str, Any],
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("projects:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Declare (create) or change (update) a project's explicit resource
+    demand: capability x units x window. The governed write publishes the
+    capacity.demand event; the engine recomputes that window's snapshot."""
+    from app.models.project import Project
+    from app.models.resource_allocation_intelligence import AllocationDemand
+    from app.events.publisher import publish_event
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    project_id = (body.get("project_id") or "").strip()
+    if not project_id:
+        raise HTTPException(status_code=400, detail="project_id is required")
+    project = (
+        await db.execute(
+            select(Project).where(
+                Project.organization_id == org.id, Project.id == project_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    capability, window_start, window_end = await _capacity_window(body)
+    try:
+        units = max(1, int(body.get("units", 1)))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="units must be a positive integer")
+    proficiency = (body.get("proficiency") or "high").strip()[:24]
+    if proficiency not in ("high", "expert"):
+        raise HTTPException(status_code=400, detail="proficiency must be high or expert")
+    note = (body.get("note") or "")[:1000] or None
+
+    demand = (
+        await db.execute(
+            select(AllocationDemand).where(
+                AllocationDemand.organization_id == org.id,
+                AllocationDemand.project_id == project_id,
+                AllocationDemand.capability == capability,
+                AllocationDemand.window_start == window_start,
+                AllocationDemand.window_end == window_end,
+            )
+        )
+    ).scalar_one_or_none()
+    if demand is None:
+        demand = AllocationDemand(
+            organization_id=org.id, project_id=project_id,
+            capability=capability, units=units,
+            window_start=window_start, window_end=window_end,
+            proficiency=proficiency, note=note,
+        )
+        db.add(demand)
+        await db.flush()
+        await publish_event(
+            db, name="capacity.demand.created", organization_id=org.id,
+            actor_id=user.id,
+            payload={
+                "organization_id": org.id, "project_id": project_id,
+                "project_label": project.name,
+                "capability": capability, "units": units,
+                "window_start": window_start.isoformat(),
+                "window_end": window_end.isoformat(),
+                "proficiency": proficiency, "note": note,
+            },
+        )
+        await db.commit()
+        return {"demand_id": demand.id, "created": True,
+                "generated_at": _utcnow_iso()}
+
+    old_units = demand.units
+    demand.units = units
+    demand.proficiency = proficiency
+    if note is not None:
+        demand.note = note
+    await publish_event(
+        db, name="capacity.demand.updated", organization_id=org.id,
+        actor_id=user.id,
+        payload={
+            "organization_id": org.id, "project_id": project_id,
+            "project_label": project.name,
+            "capability": capability, "units": units, "old_units": old_units,
+            "window_start": window_start.isoformat(),
+            "window_end": window_end.isoformat(),
+            "proficiency": proficiency,
+            "reason": (body.get("reason") or "")[:1000] or None,
+        },
+    )
+    await db.commit()
+    return {"demand_id": demand.id, "created": False,
+            "generated_at": _utcnow_iso()}
+
+
+@router.post("/execution/capacity/demands/{demand_id}/remove")
+async def brain_capacity_remove_demand(
+    demand_id: str,
+    body: dict[str, Any],
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("projects:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Remove a project's explicit resource demand. The event is retained
+    in the capacity history as organizational memory."""
+    from app.models.resource_allocation_intelligence import AllocationDemand
+    from app.events.publisher import publish_event
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    demand = (
+        await db.execute(
+            select(AllocationDemand).where(
+                AllocationDemand.organization_id == org.id,
+                AllocationDemand.id == demand_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if demand is None:
+        raise HTTPException(status_code=404, detail="demand not found")
+    removed = {
+        "project_id": demand.project_id, "capability": demand.capability,
+        "units": demand.units,
+        "window_start": demand.window_start.isoformat(),
+        "window_end": demand.window_end.isoformat(),
+    }
+    await publish_event(
+        db, name="capacity.demand.removed", organization_id=org.id,
+        actor_id=user.id,
+        payload={
+            **removed,
+            "organization_id": org.id,
+            "reason": (body.get("reason") or "")[:1000] or None,
+        },
+    )
+    await db.delete(demand)
+    await db.commit()
+    return {"demand_id": demand_id, "removed": True, **removed,
+            "generated_at": _utcnow_iso()}
+
+
+@router.post("/execution/capacity/allocations")
+async def brain_capacity_create_allocation(
+    body: dict[str, Any],
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("projects:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """A human commits a governed capacity allocation: X units of a
+    capability to a project inside a window (a claim on supply)."""
+    from app.models.project import Project
+    from app.models.resource_allocation_intelligence import CapacityAllocation
+    from app.events.publisher import publish_event
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    project_id = (body.get("project_id") or "").strip()
+    if not project_id:
+        raise HTTPException(status_code=400, detail="project_id is required")
+    project = (
+        await db.execute(
+            select(Project).where(
+                Project.organization_id == org.id, Project.id == project_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    capability, window_start, window_end = await _capacity_window(body)
+    try:
+        units = max(1, int(body.get("units", 1)))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="units must be a positive integer")
+    allocation = CapacityAllocation(
+        organization_id=org.id, project_id=project_id,
+        project_label=project.name[:300], capability=capability, units=units,
+        window_start=window_start, window_end=window_end,
+        status="active", outcome=None,
+        note=(body.get("note") or "")[:1000] or None,
+        source_event_id="",
+    )
+    db.add(allocation)
+    await db.flush()
+    event = await publish_event(
+        db, name="capacity.allocation.created", organization_id=org.id,
+        actor_id=user.id,
+        payload={
+            "organization_id": org.id, "allocation_id": allocation.id,
+            "project_id": project_id, "project_label": project.name[:300],
+            "capability": capability, "units": units,
+            "window_start": window_start.isoformat(),
+            "window_end": window_end.isoformat(),
+        },
+    )
+    allocation.source_event_id = getattr(event, "id", "") or allocation.id
+    await db.commit()
+    return {"allocation_id": allocation.id, "created": True,
+            "generated_at": _utcnow_iso()}
+
+
+@router.post("/execution/capacity/allocations/{allocation_id}/outcome")
+async def brain_capacity_allocation_outcome(
+    allocation_id: str,
+    body: dict[str, Any],
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("projects:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Record a governed allocation's outcome (achieved/partial/missed).
+    The observation pours into 4E.7 organizational learning — VCOS gets
+    smarter from its own allocation history."""
+    from app.models.resource_allocation_intelligence import CapacityAllocation
+    from app.events.publisher import publish_event
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    allocation = (
+        await db.execute(
+            select(CapacityAllocation).where(
+                CapacityAllocation.organization_id == org.id,
+                CapacityAllocation.id == allocation_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if allocation is None:
+        raise HTTPException(status_code=404, detail="allocation not found")
+    outcome = (body.get("outcome") or "").strip()
+    if outcome not in ("achieved", "partial", "missed"):
+        raise HTTPException(
+            status_code=400, detail="outcome must be achieved, partial or missed"
+        )
+    if allocation.status != "active":
+        raise HTTPException(status_code=400, detail="allocation is not active")
+    allocation.status = "completed"
+    allocation.outcome = outcome
+    if body.get("note"):
+        allocation.note = (body.get("note") or "")[:1000]
+    event = await publish_event(
+        db, name="capacity.allocation.completed", organization_id=org.id,
+        actor_id=user.id,
+        payload={
+            "organization_id": org.id, "allocation_id": allocation.id,
+            "project_id": allocation.project_id,
+            "project_label": allocation.project_label,
+            "capability": allocation.capability, "units": allocation.units,
+            "window_start": allocation.window_start.isoformat(),
+            "window_end": allocation.window_end.isoformat(),
+            "outcome": outcome,
+            "note": allocation.note,
+        },
+    )
+    allocation.source_event_id = getattr(event, "id", "") or allocation.id
+    await db.commit()
+    return {"allocation_id": allocation_id, "outcome": outcome,
+            "recorded": True, "generated_at": _utcnow_iso()}

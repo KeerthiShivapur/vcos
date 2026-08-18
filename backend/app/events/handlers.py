@@ -3019,3 +3019,24 @@ async def handle_strategy_state(db, event, payload):
     await strategic_execution_engine.record_event(
         db, organization_id=org_id, event=event, payload=payload,
     )
+
+
+@on("capacity.demand.created")
+@on("capacity.demand.updated")
+@on("capacity.demand.removed")
+@on("capacity.allocation.created")
+@on("capacity.allocation.completed")
+async def handle_capacity_state(db, event, payload):
+    """Feed the canonical Resource & Capacity Allocation record (4G.4) from
+    events: explicit project demands (capability x units x window), governed
+    allocations with their outcomes, and the capacity history trail. Only the
+    affected (capability, window) neighborhood is recomputed (incremental,
+    exact-once snapshots)."""
+    from app.intelligence.resource_allocation_engine import resource_allocation_engine
+
+    org_id = payload.get("organization_id") or event.organization_id
+    if not org_id:
+        return
+    await resource_allocation_engine.record_event(
+        db, organization_id=org_id, event=event, payload=payload,
+    )

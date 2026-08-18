@@ -198,6 +198,26 @@ _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
         "covered goal", "coverage", "are we achieving",
         "progress on our goals", "priority changed",
     )),
+    # Slice 4G.4 — Universal Resource & Capacity Allocation questions route
+    # after the strategy meaning so the allocation meaning wins over generic
+    # knowledge: "which capability is our biggest bottleneck", "which
+    # projects contend for the same scarce capability", "where should we
+    # allocate capacity". The 4F.6 capability_constraint words ("over
+    # capacity", "capacity constrained", "enough capacity") deliberately
+    # stay with 4F.6 - they ask about the capability ledger, not allocation.
+    # Answers come from the change-driven capacity ledger (demand vs supply
+    # per window) with evidence and confidence - advisory, never executed.
+    ("capacity", (
+        "bottleneck", "bottlenecks", "resource allocation", "resource demand",
+        "resource planning", "reallocate", "re-allocation", "reallocating",
+        "allocate", "allocation", "wasting capacity", "where is capacity wasted",
+        "under-utilized", "underutilized", "over-utilized", "overutilized",
+        "utilization", "hire or develop", "what capability do we need",
+        "shortage", "workload", "demand vs capacity", "demand and capacity",
+        "contend for the same", "capacity shortage", "capacity plan",
+        "capacity planning", "scarce capability", "scarce resource",
+        "scarce capacity", "reallocate capacity",
+    )),
     # Slice 4E.7 — the company-level loop surfaces route FIRST so the company
     # meaning wins over the knowledge-only meaning ("what changed in the
     # company since yesterday" is company change, not claim change).
@@ -3204,6 +3224,73 @@ class IntelligenceEngine:
                     return goal.id
         return None
 
+    async def _capacity_query(
+        self, db: AsyncSession, *, organization_id: str, question: str, user: Any,
+    ) -> dict[str, Any]:
+        """Slice 4G.4 — Resource & Capacity Allocation questions.
+
+        "which capability is our biggest bottleneck" -> the Capacity Center's
+        top constraint; "which projects contend for the same scarce
+        capability" -> the contention groups with strategic stakes; "where
+        should we allocate capacity" -> gaps + traceability; "where are we
+        wasting capacity" -> overload and under-utilization. Every answer
+        assembles the canonical capacity ledger — advisory, never executed.
+        Scoped callers get no capacity view — allocation is org-wide.
+        """
+        from app.intelligence.resource_allocation_engine import (
+            resource_allocation_engine as capacity_engine,
+        )
+
+        access = await self._access(db, organization_id=organization_id, user=user)
+        if not access.org_wide:
+            return {
+                "question": question, "intent": "capacity",
+                "scope": "project",
+                "answer": "Capacity allocation is an organization-wide view; "
+                          "your scope does not include it.",
+                "advisory_only": True,
+                "generated_at": _utcnow_iso(),
+            }
+        lowered = question.lower()
+        if any(k in lowered for k in (
+            "contend", "scarce", "competing for the same capacity"
+        )):
+            result = await capacity_engine.contention(
+                db, organization_id=organization_id,
+            )
+            return {**result, "question": question, "intent": "capacity",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        if any(k in lowered for k in (
+            "wasting", "under-utilized", "underutilized",
+            "over-utilized", "overutilized", "workload",
+        )):
+            result = await capacity_engine.overloads(
+                db, organization_id=organization_id,
+            )
+            return {**result, "question": question, "intent": "capacity",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        if any(k in lowered for k in (
+            "allocate", "allocation", "reallocate", "re-allocation",
+            "reallocating", "hire or develop", "shortage", "demand",
+        )):
+            center = await capacity_engine.center(
+                db, organization_id=organization_id,
+            )
+            gaps = await capacity_engine.gaps(
+                db, organization_id=organization_id,
+            )
+            trace = await capacity_engine.traceability(
+                db, organization_id=organization_id,
+            )
+            return {**center, "gaps": gaps, "traceability": trace,
+                    "question": question, "intent": "capacity",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        result = await capacity_engine.center(
+            db, organization_id=organization_id,
+        )
+        return {**result, "question": question, "intent": "capacity",
+                "scope": "org", "generated_at": _utcnow_iso()}
+
     async def _capability_query(
         self,
         db: AsyncSession,
@@ -3482,6 +3569,11 @@ class IntelligenceEngine:
             )
         if intent == "strategy_execution":
             return await self._strategy_execution_query(
+                db, organization_id=organization_id,
+                question=question, user=user,
+            )
+        if intent == "capacity":
+            return await self._capacity_query(
                 db, organization_id=organization_id,
                 question=question, user=user,
             )
