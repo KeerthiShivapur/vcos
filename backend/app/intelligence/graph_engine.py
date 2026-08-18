@@ -63,6 +63,8 @@ class GraphEngine:
         ).scalar_one_or_none()
         now = utcnow()
         if row is None:
+            from sqlalchemy.exc import IntegrityError
+
             row = OrgGraphEdge(
                 organization_id=organization_id,
                 source_type=source_type,
@@ -75,8 +77,31 @@ class GraphEngine:
                 active=True,
             )
             db.add(row)
-            await db.flush()
-            change = "edge_added"
+            try:
+                async with db.begin_nested():
+                    await db.flush()
+            except IntegrityError:
+                # concurrent workers can both pass the select above for the
+                # same edge; re-read the committed row and update it instead.
+                row = (
+                    await db.execute(
+                        select(OrgGraphEdge).where(
+                            OrgGraphEdge.organization_id == organization_id,
+                            OrgGraphEdge.source_type == source_type,
+                            OrgGraphEdge.source_id == source_id,
+                            OrgGraphEdge.target_type == target_type,
+                            OrgGraphEdge.target_id == target_id,
+                            OrgGraphEdge.relation == relation,
+                        )
+                    )
+                ).scalar_one()
+                row.weight = max(row.weight, weight)
+                row.evidence = evidence or row.evidence
+                row.active = True
+                row.updated_at = now
+                change = "edge_updated"
+            else:
+                change = "edge_added"
         else:
             row.weight = max(row.weight, weight)
             row.evidence = evidence or row.evidence

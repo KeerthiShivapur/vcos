@@ -47,7 +47,7 @@ WORKER_REGISTRY: list[tuple[str, int]] = [
     ("exec_analytics", 86400),  # Phase 8: trend metrics materialization
     ("exec_reporting", 86400),  # Phase 8: weekly/monthly executive reports
     # Phase 9 — Background Intelligence & Autonomous Organization
-    ("event", 60),              # dispatch persisted events to handlers (expertise, graph, learning)
+    ("event", 15),              # dispatch persisted events to handlers (expertise, graph, learning)
     ("graph_updates", 300),     # rebuild structural org-graph edges
     ("search_insight", 1800),   # aggregate search behavior into insights
     ("knowledge_intel", 3600),  # outdated/duplicate/gap/unused knowledge detection

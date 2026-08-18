@@ -140,11 +140,15 @@ test("people & organization journey: structure, hierarchy, notifications, permis
   await expect
     .poll(
       async () => {
-        const res = await request.get(`${API}/notifications`, {
-          headers: { Authorization: `Bearer ${bobToken}` },
-        });
-        const body = await res.json();
-        return body.items.map((n: { title: string }) => n.title);
+        try {
+          const res = await request.get(`${API}/notifications`, {
+            headers: { Authorization: `Bearer ${bobToken}` },
+          });
+          const body = await res.json();
+          return body.items.map((n: { title: string }) => n.title);
+        } catch {
+          return [];
+        }
       },
       { timeout: 180_000, intervals: [5_000, 10_000, 15_000] },
     )

@@ -9523,3 +9523,421 @@ export async function askCoordination(question: string): Promise<CoordinationQue
     body: { question },
   });
 }
+
+// ---------------------------------------------------------------------------
+// 4G.5 — Customer & Market Execution Intelligence: the customer command
+// center (health with the why), the signal → theme ledger, coverage/gaps,
+// evidence-backed opportunities, commitment & outcome ledgers, risk
+// propagation to goals, and the knowledge-linkage check. All surfaces are
+// advisory-only — they never decide by themselves.
+// ---------------------------------------------------------------------------
+
+export interface CustomerIntelligenceHealthRow {
+  customer_id: string;
+  customer: string;
+  segment: string;
+  tier: string;
+  state: string;
+  score: number;
+  reasons: string[];
+  positives: string[];
+  computed_at: string;
+}
+
+export interface CustomerIntelligenceHealthResponse {
+  advisory_only: boolean;
+  total: number;
+  at_risk: number;
+  concerned: number;
+  healthy: number;
+  health: CustomerIntelligenceHealthRow[];
+}
+
+export interface CustomerIntelligenceSignalRow {
+  signal_id: string;
+  customer_id: string;
+  customer: string;
+  signal_type: string;
+  severity: string;
+  need_key: string;
+  title: string;
+  source: string;
+  project_id: string | null;
+  status: string;
+  occurred_at: string;
+}
+
+export interface CustomerIntelligenceSignalsResponse {
+  advisory_only: boolean;
+  total: number;
+  signals: CustomerIntelligenceSignalRow[];
+  by_type: Record<string, number>;
+  by_severity: Record<string, number>;
+}
+
+export interface CustomerIntelligenceThemeEvidence {
+  customer: string;
+  summary: string;
+  occurred_at: string;
+  severity: string;
+}
+
+export interface CustomerIntelligenceThemeRow {
+  key: string;
+  need_key?: string;
+  label?: string;
+  occurrences: number;
+  customers: number;
+  open: number;
+  high_severity: number;
+  evidence: CustomerIntelligenceThemeEvidence[];
+}
+
+export interface CustomerIntelligenceThemesResponse {
+  advisory_only: boolean;
+  themes: CustomerIntelligenceThemeRow[];
+}
+
+export interface CustomerIntelligenceCommitmentGoalLink {
+  goal_id: string;
+  goal: string;
+  objective_id?: string;
+  objective?: string;
+  initiative_id?: string;
+  initiative?: string;
+}
+
+export interface CustomerIntelligenceCommitmentRow {
+  commitment_id: string;
+  customer: string;
+  customer_id?: string;
+  summary: string;
+  expected_at: string;
+  status: string;
+  project: string;
+  capability?: string;
+  owner_label?: string;
+  goals: CustomerIntelligenceCommitmentGoalLink[];
+}
+
+export interface CustomerIntelligenceCommitmentsResponse {
+  advisory_only: boolean;
+  total: number;
+  at_risk: number;
+  delivered: number;
+  commitments: CustomerIntelligenceCommitmentRow[];
+}
+
+export interface CustomerIntelligenceOutcomeRow {
+  outcome_id: string;
+  customer: string;
+  customer_id: string;
+  metric_kind: string;
+  baseline: number | null;
+  target: number | null;
+  actual: number | null;
+  unit: string | null;
+  period_label: string | null;
+  signal_id: string | null;
+  improved: boolean | null;
+  note: string | null;
+  recorded_at: string;
+}
+
+export interface CustomerIntelligenceOutcomesResponse {
+  advisory_only: boolean;
+  total: number;
+  improved: number;
+  outcomes: CustomerIntelligenceOutcomeRow[];
+}
+
+export interface CustomerIntelligenceRiskCustomer {
+  customer_id: string;
+  customer: string;
+  segment: string;
+  tier: string;
+  state: string;
+  score: number;
+  reasons: string[];
+}
+
+export interface CustomerIntelligenceRiskCommitment {
+  commitment_id: string;
+  customer_id: string;
+  customer: string;
+  summary: string;
+  expected_at: string;
+  status: string;
+  project_id: string | null;
+  project: string;
+  project_health: string;
+  capability: string | null;
+  goals: CustomerIntelligenceCommitmentGoalLink[];
+}
+
+export interface CustomerIntelligenceRiskResponse {
+  advisory_only: boolean;
+  at_risk_customers: CustomerIntelligenceRiskCustomer[];
+  commitments_at_risk: CustomerIntelligenceRiskCommitment[];
+  propagation_note: string;
+}
+
+export interface CustomerIntelligenceCoverageTheme {
+  key: string;
+  label?: string;
+  occurrences: number;
+  customers: number;
+  open: number;
+  high_severity: number;
+  coverage_pct: number;
+  covered: boolean;
+  addressing_projects: { id: string; name: string }[];
+}
+
+export interface CustomerIntelligenceCoverageResponse {
+  advisory_only: boolean;
+  coverage_pct: number;
+  covered_themes: number;
+  total_themes: number;
+  themes: CustomerIntelligenceCoverageTheme[];
+}
+
+export interface CustomerIntelligenceGapRow {
+  key: string;
+  label?: string;
+  occurrences: number;
+  customers: number;
+  impact: string;
+  evidence: string[];
+  recommendation: string;
+}
+
+export interface CustomerIntelligenceGapsResponse {
+  advisory_only: boolean;
+  total: number;
+  gaps: CustomerIntelligenceGapRow[];
+}
+
+export interface CustomerIntelligenceOpportunityLinkage {
+  requires_decision: boolean;
+  note: string;
+  recommendation?: string;
+}
+
+export interface CustomerIntelligenceOpportunityRow {
+  key: string;
+  label?: string;
+  signals: number;
+  customers: number;
+  addressed: boolean;
+  strategic_relevance: boolean;
+  decision_linkage: CustomerIntelligenceOpportunityLinkage;
+  evidence: string[];
+}
+
+export interface CustomerIntelligenceOpportunitiesResponse {
+  advisory_only: boolean;
+  opportunities: CustomerIntelligenceOpportunityRow[];
+}
+
+export interface CustomerIntelligenceTrendMonth {
+  month: string;
+  count: number;
+}
+
+export interface CustomerIntelligenceTrendTheme {
+  key: string;
+  label?: string;
+  monthly: CustomerIntelligenceTrendMonth[];
+  total?: number;
+}
+
+export interface CustomerIntelligenceTrendsResponse {
+  advisory_only: boolean;
+  themes: CustomerIntelligenceTrendTheme[];
+}
+
+export interface CustomerIntelligenceKnowledgeTheme {
+  key: string;
+  label?: string;
+  occurrences: number;
+  knowledge_covered: boolean;
+}
+
+export interface CustomerIntelligenceKnowledgeResponse {
+  advisory_only: boolean;
+  knowledge_coverage_pct: number;
+  themes: CustomerIntelligenceKnowledgeTheme[];
+}
+
+export interface CustomerIntelligenceCenterHistoryEntry {
+  state: string;
+  score: number;
+  reasons: string[];
+  occurred_at: string;
+}
+
+export interface CustomerIntelligenceCenterResponse {
+  advisory_only: boolean;
+  customer: {
+    id: string;
+    company_name: string;
+    segment: string;
+    tier: string;
+    annual_value: number | null;
+    industry: string | null;
+  };
+  health: {
+    state: string;
+    score: number;
+    reasons: string[];
+    positives: string[];
+    history: CustomerIntelligenceCenterHistoryEntry[];
+  };
+  signals: {
+    signal_id: string;
+    type: string;
+    severity: string;
+    need: string;
+    summary: string;
+    source: string;
+    occurred_at: string;
+    status: string;
+  }[];
+  commitments: {
+    commitment_id: string;
+    summary: string;
+    expected_at: string;
+    status: string;
+    capability: string | null;
+  }[];
+  outcomes: {
+    outcome_id: string;
+    metric_kind: string;
+    baseline: number | null;
+    target: number | null;
+    actual: number | null;
+    period_label: string | null;
+    improved: boolean;
+  }[];
+  themes: {
+    key: string;
+    title: string;
+    occurrences: number;
+    trend: string;
+  }[];
+  generated_at: string;
+}
+
+export async function getCustomerIntelligenceHealth(): Promise<CustomerIntelligenceHealthResponse> {
+  return api<CustomerIntelligenceHealthResponse>("/brain/execution/customer/health");
+}
+
+export async function getCustomerIntelligenceSignals(): Promise<CustomerIntelligenceSignalsResponse> {
+  return api<CustomerIntelligenceSignalsResponse>("/brain/execution/customer/signals");
+}
+
+export async function getCustomerIntelligenceThemes(): Promise<CustomerIntelligenceThemesResponse> {
+  return api<CustomerIntelligenceThemesResponse>("/brain/execution/customer/themes");
+}
+
+export async function getCustomerIntelligenceRisk(): Promise<CustomerIntelligenceRiskResponse> {
+  return api<CustomerIntelligenceRiskResponse>("/brain/execution/customer/risk");
+}
+
+export async function getCustomerIntelligenceCommitments(): Promise<CustomerIntelligenceCommitmentsResponse> {
+  return api<CustomerIntelligenceCommitmentsResponse>("/brain/execution/customer/commitments");
+}
+
+export async function getCustomerIntelligenceOutcomes(): Promise<CustomerIntelligenceOutcomesResponse> {
+  return api<CustomerIntelligenceOutcomesResponse>("/brain/execution/customer/outcomes");
+}
+
+export async function getCustomerIntelligenceCoverage(): Promise<CustomerIntelligenceCoverageResponse> {
+  return api<CustomerIntelligenceCoverageResponse>("/brain/execution/customer/coverage");
+}
+
+export async function getCustomerIntelligenceGaps(): Promise<CustomerIntelligenceGapsResponse> {
+  return api<CustomerIntelligenceGapsResponse>("/brain/execution/customer/gaps");
+}
+
+export async function getCustomerIntelligenceOpportunities(): Promise<CustomerIntelligenceOpportunitiesResponse> {
+  return api<CustomerIntelligenceOpportunitiesResponse>("/brain/execution/customer/opportunities");
+}
+
+export async function getCustomerIntelligenceTrends(): Promise<CustomerIntelligenceTrendsResponse> {
+  return api<CustomerIntelligenceTrendsResponse>("/brain/execution/customer/trends");
+}
+
+export async function getCustomerIntelligenceKnowledge(): Promise<CustomerIntelligenceKnowledgeResponse> {
+  return api<CustomerIntelligenceKnowledgeResponse>("/brain/execution/customer/knowledge");
+}
+
+export async function getCustomerIntelligenceCenter(customerId: string): Promise<CustomerIntelligenceCenterResponse> {
+  return api<CustomerIntelligenceCenterResponse>(`/brain/execution/customer/customers/${customerId}`);
+}
+
+export async function resolveCustomerSignal(signalId: string): Promise<CustomerIntelligenceSignalRow> {
+  return api<CustomerIntelligenceSignalRow>(
+    `/brain/execution/customer/signals/${signalId}/resolve`,
+    { method: "POST", body: { note: "Resolved from the Customer Intelligence tab" } }
+  );
+}
+
+export async function recordCustomerCommitment(input: {
+  customer_id: string;
+  summary: string;
+  expected_at: string;
+  project_id?: string;
+  capability?: string;
+  owner_label?: string;
+}): Promise<CustomerIntelligenceCommitmentRow> {
+  return api<CustomerIntelligenceCommitmentRow>("/brain/execution/customer/commitments", {
+    method: "POST",
+    body: input,
+  });
+}
+
+export async function deliverCustomerCommitment(commitmentId: string): Promise<CustomerIntelligenceCommitmentRow> {
+  return api<CustomerIntelligenceCommitmentRow>(
+    `/brain/execution/customer/commitments/${commitmentId}/deliver`,
+    { method: "POST", body: { note: "Delivered from the Customer Intelligence tab" } }
+  );
+}
+
+export async function recordCustomerOutcome(input: {
+  customer_id: string;
+  metric_kind: string;
+  baseline?: number;
+  target?: number;
+  actual?: number;
+  unit?: string;
+  period_label?: string;
+  note?: string;
+}): Promise<CustomerIntelligenceOutcomeRow> {
+  return api<CustomerIntelligenceOutcomeRow>("/brain/execution/customer/outcomes", {
+    method: "POST",
+    body: input,
+  });
+}
+
+export async function recordCustomerSignal(input: {
+  customer_id: string;
+  summary: string;
+  signal_type: string;
+  severity: string;
+  need?: string;
+  source?: string;
+}): Promise<CustomerIntelligenceSignalRow> {
+  return api<CustomerIntelligenceSignalRow>("/brain/execution/customer/signals", {
+    method: "POST",
+    body: input,
+  });
+}
+
+export async function askCustomerIntelligence(question: string): Promise<Record<string, unknown>> {
+  return api<Record<string, unknown>>("/brain/knowledge/query", {
+    method: "POST",
+    body: { question },
+  });
+}

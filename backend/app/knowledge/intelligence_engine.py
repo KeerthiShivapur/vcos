@@ -218,6 +218,45 @@ _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
         "capacity planning", "scarce capability", "scarce resource",
         "scarce capacity", "reallocate capacity",
     )),
+    # Slice 4G.5 — Customer & Market Execution Intelligence questions route
+    # after the allocation meaning so the customer meaning wins over the
+    # generic knowledge meanings ("customer health" is the evidence-backed
+    # account health, not claim health; "which customers are at risk" is the
+    # risk propagation view, not the generic at-risk why). Every answer
+    # assembles the canonical customer ledger — advisory, never executed.
+    ("customer_intelligence", (
+        # health & risk of specific customers
+        "customer health", "customers healthy", "customer is healthy",
+        "how healthy are our customers", "how healthy are the customers",
+        "how are our customers", "how are the customers", "how are customers",
+        "customer at risk", "customers at risk", "customer at-risk",
+        "which customers", "churn", "churn risk", "churning",
+        "account at risk", "accounts at risk", "account health",
+        "customer satisfaction", "satisfaction score", "customer health score",
+        "customers doing", "customers feeling", "customer 360", "customer overview",
+        # voice of the customer / themes / needs
+        "voice of the customer", "voice of customer", "what do customers need",
+        "what do our customers need", "what are customers asking",
+        "what are our customers asking", "customer needs", "customers need",
+        "customers asking for", "customers want", "customers request",
+        "customer requests", "customer requests", "customer complaints",
+        "customers complaining", "customer themes", "customer theme",
+        "customer trends", "customer trend", "customers talking about",
+        "customers saying", "customers tell us", "customer feedback",
+        # commitments & outcomes
+        "customer commitments", "commitments to customers",
+        "committed to customers", "promised our customers",
+        "promised the customer", "promised the customer", "customer outcomes",
+        "outcomes for customers", "results for customers",
+        # opportunities & gaps
+        "customer opportunities", "customer opportunity", "expansion opportunity",
+        "expansion opportunities", "upsell", "customer gaps", "customer gap",
+        "customer blind spots", "do we know our customers",
+        "know our customers", "customer knowledge", "what are we missing on customers",
+        # success
+        "customer success", "successful customers", "customer wins",
+        "happy customers", "customer results",
+    )),
     # Slice 4E.7 — the company-level loop surfaces route FIRST so the company
     # meaning wins over the knowledge-only meaning ("what changed in the
     # company since yesterday" is company change, not claim change).
@@ -3291,6 +3330,103 @@ class IntelligenceEngine:
         return {**result, "question": question, "intent": "capacity",
                 "scope": "org", "generated_at": _utcnow_iso()}
 
+    async def _customer_intelligence_query(
+        self, db: AsyncSession, *, organization_id: str, question: str, user: Any,
+    ) -> dict[str, Any]:
+        """Slice 4G.5 — Customer & Market Execution Intelligence questions.
+
+        "which customers are at risk" -> the risk view (accounts + commitments
+        + propagation); "how are our customers doing" -> the health ledger;
+        "what do our customers need" -> the theme aggregate with
+        opportunities; "what did we promise our customers" -> the commitment
+        ledger; "customer gaps" -> the strategic gaps; "voice of the
+        customer" -> the theme/trend surfaces. Every answer assembles the
+        canonical customer ledger — advisory, never executed. Scoped callers
+        get no customer view — it is org-wide.
+        """
+        from app.intelligence.customer_intelligence_engine import (
+            customer_intelligence_engine as customer_engine,
+        )
+
+        access = await self._access(db, organization_id=organization_id, user=user)
+        if not access.org_wide:
+            return {
+                "question": question, "intent": "customer_intelligence",
+                "scope": "project",
+                "answer": "Customer intelligence is an organization-wide view; "
+                          "your scope does not include it.",
+                "advisory_only": True,
+                "generated_at": _utcnow_iso(),
+            }
+        lowered = question.lower()
+        if any(k in lowered for k in (
+            "churn", "churning", "at risk", "at-risk", "accounts at",
+            "customer risk", "risk to", "risk of churn",
+        )):
+            result = await customer_engine.risk(
+                db, organization_id=organization_id,
+            )
+            return {**result, "question": question, "intent": "customer_intelligence",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        if any(k in lowered for k in (
+            "opportunit", "expansion", "upsell",
+        )):
+            result = await customer_engine.opportunities(
+                db, organization_id=organization_id,
+            )
+            return {**result, "question": question, "intent": "customer_intelligence",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        if any(k in lowered for k in (
+            "committ", "promised", "promise",
+        )):
+            result = await customer_engine.commitments(
+                db, organization_id=organization_id,
+            )
+            return {**result, "question": question, "intent": "customer_intelligence",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        if any(k in lowered for k in ("outcome", "outcomes", "results for")):
+            result = await customer_engine.outcomes(
+                db, organization_id=organization_id,
+            )
+            return {**result, "question": question, "intent": "customer_intelligence",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        if any(k in lowered for k in ("gap", "blind spot", "missing")):
+            result = await customer_engine.strategic_gaps(
+                db, organization_id=organization_id,
+            )
+            return {**result, "question": question, "intent": "customer_intelligence",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        if any(k in lowered for k in ("know our customers", "knowledge", "do we know")):
+            result = await customer_engine.knowledge_linkage(
+                db, organization_id=organization_id,
+            )
+            return {**result, "question": question, "intent": "customer_intelligence",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        if any(k in lowered for k in ("trend", "trends", "saying", "talking")):
+            result = await customer_engine.trends(
+                db, organization_id=organization_id,
+            )
+            return {**result, "question": question, "intent": "customer_intelligence",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        if any(k in lowered for k in (
+            "health", "healthy", "satisfaction", "doing", "feeling",
+            "360", "overview",
+        )):
+            result = await customer_engine.healths(
+                db, organization_id=organization_id,
+            )
+            return {**result, "question": question, "intent": "customer_intelligence",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        themes = await customer_engine.themes(
+            db, organization_id=organization_id,
+        )
+        opportunities = await customer_engine.opportunities(
+            db, organization_id=organization_id,
+        )
+        return {**themes, "opportunities": opportunities,
+                "question": question, "intent": "customer_intelligence",
+                "scope": "org", "generated_at": _utcnow_iso()}
+
     async def _capability_query(
         self,
         db: AsyncSession,
@@ -3574,6 +3710,11 @@ class IntelligenceEngine:
             )
         if intent == "capacity":
             return await self._capacity_query(
+                db, organization_id=organization_id,
+                question=question, user=user,
+            )
+        if intent == "customer_intelligence":
+            return await self._customer_intelligence_query(
                 db, organization_id=organization_id,
                 question=question, user=user,
             )

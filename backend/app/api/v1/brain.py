@@ -6,7 +6,7 @@ timeline, universal context, event stream, analytics and the continuous
 evolution cycle. Employees, managers and executives all ask the same brain.
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -5173,6 +5173,19 @@ def _capacity_date(value: Any) -> Optional[date]:
         return None
 
 
+def _customer_event_time(value: Any) -> datetime:
+    """Parse a customer event timestamp (occurred_at / delivered_at) from
+    the request body, defaulting to now in UTC."""
+    if isinstance(value, datetime):
+        return value
+    if not value:
+        return datetime.now(timezone.utc)
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return datetime.now(timezone.utc)
+
+
 async def _capacity_window(
     body: dict[str, Any],
 ) -> tuple[str, date, date]:
@@ -5627,3 +5640,591 @@ async def brain_capacity_allocation_outcome(
     await db.commit()
     return {"allocation_id": allocation_id, "outcome": outcome,
             "recorded": True, "generated_at": _utcnow_iso()}
+
+
+@router.post("/execution/customer/signals")
+async def brain_customer_record_signal(
+    body: dict[str, Any],
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("projects:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Record a voice-of-customer signal: feedback, request, complaint,
+    issue, success, churn risk, adoption, outcome or expansion evidence.
+    A governed write that publishes the customer.signal event; the 4G.5
+    engine recomputes that customer's health and the affected theme."""
+    from app.models.customer import Customer
+    from app.events.publisher import publish_event
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    customer_id = (body.get("customer_id") or "").strip()
+    if not customer_id:
+        raise HTTPException(status_code=400, detail="customer_id is required")
+    customer = (
+        await db.execute(
+            select(Customer).where(
+                Customer.organization_id == org.id, Customer.id == customer_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if customer is None:
+        raise HTTPException(status_code=404, detail="customer not found")
+    signal_type = (body.get("signal_type") or "").strip()
+    from app.intelligence.customer_intelligence_engine import SIGNAL_TYPES, SIGNAL_SOURCES
+    if signal_type not in SIGNAL_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"signal_type must be one of {', '.join(SIGNAL_TYPES)}",
+        )
+    summary = (body.get("summary") or "").strip()
+    if not summary:
+        raise HTTPException(status_code=400, detail="summary is required")
+    severity = (body.get("severity") or "info").strip()[:16]
+    from app.intelligence.customer_intelligence_engine import SIGNAL_SEVERITIES
+    if severity not in SIGNAL_SEVERITIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"severity must be one of {', '.join(SIGNAL_SEVERITIES)}",
+        )
+    source = (body.get("source") or "observation").strip()[:24]
+    if source not in SIGNAL_SOURCES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"source must be one of {', '.join(SIGNAL_SOURCES)}",
+        )
+    occurred_at = _customer_event_time(body.get("occurred_at"))
+    event = await publish_event(
+        db, name="customer.signal.recorded", organization_id=org.id,
+        actor_id=user.id,
+        payload={
+            "organization_id": org.id,
+            "customer_id": customer_id,
+            "customer_label": customer.company_name,
+            "signal_type": signal_type,
+            "severity": severity,
+            "summary": summary,
+            "source": source,
+            "need": (body.get("need") or "")[:64],
+            "occurred_at": occurred_at.isoformat(),
+            "tags": body.get("tags"),
+        },
+    )
+    await db.commit()
+    return {
+        "signal_recorded": True,
+        "source_event_id": getattr(event, "id", ""),
+        "customer_id": customer_id,
+        "generated_at": _utcnow_iso(),
+    }
+
+
+@router.post("/execution/customer/signals/{signal_id}/resolve")
+async def brain_customer_resolve_signal(
+    signal_id: str,
+    body: dict[str, Any],
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("projects:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Mark a customer signal resolved (issue closed / request satisfied).
+    The resolution re-feeds health: a resolved issue stops weighing."""
+    from app.models.customer_intelligence import CustomerSignal
+    from app.events.publisher import publish_event
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    signal = (
+        await db.execute(
+            select(CustomerSignal).where(
+                CustomerSignal.organization_id == org.id,
+                CustomerSignal.id == signal_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if signal is None:
+        raise HTTPException(status_code=404, detail="signal not found")
+    if signal.status in ("resolved", "closed"):
+        raise HTTPException(status_code=400, detail="signal already resolved")
+    event = await publish_event(
+        db, name="customer.signal.resolved", organization_id=org.id,
+        actor_id=user.id,
+        payload={
+            "organization_id": org.id,
+            "signal_id": signal.id,
+            "customer_id": signal.customer_id,
+            "signal_type": signal.signal_type,
+            "need": signal.need_key,
+            "resolution": (body.get("resolution") or "")[:1000] or None,
+        },
+    )
+    await db.commit()
+    return {
+        "signal_resolved": True,
+        "source_event_id": getattr(event, "id", ""),
+        "customer_id": signal.customer_id,
+        "generated_at": _utcnow_iso(),
+    }
+
+
+@router.post("/execution/customer/commitments")
+async def brain_customer_create_commitment(
+    body: dict[str, Any],
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("projects:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Record a definite customer commitment: a deliverable with a date
+    (now fixed, unconditional). The governed write publishes
+    customer.commitment.created — the engine links it to the project and
+    to the customer health."""
+    from app.models.customer import Customer
+    from app.models.customer_intelligence import CustomerCommitment
+    from app.events.publisher import publish_event
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    customer_id = (body.get("customer_id") or "").strip()
+    if not customer_id:
+        raise HTTPException(status_code=400, detail="customer_id is required")
+    customer = (
+        await db.execute(
+            select(Customer).where(
+                Customer.organization_id == org.id, Customer.id == customer_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if customer is None:
+        raise HTTPException(status_code=404, detail="customer not found")
+    summary = (body.get("summary") or "").strip()
+    if not summary:
+        raise HTTPException(status_code=400, detail="summary is required")
+    expected_on = _customer_event_time(body.get("expected_at")).date()
+    project_id = (body.get("project_id") or "").strip() or None
+    if project_id:
+        from app.models.project import Project
+        project = (
+            await db.execute(
+                select(Project).where(
+                    Project.organization_id == org.id, Project.id == project_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if project is None:
+            raise HTTPException(status_code=404, detail="project not found")
+    existing = (
+        await db.execute(
+            select(CustomerCommitment).where(
+                CustomerCommitment.organization_id == org.id,
+                CustomerCommitment.customer_id == customer_id,
+                CustomerCommitment.summary == summary,
+            )
+        )
+    ).scalar_one_or_none()
+    created = existing is None
+    if existing is None:
+        existing = CustomerCommitment(
+            organization_id=org.id, customer_id=customer_id,
+            summary=summary, expected_at=expected_on,
+            project_id=project_id, status="pending",
+            capability=(body.get("capability") or "")[:80] or None,
+            owner_label=(body.get("owner_label") or "")[:120] or None,
+            note=(body.get("note") or "")[:2000] or None,
+            source_event_id="",
+        )
+        db.add(existing)
+        await db.flush()
+    else:
+        existing.expected_at = expected_on
+        if project_id:
+            existing.project_id = project_id
+    event = await publish_event(
+        db,
+        name="customer.commitment.created" if created else "customer.commitment.updated",
+        organization_id=org.id, actor_id=user.id,
+        payload={
+            "organization_id": org.id,
+            "commitment_id": existing.id,
+            "customer_id": customer_id,
+            "customer_label": customer.company_name,
+            "summary": summary,
+            "expected_at": expected_on.isoformat(),
+            "project_id": project_id,
+            "project_label": project.name if project_id else None,
+            "capability": existing.capability,
+            "owner_label": existing.owner_label,
+            "created": created,
+        },
+    )
+    existing.source_event_id = getattr(event, "id", "") or existing.id
+    await db.commit()
+    return {"commitment_id": existing.id, "created": created,
+            "generated_at": _utcnow_iso()}
+
+
+@router.post("/execution/customer/commitments/{commitment_id}/deliver")
+async def brain_customer_deliver_commitment(
+    commitment_id: str,
+    body: dict[str, Any],
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("projects:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Deliver a commitment (demonstrated, not asserted). The delivery
+    event re-feeds the customer's health and their outcome story."""
+    from app.models.customer_intelligence import CustomerCommitment
+    from app.events.publisher import publish_event
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    commitment = (
+        await db.execute(
+            select(CustomerCommitment).where(
+                CustomerCommitment.organization_id == org.id,
+                CustomerCommitment.id == commitment_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if commitment is None:
+        raise HTTPException(status_code=404, detail="commitment not found")
+    if commitment.status == "delivered":
+        raise HTTPException(status_code=400, detail="commitment already delivered")
+    delivered_on = _customer_event_time(body.get("delivered_at")).date()
+    event = await publish_event(
+        db, name="customer.commitment.delivered", organization_id=org.id,
+        actor_id=user.id,
+        payload={
+            "organization_id": org.id,
+            "commitment_id": commitment.id,
+            "customer_id": commitment.customer_id,
+            "summary": commitment.summary,
+            "expected_at": commitment.expected_at.isoformat(),
+            "delivered_at": delivered_on.isoformat(),
+            "project_id": commitment.project_id,
+            "capability": commitment.capability,
+            "note": (body.get("note") or "")[:1000] or None,
+        },
+    )
+    commitment.source_event_id = getattr(event, "id", "") or commitment.id
+    await db.commit()
+    return {"commitment_id": commitment_id, "delivered": True,
+            "generated_at": _utcnow_iso()}
+
+
+@router.post("/execution/customer/outcomes")
+async def brain_customer_record_outcome(
+    body: dict[str, Any],
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("projects:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Record a customer outcome observation: baseline -> target -> actual
+    for a business metric. It becomes a theme surface and pours into 4E.7
+    organizational learning."""
+    from app.models.customer import Customer
+    from app.models.customer_intelligence import CustomerOutcome
+    from app.events.publisher import publish_event
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    customer_id = (body.get("customer_id") or "").strip()
+    if not customer_id:
+        raise HTTPException(status_code=400, detail="customer_id is required")
+    customer = (
+        await db.execute(
+            select(Customer).where(
+                Customer.organization_id == org.id, Customer.id == customer_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if customer is None:
+        raise HTTPException(status_code=404, detail="customer not found")
+    metric_kind = (body.get("metric_kind") or "").strip()
+    if not metric_kind:
+        raise HTTPException(status_code=400, detail="metric_kind is required")
+    try:
+        baseline = float(body.get("baseline")) if body.get("baseline") is not None else None
+        target = float(body.get("target")) if body.get("target") is not None else None
+        actual = float(body.get("actual")) if body.get("actual") is not None else None
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="baseline/target/actual must be numbers")
+    out = CustomerOutcome(
+        organization_id=org.id, customer_id=customer_id,
+        metric_kind=metric_kind,
+        baseline=baseline, target=target, actual=actual,
+        unit=(body.get("unit") or "")[:16] or None,
+        period_label=(body.get("period_label") or "")[:32] or None,
+        signal_id=None,
+        note=(body.get("note") or "")[:1000] or None,
+        source_event_id="",
+    )
+    db.add(out)
+    await db.flush()
+    event = await publish_event(
+        db, name="customer.outcome.recorded", organization_id=org.id,
+        actor_id=user.id,
+        payload={
+            "organization_id": org.id,
+            "outcome_id": out.id,
+            "customer_id": customer_id,
+            "customer_label": customer.company_name,
+            "metric_kind": metric_kind,
+            "baseline": baseline,
+            "target": target,
+            "actual": actual,
+            "unit": out.unit,
+            "period_label": out.period_label,
+            "note": out.note,
+        },
+    )
+    out.source_event_id = getattr(event, "id", "") or out.id
+    await db.commit()
+    return {"outcome_id": out.id,
+            "source_event_id": getattr(event, "id", ""),
+            "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/customer/signals")
+async def brain_customer_signals(
+    customer_id: Optional[str] = None,
+    need: Optional[str] = None,
+    severity: Optional[str] = None,
+    limit: int = 50,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """The voice-of-customer signal ledger, filterable by customer, need
+    and severity — ordered newest first, bounded."""
+    from app.intelligence.customer_intelligence_engine import customer_intelligence_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await customer_intelligence_engine.signals(
+        db, organization_id=org.id, customer_id=customer_id or None,
+        need=need or None, severity=severity or None, limit=min(max(limit, 1), 500),
+    )
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/customer/themes")
+async def brain_customer_themes(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """The customer theme aggregate: recurring needs across customers with
+    evidence counts and the explainable impact scoring."""
+    from app.intelligence.customer_intelligence_engine import customer_intelligence_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await customer_intelligence_engine.themes(db, organization_id=org.id)
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/customer/health")
+async def brain_customer_healths(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Every customer's evidence-backed health: state, score and why."""
+    from app.intelligence.customer_intelligence_engine import customer_intelligence_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await customer_intelligence_engine.healths(db, organization_id=org.id)
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/customer/health/{customer_id}")
+async def brain_customer_health(
+    customer_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """One customer's health detail: score, the why, positives and the
+    temporal history trail."""
+    from app.intelligence.customer_intelligence_engine import customer_intelligence_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await customer_intelligence_engine.health(
+        db, organization_id=org.id, customer_id=customer_id,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="customer not found")
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/customer/risk")
+async def brain_customer_risk(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Customer risk: at-risk accounts with the propagation from delayed
+    projects through commitments up to strategic goals."""
+    from app.intelligence.customer_intelligence_engine import customer_intelligence_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await customer_intelligence_engine.risk(db, organization_id=org.id)
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/customer/commitments")
+async def brain_customer_commitments(
+    status: Optional[str] = None,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """The commitment ledger: what we promised, to whom, when, and the
+    project + capability + capacity behind each promise."""
+    from app.intelligence.customer_intelligence_engine import customer_intelligence_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await customer_intelligence_engine.commitments(
+        db, organization_id=org.id, status=status or None,
+    )
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/customer/outcomes")
+async def brain_customer_outcomes(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """The customer outcome evidence ledger: baseline -> target -> actual."""
+    from app.intelligence.customer_intelligence_engine import customer_intelligence_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await customer_intelligence_engine.outcomes(db, organization_id=org.id)
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/customer/coverage")
+async def brain_customer_coverage(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Coverage: is the portfolio actually addressing what customers need —
+    per theme, traceable to active initiatives and projects."""
+    from app.intelligence.customer_intelligence_engine import customer_intelligence_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await customer_intelligence_engine.coverage(db, organization_id=org.id)
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/customer/gaps")
+async def brain_customer_gaps(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Strategic customer gaps: high-demand themes nothing is addressing.
+    Advisory only — decisions stay with people."""
+    from app.intelligence.customer_intelligence_engine import customer_intelligence_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await customer_intelligence_engine.strategic_gaps(db, organization_id=org.id)
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/customer/opportunities")
+async def brain_customer_opportunities(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Customer opportunity detection: demand-type needs shared by multiple
+    customers with strategic relevance. Advisory only."""
+    from app.intelligence.customer_intelligence_engine import customer_intelligence_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await customer_intelligence_engine.opportunities(db, organization_id=org.id)
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/customer/trends")
+async def brain_customer_trends(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Signal volume trends per theme over the last six months.
+    Deterministic and evidence-backed — never a forecast."""
+    from app.intelligence.customer_intelligence_engine import customer_intelligence_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await customer_intelligence_engine.trends(db, organization_id=org.id)
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/customer/knowledge")
+async def brain_customer_knowledge(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Knowledge linkage: does our own knowledge base cover the customer
+    themes we keep collecting — and where are the blind spots?"""
+    from app.intelligence.customer_intelligence_engine import customer_intelligence_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await customer_intelligence_engine.knowledge_linkage(
+        db, organization_id=org.id,
+    )
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/customer/customers/{customer_id}")
+async def brain_customer_detail(
+    customer_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """One customer's command center: health + trail, timeline, themes,
+    commitments and outcome evidence."""
+    from app.intelligence.customer_intelligence_engine import customer_intelligence_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await customer_intelligence_engine.customer_do(
+        db, organization_id=org.id, customer_id=customer_id,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="customer not found")
+    return {**result, "generated_at": _utcnow_iso()}

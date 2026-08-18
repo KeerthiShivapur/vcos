@@ -2620,7 +2620,6 @@ async def handle_people_manager_changed(db, event, payload):
         db, organization_id=org_id, person_id=person.id,
         relationship_type="reports_to",
         manager_person_id=payload.get("to"),
-        note=f"Manager changed: now {'reports to ' + str(payload.get('to')) if payload.get('to') else 'reports to no one'}.",
         source_type="event", source_id=event.id,
         actor_id=payload.get("actor_id"),
         event_id=event.id,
@@ -3038,5 +3037,27 @@ async def handle_capacity_state(db, event, payload):
     if not org_id:
         return
     await resource_allocation_engine.record_event(
+        db, organization_id=org_id, event=event, payload=payload,
+    )
+
+
+@on("customer.signal.recorded")
+@on("customer.signal.resolved")
+@on("customer.commitment.created")
+@on("customer.commitment.updated")
+@on("customer.commitment.delivered")
+@on("customer.outcome.recorded")
+async def handle_customer_intelligence_state(db, event, payload):
+    """Feed the canonical Customer & Market Execution Intelligence record
+    (4G.5) from events: voice-of-customer signals, commitments (definite
+    deliverables with dates), and outcome evidence. The affected theme
+    aggregate and the affected customer health are recomputed incrementally
+    (exact-once updates)."""
+    from app.intelligence.customer_intelligence_engine import customer_intelligence_engine
+
+    org_id = payload.get("organization_id") or event.organization_id
+    if not org_id:
+        return
+    await customer_intelligence_engine.record_event(
         db, organization_id=org_id, event=event, payload=payload,
     )

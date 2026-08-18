@@ -418,6 +418,14 @@ from app.models.resource_allocation_intelligence import (  # noqa: F401
     CapacityHistory,
     CapacitySnapshot,
 )
+from app.models.customer_intelligence import (  # noqa: F401
+    CustomerCommitment,
+    CustomerHealthHistory,
+    CustomerHealthRow,
+    CustomerOutcome,
+    CustomerSignal,
+    CustomerTheme,
+)
 
 __all__ = [
     "Organization",

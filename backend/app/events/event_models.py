@@ -147,6 +147,13 @@ EVENT_CATALOG: dict[str, str] = {
     "capacity.demand.removed": "A project's resource demand was removed",
     "capacity.allocation.created": "A governed capacity allocation was committed",
     "capacity.allocation.completed": "A governed capacity allocation recorded its outcome",
+    # Slice 4G.5 — Customer & Market Execution Intelligence.
+    "customer.signal.recorded": "A customer signal was recorded",
+    "customer.signal.resolved": "A customer signal was resolved",
+    "customer.commitment.created": "A customer commitment was made",
+    "customer.commitment.updated": "A customer commitment changed",
+    "customer.commitment.delivered": "A customer commitment was delivered",
+    "customer.outcome.recorded": "A customer outcome was recorded",
     # --- risks
     "risk.detected": "A risk was detected",
     "risk.updated": "A risk was updated",
