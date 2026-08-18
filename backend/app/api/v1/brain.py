@@ -4581,3 +4581,565 @@ async def brain_coordination_resolve(
     )
     await db.commit()
     return {**result, "generated_at": _utcnow_iso()}
+
+
+# ---------------------------------------------------------------------------
+# Slice 4G.3 — Strategic Portfolio & Goal Execution Intelligence
+# ---------------------------------------------------------------------------
+# Strategy is an ORG-WIDE surface (scoped callers 404 — same idiom as 4G.1 /
+# 4G.2): company goals and portfolio coverage reveal other departments' work
+# and capacity. Reads need brain:read; every write is a human-governed action
+# (projects:manage), always advisory — the engine never decides, reschedules
+# or re-ranks people. Writes publish the canonical strategy.* events; the
+# event worker recomputes only the affected goal's neighborhood (incremental,
+# exact-once snapshots).
+
+
+@router.get("/execution/strategy/portfolio")
+async def brain_strategy_portfolio(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Portfolio health: goal coverage, alignment rollup, outcome
+    confidence and the top company attention list (all evidence-backed)."""
+    from app.intelligence.strategic_execution_engine import strategic_execution_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await strategic_execution_engine.portfolio(
+        db, organization_id=org.id,
+    )
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/strategy/goals/{goal_id}")
+async def brain_strategy_goal_detail(
+    goal_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """One company goal's strategic record: coverage factors, missing
+    capabilities, contributing projects and people, risks, priority history
+    and strategy -> outcome learning."""
+    from app.intelligence.strategic_execution_engine import strategic_execution_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await strategic_execution_engine.goal_detail(
+        db, organization_id=org.id, goal_id=goal_id,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="goal not found")
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/strategy/gaps")
+async def brain_strategy_gaps(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Strategic execution gaps: active projects without an explicit link to
+    an active objective, and active goals whose coverage is below healthy."""
+    from app.intelligence.strategic_execution_engine import strategic_execution_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await strategic_execution_engine.gaps(
+        db, organization_id=org.id,
+    )
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/strategy/focus")
+async def brain_strategy_focus(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """TOP COMPANY ATTENTION: deterministic focus ranking with the evidence
+    behind every item. Advisory — leadership decides."""
+    from app.intelligence.strategic_execution_engine import strategic_execution_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await strategic_execution_engine.focus(
+        db, organization_id=org.id,
+    )
+    return {"focus": result, "advisory_only": True, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/strategy/conflicts")
+async def brain_strategy_conflicts(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Portfolio contention: constrained capabilities claimed by active
+    projects under different goals, with the strategic stakes."""
+    from app.intelligence.strategic_execution_engine import strategic_execution_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await strategic_execution_engine.conflicts(
+        db, organization_id=org.id,
+    )
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/strategy/impact")
+async def brain_strategy_impact(
+    project_id: str,
+    delay_days: int = Query(default=14, ge=1, le=90),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """What a delay reaches: downstream projects, the strategic chain,
+    customers, milestones and decisions. Bounded sensitivity, not a forecast."""
+    from app.intelligence.strategic_execution_engine import strategic_execution_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await strategic_execution_engine.impact(
+        db, organization_id=org.id, project_id=project_id, delay_days=delay_days,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/strategy/what-if")
+async def brain_strategy_what_if(
+    goal_id: Optional[str] = Query(default=None),
+    project_id: Optional[str] = Query(default=None),
+    delay_days: int = Query(default=14, ge=1, le=90),
+    priority: Optional[int] = Query(default=None, ge=1, le=5),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Bounded strategic what-if: delay a project (coverage sensitivity) or
+    re-prioritize a goal (focus re-ranking). Assumptions are explicit."""
+    from app.intelligence.strategic_execution_engine import strategic_execution_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await strategic_execution_engine.what_if(
+        db, organization_id=org.id, goal_id=goal_id, project_id=project_id,
+        delay_days=delay_days, priority=priority,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="what-if not resolvable")
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/strategy/alternatives")
+async def brain_strategy_alternatives(
+    project_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Three bounded courses for one project with evidence and a
+    recommendation. Humans decide; nothing is executed."""
+    from app.intelligence.strategic_execution_engine import strategic_execution_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await strategic_execution_engine.alternatives(
+        db, organization_id=org.id, project_id=project_id,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.post("/execution/strategy/goals")
+async def brain_strategy_create_goal(
+    body: dict[str, Any],
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("projects:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Create a company goal (the top of the strategic execution graph)."""
+    from app.models.execution_strategy import CompanyGoal
+    from app.events.publisher import publish_event
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    title = (body.get("title") or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="title is required")
+    try:
+        priority = max(1, min(5, int(body.get("priority", 3))))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="priority must be 1..5")
+    goal = CompanyGoal(
+        organization_id=org.id,
+        title=title[:300],
+        description=body.get("description"),
+        kind=(body.get("kind") or "other")[:40],
+        status=(body.get("status") or "active")[:16],
+        priority=priority,
+        metric_kind=body.get("metric_kind"),
+        metric_unit=body.get("metric_unit"),
+        target_value=body.get("target_value"),
+        current_value=body.get("current_value"),
+        owner_person_id=body.get("owner_person_id"),
+        owner_label=(body.get("owner_label") or "")[:255],
+        timeline_label=(body.get("timeline_label") or "")[:120],
+    )
+    db.add(goal)
+    await db.flush()
+    await publish_event(
+        db, name="strategy.goal.created", organization_id=org.id,
+        actor_id=user.id,
+        payload={
+            "organization_id": org.id, "goal_id": goal.id, "id": goal.id,
+            "title": goal.title, "status": goal.status, "priority": goal.priority,
+            "kind": goal.kind,
+        },
+    )
+    await db.commit()
+    return {"goal_id": goal.id, "generated_at": _utcnow_iso()}
+
+
+@router.post("/execution/strategy/goals/{goal_id}/priority")
+async def brain_strategy_change_priority(
+    goal_id: str,
+    body: dict[str, Any],
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("projects:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """A human changes a company goal's priority (1 = highest). The change
+    event is retained in the strategic history as organizational memory."""
+    from app.models.execution_strategy import CompanyGoal
+    from app.events.publisher import publish_event
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    goal = (
+        await db.execute(
+            select(CompanyGoal).where(
+                CompanyGoal.organization_id == org.id,
+                CompanyGoal.id == goal_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if goal is None:
+        raise HTTPException(status_code=404, detail="goal not found")
+    try:
+        priority = max(1, min(5, int(body.get("priority", goal.priority))))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="priority must be 1..5")
+    old_priority = goal.priority
+    if priority == old_priority:
+        await db.commit()
+        return {"goal_id": goal_id, "priority": priority, "changed": False,
+                "generated_at": _utcnow_iso()}
+    goal.priority = priority
+    await publish_event(
+        db, name="strategy.goal.priority.changed", organization_id=org.id,
+        actor_id=user.id,
+        payload={
+            "organization_id": org.id, "goal_id": goal.id, "id": goal.id,
+            "title": goal.title, "priority": priority,
+            "old_priority": old_priority,
+            "reason": body.get("reason"),
+        },
+    )
+    await db.commit()
+    return {"goal_id": goal_id, "priority": priority, "old_priority": old_priority,
+            "changed": True, "generated_at": _utcnow_iso()}
+
+
+@router.post("/execution/strategy/objectives")
+async def brain_strategy_create_objective(
+    body: dict[str, Any],
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("projects:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Create an objective under a company goal."""
+    from app.models.execution_strategy import CompanyGoal, CompanyObjective
+    from app.events.publisher import publish_event
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    goal_id = body.get("goal_id")
+    goal = (
+        await db.execute(
+            select(CompanyGoal).where(
+                CompanyGoal.organization_id == org.id,
+                CompanyGoal.id == goal_id,
+            )
+        )
+    ).scalar_one_or_none() if goal_id else None
+    if goal is None:
+        raise HTTPException(status_code=404, detail="goal not found")
+    title = (body.get("title") or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="title is required")
+    objective = CompanyObjective(
+        organization_id=org.id,
+        goal_id=goal.id,
+        title=title[:300],
+        description=body.get("description"),
+        kind=(body.get("kind") or "other")[:40],
+        status=(body.get("status") or "active")[:16],
+        required_capabilities=body.get("required_capabilities") or [],
+        owner_person_id=body.get("owner_person_id"),
+        owner_label=(body.get("owner_label") or "")[:255],
+    )
+    db.add(objective)
+    await db.flush()
+    await publish_event(
+        db, name="strategy.objective.created", organization_id=org.id,
+        actor_id=user.id,
+        payload={
+            "organization_id": org.id, "goal_id": goal.id,
+            "objective_id": objective.id, "id": objective.id,
+            "title": objective.title, "status": objective.status,
+        },
+    )
+    await db.commit()
+    return {"objective_id": objective.id, "generated_at": _utcnow_iso()}
+
+
+@router.post("/execution/strategy/initiatives")
+async def brain_strategy_create_initiative(
+    body: dict[str, Any],
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("projects:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Create an initiative under an objective (carries the strategic
+    assumption: expected outcome + customer commitments where declared)."""
+    from app.models.execution_strategy import CompanyInitiative, CompanyObjective
+    from app.events.publisher import publish_event
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    objective_id = body.get("objective_id")
+    objective = (
+        await db.execute(
+            select(CompanyObjective).where(
+                CompanyObjective.organization_id == org.id,
+                CompanyObjective.id == objective_id,
+            )
+        )
+    ).scalar_one_or_none() if objective_id else None
+    if objective is None:
+        raise HTTPException(status_code=404, detail="objective not found")
+    title = (body.get("title") or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="title is required")
+    initiative = CompanyInitiative(
+        organization_id=org.id,
+        objective_id=objective.id,
+        title=title[:300],
+        description=body.get("description"),
+        kind=(body.get("kind") or "other")[:40],
+        status=(body.get("status") or "active")[:16],
+        required_capabilities=body.get("required_capabilities") or [],
+        customer_commitments=body.get("customer_commitments") or [],
+        expected_outcome=body.get("expected_outcome"),
+        owner_person_id=body.get("owner_person_id"),
+        owner_label=(body.get("owner_label") or "")[:255],
+    )
+    db.add(initiative)
+    await db.flush()
+    await publish_event(
+        db, name="strategy.initiative.created", organization_id=org.id,
+        actor_id=user.id,
+        payload={
+            "organization_id": org.id, "goal_id": objective.goal_id,
+            "objective_id": objective.id, "initiative_id": initiative.id,
+            "id": initiative.id, "title": initiative.title,
+            "status": initiative.status,
+        },
+    )
+    await db.commit()
+    return {"initiative_id": initiative.id, "generated_at": _utcnow_iso()}
+
+
+@router.post("/execution/strategy/initiatives/{initiative_id}/link")
+async def brain_strategy_link_project(
+    initiative_id: str,
+    body: dict[str, Any],
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("projects:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Goal -> work traceability: link a project to an initiative."""
+    from app.models.execution_strategy import CompanyInitiative, CompanyObjective
+    from app.models.project import Project
+    from app.events.publisher import publish_event
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    initiative = (
+        await db.execute(
+            select(CompanyInitiative).where(
+                CompanyInitiative.organization_id == org.id,
+                CompanyInitiative.id == initiative_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if initiative is None:
+        raise HTTPException(status_code=404, detail="initiative not found")
+    project_id = body.get("project_id")
+    project = (
+        await db.execute(
+            select(Project).where(
+                Project.organization_id == org.id,
+                Project.id == project_id,
+            )
+        )
+    ).scalar_one_or_none() if project_id else None
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    objective = (
+        await db.execute(
+            select(CompanyObjective).where(
+                CompanyObjective.organization_id == org.id,
+                CompanyObjective.id == initiative.objective_id,
+            )
+        )
+    ).scalar_one_or_none()
+    await publish_event(
+        db, name="strategy.initiative.linked", organization_id=org.id,
+        actor_id=user.id,
+        payload={
+            "organization_id": org.id,
+            "goal_id": objective.goal_id if objective else None,
+            "objective_id": initiative.objective_id,
+            "initiative_id": initiative.id,
+            "initiative_title": initiative.title,
+            "project_id": project.id, "project_label": project.name,
+        },
+    )
+    await db.commit()
+    return {"linked": True, "generated_at": _utcnow_iso()}
+
+
+@router.post("/execution/strategy/initiatives/{initiative_id}/unlink")
+async def brain_strategy_unlink_project(
+    initiative_id: str,
+    body: dict[str, Any],
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("projects:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Remove a goal -> work link (history keeps the event trail)."""
+    from app.models.execution_strategy import CompanyInitiative, CompanyObjective
+    from app.events.publisher import publish_event
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    initiative = (
+        await db.execute(
+            select(CompanyInitiative).where(
+                CompanyInitiative.organization_id == org.id,
+                CompanyInitiative.id == initiative_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if initiative is None:
+        raise HTTPException(status_code=404, detail="initiative not found")
+    project_id = body.get("project_id")
+    objective = (
+        await db.execute(
+            select(CompanyObjective).where(
+                CompanyObjective.organization_id == org.id,
+                CompanyObjective.id == initiative.objective_id,
+            )
+        )
+    ).scalar_one_or_none()
+    await publish_event(
+        db, name="strategy.initiative.unlinked", organization_id=org.id,
+        actor_id=user.id,
+        payload={
+            "organization_id": org.id,
+            "goal_id": objective.goal_id if objective else None,
+            "objective_id": initiative.objective_id,
+            "initiative_id": initiative.id,
+            "project_id": project_id,
+        },
+    )
+    await db.commit()
+    return {"unlinked": True, "generated_at": _utcnow_iso()}
+
+
+@router.post("/execution/strategy/initiatives/{initiative_id}/outcome")
+async def brain_strategy_record_outcome(
+    initiative_id: str,
+    body: dict[str, Any],
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("projects:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Record a strategy -> outcome observation (expected vs actual). Feeds
+    the organizational learning engine (4E.7) — the strategy loop closes."""
+    from app.models.execution_strategy import CompanyInitiative, CompanyObjective
+    from app.events.publisher import publish_event
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    initiative = (
+        await db.execute(
+            select(CompanyInitiative).where(
+                CompanyInitiative.organization_id == org.id,
+                CompanyInitiative.id == initiative_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if initiative is None:
+        raise HTTPException(status_code=404, detail="initiative not found")
+    if body.get("actual_value") is None:
+        raise HTTPException(status_code=400, detail="actual_value is required")
+    objective = (
+        await db.execute(
+            select(CompanyObjective).where(
+                CompanyObjective.organization_id == org.id,
+                CompanyObjective.id == initiative.objective_id,
+            )
+        )
+    ).scalar_one_or_none()
+    await publish_event(
+        db, name="strategy.outcome.recorded", organization_id=org.id,
+        actor_id=user.id,
+        payload={
+            "organization_id": org.id,
+            "goal_id": objective.goal_id if objective else None,
+            "objective_id": initiative.objective_id,
+            "initiative_id": initiative.id,
+            "project_id": body.get("project_id"),
+            "project_label": (body.get("project_label") or "")[:300],
+            "metric_kind": (body.get("metric_kind") or "other")[:80],
+            "unit": (body.get("unit") or "")[:40],
+            "expected_value": body.get("expected_value"),
+            "actual_value": body.get("actual_value"),
+        },
+    )
+    await db.commit()
+    return {"recorded": True, "generated_at": _utcnow_iso()}

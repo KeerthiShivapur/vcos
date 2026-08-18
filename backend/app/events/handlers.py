@@ -2994,3 +2994,28 @@ async def handle_coordination_state(db, event, payload):
     await coordination_engine.record_event(
         db, organization_id=org_id, event=event, payload=payload,
     )
+
+
+@on("strategy.goal.created")
+@on("strategy.goal.updated")
+@on("strategy.goal.priority.changed")
+@on("strategy.objective.created")
+@on("strategy.objective.updated")
+@on("strategy.initiative.created")
+@on("strategy.initiative.updated")
+@on("strategy.initiative.linked")
+@on("strategy.initiative.unlinked")
+@on("strategy.outcome.recorded")
+async def handle_strategy_state(db, event, payload):
+    """Feed the canonical Strategic Execution record (4G.3) from events:
+    goal -> objective -> initiative graph changes, project links, priority
+    changes and strategy -> outcome observations. Only the affected goal's
+    neighborhood is recomputed (incremental, exact-once snapshots)."""
+    from app.intelligence.strategic_execution_engine import strategic_execution_engine
+
+    org_id = payload.get("organization_id") or event.organization_id
+    if not org_id:
+        return
+    await strategic_execution_engine.record_event(
+        db, organization_id=org_id, event=event, payload=payload,
+    )

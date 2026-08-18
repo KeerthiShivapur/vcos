@@ -130,6 +130,17 @@ EVENT_CATALOG: dict[str, str] = {
     "coordination.incident.resolved": "A coordination finding was resolved",
     "coordination.handoff.opened": "A task ownership handoff was opened",
     "coordination.handoff.closed": "A task ownership handoff was closed",
+    # Slice 4G.3 — Strategic Portfolio & Goal Execution Intelligence.
+    "strategy.goal.created": "A company goal was created",
+    "strategy.goal.updated": "A company goal was updated",
+    "strategy.goal.priority.changed": "A company goal's priority changed",
+    "strategy.objective.created": "A company objective was created",
+    "strategy.objective.updated": "A company objective was updated",
+    "strategy.initiative.created": "A strategic initiative was created",
+    "strategy.initiative.updated": "A strategic initiative was updated",
+    "strategy.initiative.linked": "A project was linked to a strategic initiative",
+    "strategy.initiative.unlinked": "A project was unlinked from a strategic initiative",
+    "strategy.outcome.recorded": "A strategy->outcome observation was recorded",
     # --- risks
     "risk.detected": "A risk was detected",
     "risk.updated": "A risk was updated",

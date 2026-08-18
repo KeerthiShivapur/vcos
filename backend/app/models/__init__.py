@@ -403,6 +403,15 @@ from app.models.execution_coordination import (  # noqa: F401
     CoordinationHistory,
     CoordinationIncident,
 )
+from app.models.execution_strategy import (  # noqa: F401
+    CompanyGoal,
+    CompanyInitiative,
+    CompanyObjective,
+    StrategicHistory,
+    StrategicLink,
+    StrategicOutcome,
+    StrategicSnapshot,
+)
 
 __all__ = [
     "Organization",
@@ -792,4 +801,11 @@ __all__ = [
     "CoordinationIncident",
     "CoordinationHandoff",
     "CoordinationHistory",
+    "CompanyGoal",
+    "CompanyObjective",
+    "CompanyInitiative",
+    "StrategicLink",
+    "StrategicHistory",
+    "StrategicOutcome",
+    "StrategicSnapshot",
 ]

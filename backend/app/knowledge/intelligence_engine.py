@@ -182,6 +182,22 @@ _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
         "blocking each other", "blocked by another project",
         "depends on another project", "critical conflict", "contention",
     )),
+    # Slice 4G.3 — Strategic Portfolio & Goal Execution questions route after
+    # coordination so the strategy meaning wins over the generic knowledge
+    # meanings: "goal coverage", "portfolio health", "company focus" and
+    # "under-resourced goals" are strategic execution, not claim health or a
+    # to-do list. Answers assemble the canonical goal records — advisory.
+    ("strategy_execution", (
+        "goal coverage", "goal health", "goal status", "our goals",
+        "company goals", "strategic", "strategy execution",
+        "portfolio health", "portfolio focus", "company focus",
+        "focus this week", "leadership focus", "leadership focus on",
+        "under-resourced", "under-covered", "under covered",
+        "not aligned", "unaligned projects", "strategic alignment",
+        "strategic gaps", "goal at risk", "goal is at risk",
+        "covered goal", "coverage", "are we achieving",
+        "progress on our goals", "priority changed",
+    )),
     # Slice 4E.7 — the company-level loop surfaces route FIRST so the company
     # meaning wins over the knowledge-only meaning ("what changed in the
     # company since yesterday" is company change, not claim change).
@@ -3096,6 +3112,98 @@ class IntelligenceEngine:
             "scope": scope_label, "generated_at": _utcnow_iso(),
         }
 
+    async def _strategy_execution_query(
+        self, db: AsyncSession, *, organization_id: str, question: str, user: Any,
+    ) -> dict[str, Any]:
+        """Slice 4G.3 — Strategic Portfolio & Goal Execution questions.
+
+        "how is our enterprise growth goal doing", "which goals are
+        under-resourced", "what should leadership focus on", "which projects
+        aren't aligned to current priorities" assemble the canonical goal
+        records (never a dashboard, never AI). Bare strategy questions
+        ("portfolio health", "company focus") return the org-wide portfolio
+        view. Scoped callers get no strategy view - strategy is org-wide.
+        """
+        from app.intelligence.strategic_execution_engine import (
+            strategic_execution_engine as strategy_engine,
+        )
+
+        access = await self._access(db, organization_id=organization_id, user=user)
+        if not access.org_wide:
+            return {
+                "question": question, "intent": "strategy_execution",
+                "scope": "project",
+                "answer": "Strategic execution is an organization-wide view; "
+                          "your scope does not include it.",
+                "advisory_only": True,
+                "generated_at": _utcnow_iso(),
+            }
+        goal_id = await self._resolve_strategy_goal(
+            db, organization_id=organization_id, question=question,
+        )
+        if goal_id is not None:
+            detail = await strategy_engine.goal_detail(
+                db, organization_id=organization_id, goal_id=goal_id,
+            )
+            if detail:
+                return {
+                    "question": question, "intent": "strategy_execution",
+                    "scope": "org", "goal": detail,
+                    "generated_at": _utcnow_iso(),
+                }
+        if any(k in question.lower() for k in (
+            "focus", "attention", "what should leadership", "focus this week"
+        )):
+            focus = await strategy_engine.focus(
+                db, organization_id=organization_id,
+            )
+            return {
+                "question": question, "intent": "strategy_execution",
+                "scope": "org", "focus": focus, "advisory_only": True,
+                "generated_at": _utcnow_iso(),
+            }
+        if any(k in question.lower() for k in (
+            "gap", "unaligned", "not aligned", "under-covered",
+            "under-resourced", "strategic gaps",
+        )):
+            gaps = await strategy_engine.gaps(
+                db, organization_id=organization_id,
+            )
+            return {
+                "question": question, "intent": "strategy_execution",
+                "scope": "org", "gaps": gaps, "advisory_only": True,
+                "generated_at": _utcnow_iso(),
+            }
+        result = await strategy_engine.portfolio(
+            db, organization_id=organization_id,
+        )
+        return {**result, "question": question, "intent": "strategy_execution",
+                "scope": "org", "generated_at": _utcnow_iso()}
+
+    async def _resolve_strategy_goal(
+        self, db: AsyncSession, *, organization_id: str, question: str,
+    ) -> Optional[str]:
+        """Find a company goal mentioned by title in the question."""
+        from app.models.execution_strategy import CompanyGoal
+
+        lowered = question.lower()
+        rows = list(
+            (
+                await db.execute(
+                    select(CompanyGoal).where(
+                        CompanyGoal.organization_id == organization_id,
+                    )
+                )
+            ).scalars().all()
+        )[:_MAX_TOPICS_SCAN]
+        for goal in rows:
+            if goal.title and goal.title.lower() in lowered:
+                return goal.id
+            for token in goal.title.lower().split():
+                if len(token) > 4 and token in lowered:
+                    return goal.id
+        return None
+
     async def _capability_query(
         self,
         db: AsyncSession,
@@ -3369,6 +3477,11 @@ class IntelligenceEngine:
             )
         if intent == "coordination":
             return await self._coordination_query(
+                db, organization_id=organization_id,
+                question=question, user=user,
+            )
+        if intent == "strategy_execution":
+            return await self._strategy_execution_query(
                 db, organization_id=organization_id,
                 question=question, user=user,
             )
