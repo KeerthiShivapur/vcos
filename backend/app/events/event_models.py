@@ -125,6 +125,11 @@ EVENT_CATALOG: dict[str, str] = {
     # Slice 4G.1 — Project & Execution Intelligence (change-driven).
     "execution.state_changed": "A project execution state was recomputed",
     "execution.outcome_recorded": "A project outcome was recorded as evidence",
+    # Slice 4G.2 — Execution Coordination Intelligence (change-driven).
+    "coordination.incident.detected": "A coordination finding was opened",
+    "coordination.incident.resolved": "A coordination finding was resolved",
+    "coordination.handoff.opened": "A task ownership handoff was opened",
+    "coordination.handoff.closed": "A task ownership handoff was closed",
     # --- risks
     "risk.detected": "A risk was detected",
     "risk.updated": "A risk was updated",

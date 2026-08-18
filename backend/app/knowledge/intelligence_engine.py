@@ -158,6 +158,30 @@ _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
         "critical path", "critical paths", "projected finish",
         "what is the status of", "status of the project", "status of the projects",
     )),
+    # Slice 4G.2 — Execution Coordination questions route right after the
+    # execution meaning: "which projects compete for the same people",
+    # "where are handoffs failing", "what should we coordinate first",
+    # "what happens if we delay X", "which alternative owner can resolve
+    # this". Answers come from the change-driven coordination ledger
+    # (incidents + handoffs + propagation) with evidence and confidence.
+    ("coordination", (
+        "coordination", "coordinate",
+        "competing for the same", "compete for", "competing for",
+        "which projects compete", "shared capacity", "shared resource",
+        "handoff", "handing off", "handed off",
+        "waiting on another team", "waiting on another",
+        "coordination gap", "coordination risk", "coordinate first",
+        "what should we coordinate",
+        "what happens if we delay", "what happens if we shift",
+        "alternative owner", "alternative assignee", "who else could",
+        "who can resolve", "who should resolve", "who should unblock",
+        "who unblocks", "overloaded",
+        "propagation", "between projects", "between our projects",
+        "cross project", "cross-project",
+        "which projects depend", "who depends on",
+        "blocking each other", "blocked by another project",
+        "depends on another project", "critical conflict", "contention",
+    )),
     # Slice 4E.7 — the company-level loop surfaces route FIRST so the company
     # meaning wins over the knowledge-only meaning ("what changed in the
     # company since yesterday" is company change, not claim change).
@@ -3019,6 +3043,59 @@ class IntelligenceEngine:
             "scope": scope_label, "generated_at": _utcnow_iso(),
         }
 
+    async def _coordination_query(
+        self, db: AsyncSession, *, organization_id: str, question: str, user: Any,
+    ) -> dict[str, Any]:
+        """Slice 4G.2 — Execution Coordination questions.
+
+        "which projects compete for the same people", "where are handoffs
+        failing", "what should we coordinate first", "what happens if we
+        delay X" resolve the project by name and answer from its
+        coordination record; bare coordination questions return the
+        org-wide Coordination Center. Scoped callers only ever see their
+        own projects' project-scoped findings — pair/org findings stay
+        org-wide.
+        """
+        from app.intelligence.coordination_engine import coordination_engine
+
+        access = await self._access(db, organization_id=organization_id, user=user)
+        scope_label = "org" if access.org_wide else "project"
+        project_id = await self._resolve_execution_project(
+            db, organization_id=organization_id, question=question,
+        )
+        if project_id is not None and (
+            access.org_wide or project_id in access.project_ids
+        ):
+            detail = await coordination_engine.project_detail(
+                db, organization_id=organization_id, project_id=project_id,
+            )
+            return {
+                "question": question, "intent": "coordination",
+                "scope": scope_label,
+                "project": detail,
+                "generated_at": _utcnow_iso(),
+            }
+        if access.org_wide:
+            result = await coordination_engine.center(
+                db, organization_id=organization_id, access=access,
+            )
+            return {**result, "question": question, "intent": "coordination",
+                    "scope": scope_label, "generated_at": _utcnow_iso()}
+        rows = []
+        for pid in list(access.project_ids)[:_MAX_TOPICS_SCAN]:
+            detail = await coordination_engine.project_detail(
+                db, organization_id=organization_id, project_id=pid,
+            )
+            if detail:
+                rows.append(detail)
+        return {
+            "total_projects": len(rows),
+            "counts": {"active_projects": len(rows)},
+            "projects": rows,
+            "question": question, "intent": "coordination",
+            "scope": scope_label, "generated_at": _utcnow_iso(),
+        }
+
     async def _capability_query(
         self,
         db: AsyncSession,
@@ -3287,6 +3364,11 @@ class IntelligenceEngine:
             )
         if intent == "execution":
             return await self._execution_query(
+                db, organization_id=organization_id,
+                question=question, user=user,
+            )
+        if intent == "coordination":
+            return await self._coordination_query(
                 db, organization_id=organization_id,
                 question=question, user=user,
             )

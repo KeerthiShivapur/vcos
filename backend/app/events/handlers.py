@@ -2952,3 +2952,45 @@ async def handle_execution_state(db, event, payload):
     await execution_engine.record_event(
         db, organization_id=org_id, event=event, payload=payload,
     )
+
+
+@on("task.created")
+@on("task.updated")
+@on("task.transitioned")
+@on("task.completed")
+@on("task.blocked")
+@on("task.unblocked")
+@on("task.deleted")
+@on("project.created")
+@on("project.updated")
+@on("project.started")
+@on("project.paused")
+@on("project.resumed")
+@on("project.completed")
+@on("project.cancelled")
+@on("project.archived")
+@on("milestone.created")
+@on("milestone.updated")
+@on("milestone.completed")
+@on("dependency.added")
+@on("dependency.removed")
+@on("decision.made")
+@on("decision.executed")
+@on("decision.implemented")
+@on("goal.created")
+@on("goal.updated")
+@on("goal.completed")
+@on("team.member.added")
+@on("team.member.removed")
+@on("employee.transferred")
+async def handle_coordination_state(db, event, payload):
+    """Feed the canonical Execution Coordination record (4G.2) from events:
+    handoff transitions (task ownership) and the coordination findings."""
+    from app.intelligence.coordination_engine import coordination_engine
+
+    org_id = payload.get("organization_id") or event.organization_id
+    if not org_id:
+        return
+    await coordination_engine.record_event(
+        db, organization_id=org_id, event=event, payload=payload,
+    )

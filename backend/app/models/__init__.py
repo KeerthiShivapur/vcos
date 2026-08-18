@@ -398,6 +398,11 @@ from app.models.execution_intelligence import (  # noqa: F401
     ProjectExecutionSnapshot,
     ProjectExecutionState,
 )
+from app.models.execution_coordination import (  # noqa: F401
+    CoordinationHandoff,
+    CoordinationHistory,
+    CoordinationIncident,
+)
 
 __all__ = [
     "Organization",
@@ -784,4 +789,7 @@ __all__ = [
     "DecisionAudit",
     "ProjectExecutionState",
     "ProjectExecutionSnapshot",
+    "CoordinationIncident",
+    "CoordinationHandoff",
+    "CoordinationHistory",
 ]

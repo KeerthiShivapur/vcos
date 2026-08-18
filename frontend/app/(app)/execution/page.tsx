@@ -31,6 +31,7 @@ import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { PageHeader, StatCard } from "@/components/ui/PageHeader";
+import { Tabs } from "@/components/ui/Tabs";
 import { useAuth } from "@/hooks/useAuth";
 import {
   askExecution,
@@ -48,6 +49,8 @@ import {
 } from "@/lib/api";
 import { PERMISSIONS } from "@/lib/permissions";
 import { timeAgo } from "@/lib/utils";
+
+import { CoordinationTab } from "./coordination-tab";
 
 const HEALTH_TONE: Record<string, "success" | "warning" | "danger" | "neutral" | "brand"> = {
   healthy: "success",
@@ -95,6 +98,8 @@ export default function ExecutionPage() {
 
   const [outcomeForm, setOutcomeForm] = useState({ status: "partial", planned: "", actual: "", assessment: "" });
   const [recording, setRecording] = useState(false);
+  const [tab, setTab] = useState("command");
+  const [coordOpen, setCoordOpen] = useState(0);
 
   const refresh = useCallback(async () => {
     setError(null);
@@ -183,6 +188,19 @@ export default function ExecutionPage() {
         description="Goal → project → milestone → task: one canonical execution record per project, fed from the same durable events the platform already emits. Deterministic health and explanation — never a score without a reason, never an automatic decision."
       />
 
+      <Tabs
+        tabs={[
+          { id: "command", label: "Command Center" },
+          { id: "coordination", label: "Coordination", count: coordOpen },
+        ]}
+        active={tab}
+        onChange={setTab}
+      />
+
+      {tab === "coordination" && <CoordinationTab onOpenCount={setCoordOpen} />}
+
+      {tab === "command" && (
+      <>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <StatCard label="Active projects" value={loading ? "…" : c.active_projects} icon={Gauge} />
         <StatCard label="At risk or critical" value={loading ? "…" : c.at_risk} icon={Siren} />
@@ -370,6 +388,8 @@ export default function ExecutionPage() {
           onRecord={recordOutcome}
           onClose={() => setDetail(null)}
         />
+      )}
+      </>
       )}
     </div>
   );

@@ -100,10 +100,11 @@ async def _refresh_skill(client, db_session_factory, org_id, actor_id, skill_id)
 
 
 async def _create_decision(client, headers, organization_id, person_id, actor_id,
-                           db_session_factory):
+                           db_session_factory, evidence: int = 8):
     async with db_session_factory() as db:
         skill_id = await _seed_expertise(
             db, organization_id, person_id, "Kubernetes",
+            evidence=evidence,
         )
         await db.commit()
     await _refresh_skill(client, db_session_factory, organization_id, actor_id, skill_id)
@@ -264,6 +265,7 @@ async def test_the_outcome_feeds_the_next_evaluation(client, db_session_factory)
 
     first = await _create_decision(
         client, headers, org_id, ada["id"], org["user"]["id"], db_session_factory,
+        evidence=14,
     )
     assert first["recommendation"]["person_id"] == ada["id"]
     await _act(client, headers, first["id"], "review")

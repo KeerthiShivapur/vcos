@@ -170,7 +170,7 @@ test("slice 4g.1: the execution command center is one governed UI over the canon
       min_slack: number;
       critical_task_ids: string[];
     };
-    blockers: Array<{ task_id: string; title: string; chain: Array<{ title: string }> }>;
+    blockers: Array<{ task_id: string; title: string; chain_depth: number; chain: Array<{ title: string }> }>;
   };
   expect(detail.critical_path.total_hours).toBe(9);
   expect(detail.critical_path.projected_finish_hours).toBe(9);

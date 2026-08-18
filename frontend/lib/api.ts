@@ -9331,3 +9331,195 @@ export async function askExecution(question: string): Promise<ExecutionQueryResp
     body: { question },
   });
 }
+
+// ---------------------------------------------------------------------------
+// 4G.2 — Execution Coordination & Dependency Intelligence (folded into the
+// Execution Command Center): org-wide Coordination Center, per-project
+// coordination views with bounded what-if/alternatives, the handoff ledger,
+// and human-only finding resolution.
+// ---------------------------------------------------------------------------
+
+export interface CoordinationCounts {
+  open: number;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  handoff_risk: number;
+  recurring_handoff: number;
+  shared_capacity: number;
+  critical_conflict: number;
+  coordination_gap: number;
+  propagation_risk: number;
+  [key: string]: unknown;
+}
+
+export interface CoordinationIncidentRow {
+  incident_id: string;
+  kind: string;
+  severity: string;
+  status: string;
+  project_id: string | null;
+  project_name: string | null;
+  subject_label: string;
+  title: string;
+  summary: string;
+  evidence: string[];
+  propagation: string[];
+  confidence: number;
+  first_seen_at: string;
+  last_seen_at: string;
+  resolved_by: string | null;
+  resolve_note: string | null;
+  resolved_at: string | null;
+}
+
+export interface CoordinationRecommendation {
+  kind: string;
+  summary: string;
+  why: string[];
+  confidence: number;
+  incident_id: string;
+  project_id: string | null;
+  project_name: string | null;
+}
+
+export interface CoordinationHandoffLedger {
+  pending: number;
+  completed: number;
+  avg_duration_hours: number | null;
+  slow_30d: number;
+}
+
+export interface CoordinationProjectAffected {
+  project_id: string;
+  name: string;
+  incident_count: number;
+}
+
+export interface CoordinationCenterResponse {
+  total_incidents: number;
+  counts: CoordinationCounts;
+  incidents: CoordinationIncidentRow[];
+  handoffs: CoordinationHandoffLedger;
+  recommendations: CoordinationRecommendation[];
+  projects_affected: CoordinationProjectAffected[];
+  generated_at: string;
+}
+
+export interface CoordinationPendingHandoff {
+  task_id: string;
+  task_title: string;
+  from_owner: string;
+  to_owner: string;
+  pending_hours: number;
+  occurred_at: string;
+}
+
+export interface CoordinationCompletedHandoff {
+  task_id: string;
+  task_title: string;
+  from_owner: string;
+  to_owner: string;
+  duration_hours: number;
+  completed_at: string;
+}
+
+export interface CoordinationPropagationEvent {
+  event_name: string;
+  kind: string;
+  severity: string;
+  title: string;
+  occurred_at: string;
+}
+
+export interface CoordinationAlternative {
+  person_id: string;
+  person_label: string;
+  skill: string;
+  expertise_score: number;
+  freshness: string;
+  confidence: number;
+  availability: string;
+  reason: string;
+  boundary: string;
+}
+
+export interface CoordinationWhatIfOption {
+  kind: "delay" | "reassign" | "knowledge" | string;
+  title: string;
+  boundary: string;
+  triggered_by: string[];
+  shift_days?: number;
+  effects?: Array<{ surface: string; before: string; after: string }>;
+  options?: CoordinationAlternative[];
+  topics?: Array<{ topic: string; entity_type: string; entity_id: string; category: string }>;
+}
+
+export interface CoordinationWhatIf {
+  options: CoordinationWhatIfOption[];
+  boundary: string;
+}
+
+export interface CoordinationProjectDetail {
+  project_id: string;
+  code: string;
+  name: string;
+  status: string;
+  incidents: CoordinationIncidentRow[];
+  recommendations: CoordinationRecommendation[];
+  handoffs: {
+    pending: CoordinationPendingHandoff[];
+    recent_completed: CoordinationCompletedHandoff[];
+  };
+  propagation: CoordinationPropagationEvent[];
+  alternatives: CoordinationAlternative[];
+  what_if: CoordinationWhatIf;
+  generated_at: string;
+}
+
+export interface CoordinationWhatIfResponse {
+  what_if: CoordinationWhatIf;
+  generated_at: string;
+}
+
+export interface CoordinationQueryResponse {
+  question: string;
+  intent: string;
+  scope: string;
+  total_incidents?: number;
+  counts?: CoordinationCounts;
+  incidents?: CoordinationIncidentRow[];
+  project?: CoordinationProjectDetail | null;
+  answer?: string;
+  generated_at: string;
+}
+
+export async function getCoordinationCenter(): Promise<CoordinationCenterResponse> {
+  return api<CoordinationCenterResponse>("/brain/execution/coordination/center");
+}
+
+export async function getCoordinationProject(projectId: string): Promise<CoordinationProjectDetail> {
+  return api<CoordinationProjectDetail>(`/brain/execution/coordination/projects/${projectId}`);
+}
+
+export async function getCoordinationWhatIf(projectId: string): Promise<CoordinationWhatIfResponse> {
+  return api<CoordinationWhatIfResponse>(`/brain/execution/coordination/projects/${projectId}/what-if`);
+}
+
+export async function resolveCoordinationIncident(
+  incidentId: string,
+  note?: string
+): Promise<CoordinationIncidentRow> {
+  return api<CoordinationIncidentRow>(`/brain/execution/coordination/incidents/${incidentId}/resolve`, {
+    method: "POST",
+    body: { note },
+  });
+}
+
+export async function askCoordination(question: string): Promise<CoordinationQueryResponse> {
+  return api<CoordinationQueryResponse>("/brain/knowledge/query", {
+    method: "POST",
+    body: { question },
+  });
+}

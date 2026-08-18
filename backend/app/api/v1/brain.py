@@ -4446,3 +4446,138 @@ async def brain_execution_record_outcome(
         raise HTTPException(status_code=404, detail="project not found")
     await db.commit()
     return {**result, "generated_at": _utcnow_iso()}
+
+
+# ---------------------------------------------------------------------------
+# Slice 4G.2 — Execution Coordination & Dependency Intelligence (the
+# coordination layer of the Execution Command Center). How the WHOLE org
+# coordinates: cross-project dependency pressure (shared-capacity contention
+# + critical conflicts), the handoff ledger (pending/slow/recurring),
+# coordination gaps, blockage propagation, and deterministic evidence-backed
+# recommendations with confidence. Change-driven from the durable event bus,
+# exact-once, advisory-only — the engine writes only its own tables and never
+# reallocates people or reschedules work; human-controlled actions only.
+#
+# Governance: filters run BEFORE assembly. The coordination center is an
+# ORG-WIDE surface (scoped callers 404 — same idiom as 4G.1/4F.6/4F.7).
+# Project coordination views are visible to scoped callers for projects in
+# their governance scope, but only project-scoped findings (handoff_risk,
+# recurring_handoff, coordination_gap, propagation_risk) — pair/org kinds
+# (shared_capacity, critical_conflict) reveal other projects' names and
+# capacity and stay org-wide. Resolving a finding requires projects:manage;
+# the system never resolves its own findings automatically as an outcome.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/execution/coordination/center")
+async def brain_coordination_center(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """The Execution Coordination Center: open coordination findings with
+    evidence + confidence, handoff ledger stats, bounded recommendations,
+    and which projects are entangled."""
+    from app.intelligence.coordination_engine import coordination_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await coordination_engine.center(
+        db, organization_id=org.id, access=access,
+    )
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/coordination/projects/{project_id}")
+async def brain_coordination_project(
+    project_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """One project's coordination view: its findings, handoff ledger,
+    propagation history, alternative owners and bounded what-if options."""
+    from app.models.execution_coordination import SCOPED_KINDS
+    from app.intelligence.coordination_engine import coordination_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide and project_id not in access.project_ids:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await coordination_engine.project_detail(
+        db, organization_id=org.id, project_id=project_id,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    if not access.org_wide:
+        result["incidents"] = [
+            i for i in result["incidents"] if i["kind"] in SCOPED_KINDS
+        ]
+        result["recommendations"] = [
+            r for r in result["recommendations"] if r["kind"] in SCOPED_KINDS
+        ]
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/coordination/projects/{project_id}/what-if")
+async def brain_coordination_what_if(
+    project_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Bounded coordination options for one project — explicitly NOT a
+    prediction. Each option lists its deterministic effects and what it does
+    NOT claim; nothing here reallocates or reschedules anything."""
+    from app.intelligence.coordination_engine import coordination_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide and project_id not in access.project_ids:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await coordination_engine.project_detail(
+        db, organization_id=org.id, project_id=project_id,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    return {"what_if": result["what_if"], "generated_at": _utcnow_iso()}
+
+
+@router.post("/execution/coordination/incidents/{incident_id}/resolve")
+async def brain_coordination_resolve(
+    incident_id: str,
+    body: dict[str, Any],
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("projects:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """A human resolves a coordination finding (advisory record, never a
+    mutation of the org). If the underlying condition recurs, the next
+    change-driven refresh reopens it with fresh evidence."""
+    from app.models.execution_coordination import (
+        CoordinationIncident,
+        SCOPED_KINDS,
+    )
+    from app.intelligence.coordination_engine import coordination_engine
+
+    access = await _people_access(db, org, user)
+    incident = (
+        await db.execute(
+            select(CoordinationIncident).where(
+                CoordinationIncident.organization_id == org.id,
+                CoordinationIncident.id == incident_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if incident is None:
+        raise HTTPException(status_code=404, detail="incident not found")
+    if not access.org_wide:
+        if incident.project_id not in access.project_ids:
+            raise HTTPException(status_code=404, detail="scope not found")
+        if incident.kind not in SCOPED_KINDS:
+            raise HTTPException(status_code=404, detail="scope not found")
+    result = await coordination_engine.resolve_incident(
+        db, organization_id=org.id, incident_id=incident_id,
+        note=body.get("note"), resolved_by=user.id,
+    )
+    await db.commit()
+    return {**result, "generated_at": _utcnow_iso()}

@@ -79,19 +79,22 @@ class TaskService:
         )
         return task
 
-    async def _emit(self, db, name: str, organization_id: str, actor: Optional[Employee], ip: Optional[str], task: Task):
+    async def _emit(self, db, name: str, organization_id: str, actor: Optional[Employee], ip: Optional[str], task: Task, extra: Optional[dict] = None):
         from app.services.event_service import event_service
 
+        payload = {
+            "task_id": task.id, "title": task.title,
+            "project_id": task.project_id, "status": task.status,
+            "assignee_id": task.assignee_id, "parent_task_id": task.parent_task_id,
+            "sprint_id": task.sprint_id,
+            "decision_id": task.decision_id, "goal_id": task.goal_id,
+        }
+        if extra:
+            payload.update(extra)
         await event_service.emit(
             db, name=name, actor_id=actor.user_id if actor else None,
             organization_id=organization_id,
-            payload={
-                "task_id": task.id, "title": task.title,
-                "project_id": task.project_id, "status": task.status,
-                "assignee_id": task.assignee_id, "parent_task_id": task.parent_task_id,
-                "sprint_id": task.sprint_id,
-                "decision_id": task.decision_id, "goal_id": task.goal_id,
-            },
+            payload=payload,
         )
 
     async def get(self, db, *, organization_id: str, task_id: str) -> Optional[Task]:
@@ -315,7 +318,11 @@ class TaskService:
             task.completed_at = None
         task.updated_at = utcnow()
         await db.flush()
-        await self._emit(db, "task.updated", organization_id, actor, ip_address, task)
+        assignee_change = changes.get("assignee_id")
+        await self._emit(
+            db, "task.updated", organization_id, actor, ip_address, task,
+            extra={"from_assignee_id": assignee_change[0] if assignee_change else None},
+        )
         if task.status == "completed" and old_status != "completed":
             await self._emit(db, "task.completed", organization_id, actor, ip_address, task)
             await self._alert_completed(db, organization_id, task, actor)
