@@ -257,6 +257,37 @@ _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
         "customer success", "successful customers", "customer wins",
         "happy customers", "customer results",
     )),
+    # Slice 4G.6 — Commercial & Business Performance questions route after
+    # the customer meaning so the business meaning wins over the generic
+    # health/recommendation meanings ("why are we behind target" is the
+    # flagship evidence chain, not the generic "why"; "how is the business
+    # performing" is the org-wide snapshot, not the knowledge health).
+    # Every answer assembles the canonical business-performance ledger —
+    # advisory, never executed.
+    ("business_performance", (
+        # flagship: behind-target chain
+        "behind target", "why are we behind", "why is the company behind",
+        "missed our target", "target gap", "falling short",
+        # performance overview & health
+        "how is the business performing", "how is the company performing",
+        "business performance", "business performing", "how is our performance",
+        "performance looking", "commercial performance", "commercial health",
+        "how are we tracking", "are we on track", "business health",
+        # metrics & outcomes
+        "business metric", "business metrics", "kpi", "kpis", "business outcome",
+        "business outcomes", "what is the revenue", "how are our numbers",
+        "revenue running", "metric trending", "metric trend",
+        # targets
+        "business target", "business targets", "targets", "are we going to hit",
+        "target on track", "target slipped", "target at risk",
+        # forecasts & drivers
+        "business forecast", "business forecasts", "forecast", "projected",
+        "business driver", "business drivers", "what is driving",
+        "what is moving", "what drives", "driver of revenue",
+        # recommendations
+        "what should we do about the business", "business recommendation",
+        "business recommendations", "commercial recommendations",
+    )),
     # Slice 4E.7 — the company-level loop surfaces route FIRST so the company
     # meaning wins over the knowledge-only meaning ("what changed in the
     # company since yesterday" is company change, not claim change).
@@ -3427,6 +3458,102 @@ class IntelligenceEngine:
                 "question": question, "intent": "customer_intelligence",
                 "scope": "org", "generated_at": _utcnow_iso()}
 
+    async def _business_performance_query(
+        self, db: AsyncSession, *, organization_id: str, question: str, user: Any,
+    ) -> dict[str, Any]:
+        """Slice 4G.6 — Commercial & Business Performance questions.
+
+        "why are we behind target" -> the flagship chain (target -> gap ->
+        drivers -> customers -> knowledge -> strategy -> projects ->
+        capacity -> decisions -> what to do); "how is the business
+        performing" -> the org-wide snapshot with multidimensional health;
+        "are we on track" -> the target ledger; "what is the forecast" ->
+        the forecast arcs; "what is driving revenue" -> the driver ledger
+        with the deterministic link language; "what should we do" -> the
+        bounded recommendations. Every answer assembles the canonical
+        business-performance surfaces — advisory, never executed. Scoped
+        callers get no business view — it is org-wide.
+        """
+        from app.intelligence.business_performance_engine import (
+            business_performance_engine as business_engine,
+        )
+
+        access = await self._access(db, organization_id=organization_id, user=user)
+        if not access.org_wide:
+            return {
+                "question": question, "intent": "business_performance",
+                "scope": "project",
+                "answer": "Business performance is an organization-wide view; "
+                          "your scope does not include it.",
+                "advisory_only": True,
+                "generated_at": _utcnow_iso(),
+            }
+        lowered = question.lower()
+        if any(k in lowered for k in (
+            "behind target", "behind", "missed our", "falling short",
+            "why are we", "why is the company",
+        )):
+            result = await business_engine.behind_target(
+                db, organization_id=organization_id,
+            )
+            if result is None:
+                return {
+                    "question": question, "intent": "business_performance",
+                    "scope": "org", "advisory_only": True,
+                    "answer": "No committed business target yet — record a "
+                              "metric, its outcomes and a target to ground "
+                              "the behind-target analysis.",
+                    "generated_at": _utcnow_iso(),
+                }
+            return {**result, "question": question, "intent": "business_performance",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        if any(k in lowered for k in (
+            "forecast", "projected", "predict",
+        )):
+            result = await business_engine.forecasts(
+                db, organization_id=organization_id,
+            )
+            return {**result, "question": question, "intent": "business_performance",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        if any(k in lowered for k in (
+            "driver", "driv", "moving", "what drives", "why is revenue",
+        )):
+            result = await business_engine.drivers(
+                db, organization_id=organization_id,
+            )
+            return {**result, "question": question, "intent": "business_performance",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        if any(k in lowered for k in (
+            "target", "on track", "going to hit", "slipped",
+        )):
+            result = await business_engine.targets(
+                db, organization_id=organization_id,
+            )
+            return {**result, "question": question, "intent": "business_performance",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        if any(k in lowered for k in (
+            "recommend", "should we do about the business",
+            "should we do next",
+        )):
+            result = await business_engine.recommendations(
+                db, organization_id=organization_id,
+            )
+            return {**result, "question": question, "intent": "business_performance",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        result = await business_engine.performance(
+            db, organization_id=organization_id, scope="org_wide",
+        )
+        if result is None:
+            return {
+                "question": question, "intent": "business_performance",
+                "scope": "org", "advisory_only": True,
+                "answer": "No business performance evidence yet — record "
+                          "metrics and outcomes to ground the assessment.",
+                "generated_at": _utcnow_iso(),
+            }
+        return {**result, "question": question, "intent": "business_performance",
+                "scope": "org", "generated_at": _utcnow_iso()}
+
     async def _capability_query(
         self,
         db: AsyncSession,
@@ -3715,6 +3842,11 @@ class IntelligenceEngine:
             )
         if intent == "customer_intelligence":
             return await self._customer_intelligence_query(
+                db, organization_id=organization_id,
+                question=question, user=user,
+            )
+        if intent == "business_performance":
+            return await self._business_performance_query(
                 db, organization_id=organization_id,
                 question=question, user=user,
             )

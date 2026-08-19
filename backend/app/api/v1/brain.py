@@ -6228,3 +6228,642 @@ async def brain_customer_detail(
     if result is None:
         raise HTTPException(status_code=404, detail="customer not found")
     return {**result, "generated_at": _utcnow_iso()}
+
+
+# ---------------------------------------------------------------------------
+# 4G.6 — Commercial & Business Performance Intelligence
+# ---------------------------------------------------------------------------
+
+
+def _business_float(value: Any, field: str) -> Optional[float]:
+    """Strictly parse a numeric business value (metrics, targets, forecasts)."""
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail=f"{field} must be a number")
+
+
+async def _business_metric_or_404(
+    db: AsyncSession, org: Organization, metric_key: str,
+) -> Any:
+    """Resolve a business metric by its canonical key inside the org."""
+    from app.models.business_performance import BusinessMetric
+    from app.intelligence.business_performance_engine import _metric_key
+
+    key = _metric_key(metric_key)
+    metric = (
+        await db.execute(
+            select(BusinessMetric).where(
+                BusinessMetric.organization_id == org.id,
+                BusinessMetric.key == key,
+            )
+        )
+    ).scalar_one_or_none()
+    if metric is None:
+        raise HTTPException(status_code=404, detail=f"metric '{key}' not found")
+    return metric
+
+
+@router.post("/execution/business/metrics")
+async def brain_business_create_metric(
+    body: dict[str, Any],
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("projects:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Define (or update) a canonical business metric. The governed write
+    publishes business.metric.created / business.metric.updated — the 4G.6
+    engine keeps one live metric per key and recomputes the scope."""
+    from app.models.business_performance import (
+        METRIC_DIRECTIONS,
+        METRIC_GRANULARITIES,
+        METRIC_KINDS,
+        METRIC_VISIBILITIES,
+        BusinessMetric,
+    )
+    from app.events.publisher import publish_event
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    key = (body.get("key") or body.get("metric_key") or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="key is required")
+    kind = (body.get("kind") or "other").strip()[:40]
+    if kind not in METRIC_KINDS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"kind must be one of {', '.join(METRIC_KINDS)}",
+        )
+    direction = (body.get("direction") or "up_is_good").strip()[:16]
+    if direction not in METRIC_DIRECTIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"direction must be one of {', '.join(METRIC_DIRECTIONS)}",
+        )
+    granularity = (body.get("period_granularity") or "monthly").strip()[:16]
+    if granularity not in METRIC_GRANULARITIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"period_granularity must be one of {', '.join(METRIC_GRANULARITIES)}",
+        )
+    visibility = (body.get("visibility") or "internal").strip()[:16]
+    if visibility not in METRIC_VISIBILITIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"visibility must be one of {', '.join(METRIC_VISIBILITIES)}",
+        )
+    existing = (
+        await db.execute(
+            select(BusinessMetric).where(
+                BusinessMetric.organization_id == org.id,
+                BusinessMetric.key == key,
+            )
+        )
+    ).scalar_one_or_none()
+    created = existing is None
+    event = await publish_event(
+        db, name="business.metric.created" if created else "business.metric.updated",
+        organization_id=org.id, actor_id=user.id,
+        payload={
+            "organization_id": org.id,
+            "key": key,
+            "label": (body.get("label") or key)[:200],
+            "description": (body.get("description") or "")[:4000] or None,
+            "kind": kind,
+            "direction": direction,
+            "unit": (body.get("unit") or "")[:40],
+            "period_granularity": granularity,
+            "visibility": visibility,
+            "scope": (body.get("scope") or "org_wide").strip()[:16],
+            "scope_entity_id": (body.get("scope_entity_id") or "").strip()[:32],
+            "status": (body.get("status") or "")[:16],
+        },
+    )
+    await db.commit()
+    return {
+        "metric_key": key,
+        "created": created,
+        "source_event_id": getattr(event, "id", ""),
+        "generated_at": _utcnow_iso(),
+    }
+
+
+@router.post("/execution/business/outcomes")
+async def brain_business_record_outcome(
+    body: dict[str, Any],
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("projects:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Record a business outcome observation (actual result of a metric).
+    Lazily creates the metric when it does not exist yet; always refreshes
+    the affected scope's performance assessment."""
+    from app.models.business_performance import OBSERVATION_SOURCES
+    from app.events.publisher import publish_event
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    metric_key = (body.get("metric_key") or body.get("key") or "").strip()
+    if not metric_key:
+        raise HTTPException(status_code=400, detail="metric_key is required")
+    value = _business_float(body.get("value"), "value")
+    if value is None and body.get("actual") is not None:
+        value = _business_float(body.get("actual"), "actual")
+    if value is None:
+        raise HTTPException(status_code=400, detail="value (or actual) is required")
+    source = (body.get("source") or "financial").strip()[:24]
+    if source not in OBSERVATION_SOURCES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"source must be one of {', '.join(OBSERVATION_SOURCES)}",
+        )
+    observed_at = _customer_event_time(body.get("observed_at"))
+    event = await publish_event(
+        db, name="business.outcome.recorded", organization_id=org.id,
+        actor_id=user.id,
+        payload={
+            "organization_id": org.id,
+            "metric_key": metric_key,
+            "metric_label": (body.get("metric_label") or body.get("label") or "")[:200],
+            "value": value,
+            "observed_at": observed_at.isoformat(),
+            "source": source,
+            "unit": (body.get("unit") or "")[:40],
+            "note": (body.get("note") or "")[:4000] or None,
+            "kind": (body.get("kind") or "")[:40],
+            "direction": (body.get("direction") or "")[:16],
+        },
+    )
+    await db.commit()
+    return {
+        "outcome_recorded": True,
+        "metric_key": metric_key,
+        "source_event_id": getattr(event, "id", ""),
+        "generated_at": _utcnow_iso(),
+    }
+
+
+@router.post("/execution/business/targets")
+async def brain_business_create_target(
+    body: dict[str, Any],
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("projects:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Commit (or revise) a business target with a deadline. The governed
+    write publishes business.target.created / business.target.updated; the
+    engine derives the deterministic status and the gap to attainment."""
+    from app.models.business_performance import TARGET_BELIEFS, BusinessTarget
+    from app.events.publisher import publish_event
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    metric_key = (body.get("metric_key") or "").strip()
+    metric_id = (body.get("metric_id") or "").strip()
+    if metric_id:
+        from app.models.business_performance import BusinessMetric
+
+        metric = (
+            await db.execute(
+                select(BusinessMetric).where(
+                    BusinessMetric.organization_id == org.id,
+                    BusinessMetric.id == metric_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if metric is None:
+            raise HTTPException(status_code=404, detail="metric not found")
+        metric_key = metric.key or metric_key
+    elif metric_key:
+        metric = await _business_metric_or_404(db, org, metric_key)
+        metric_id = metric.id
+    else:
+        raise HTTPException(status_code=400, detail="metric_key (or metric_id) is required")
+    target_value = _business_float(body.get("target_value"), "target_value")
+    if target_value is None:
+        raise HTTPException(status_code=400, detail="target_value is required")
+    end_at = _customer_event_time(body.get("end_at")).date()
+    period_label = (body.get("period_label") or "").strip()[:80]
+    belief = (body.get("belief") or "plausible").strip()[:16]
+    if belief not in TARGET_BELIEFS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"belief must be one of {', '.join(TARGET_BELIEFS)}",
+        )
+    existing = (
+        await db.execute(
+            select(BusinessTarget).where(
+                BusinessTarget.organization_id == org.id,
+                BusinessTarget.metric_id == metric_id,
+                BusinessTarget.period_label == period_label,
+            )
+        )
+    ).scalar_one_or_none()
+    created = existing is None
+    event = await publish_event(
+        db, name="business.target.created" if created else "business.target.updated",
+        organization_id=org.id, actor_id=user.id,
+        payload={
+            "organization_id": org.id,
+            "metric_id": metric_id,
+            "metric_key": metric_key,
+            "target_value": target_value,
+            "unit": (body.get("unit") or "")[:40],
+            "start_at": _customer_event_time(body.get("start_at")).date().isoformat()
+            if body.get("start_at") else None,
+            "end_at": end_at.isoformat(),
+            "period_label": period_label,
+            "belief": belief,
+            "rationale": (body.get("rationale") or "")[:4000] or None,
+            "owner_label": (body.get("owner_label") or "")[:200],
+            "initiative_labels": body.get("initiative_labels") or [],
+            "dependency_labels": body.get("dependency_labels") or [],
+            "open_decisions": body.get("open_decisions") or [],
+            "strategy_label": (body.get("strategy_label") or "")[:300],
+            "project_labels": body.get("project_labels") or [],
+            "periods": body.get("periods") or [],
+        },
+    )
+    await db.commit()
+    return {
+        "target_id": getattr(event, "id", ""),
+        "created": created,
+        "metric_key": metric_key,
+        "period_label": period_label,
+        "source_event_id": getattr(event, "id", ""),
+        "generated_at": _utcnow_iso(),
+    }
+
+
+@router.post("/execution/business/forecasts")
+async def brain_business_create_forecast(
+    body: dict[str, Any],
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("projects:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Commit (or revise) a bounded forecast arc for a business metric.
+    Projected knowledge only — always labeled as such, never observed fact."""
+    from app.models.business_performance import FORECAST_TYPES, BusinessForecast
+    from app.events.publisher import publish_event
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    metric_key = (body.get("metric_key") or "").strip()
+    metric_id = (body.get("metric_id") or "").strip()
+    if metric_id:
+        from app.models.business_performance import BusinessMetric
+
+        metric = (
+            await db.execute(
+                select(BusinessMetric).where(
+                    BusinessMetric.organization_id == org.id,
+                    BusinessMetric.id == metric_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if metric is None:
+            raise HTTPException(status_code=404, detail="metric not found")
+        metric_key = metric.key or metric_key
+    elif metric_key:
+        metric = await _business_metric_or_404(db, org, metric_key)
+        metric_id = metric.id
+    else:
+        raise HTTPException(status_code=400, detail="metric_key (or metric_id) is required")
+    forecast_type = (body.get("forecast_type") or "base").strip()[:16]
+    if forecast_type not in FORECAST_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"forecast_type must be one of {', '.join(FORECAST_TYPES)}",
+        )
+    horizon_label = (body.get("horizon_label") or "").strip()[:80]
+    if not horizon_label:
+        raise HTTPException(status_code=400, detail="horizon_label is required")
+    confidence = _business_float(body.get("confidence"), "confidence")
+    if confidence is not None and not 0 <= confidence <= 1:
+        raise HTTPException(status_code=400, detail="confidence must be between 0 and 1")
+    existing = (
+        await db.execute(
+            select(BusinessForecast).where(
+                BusinessForecast.organization_id == org.id,
+                BusinessForecast.metric_id == metric_id,
+                BusinessForecast.horizon_label == horizon_label,
+                BusinessForecast.forecast_type == forecast_type,
+            )
+        )
+    ).scalar_one_or_none()
+    created = existing is None
+    event = await publish_event(
+        db, name="business.forecast.created" if created else "business.forecast.updated",
+        organization_id=org.id, actor_id=user.id,
+        payload={
+            "organization_id": org.id,
+            "metric_id": metric_id,
+            "metric_key": metric_key,
+            "horizon_label": horizon_label,
+            "forecast_type": forecast_type,
+            "basis": (body.get("basis") or "")[:300],
+            "path": body.get("path") or [],
+            "low": _business_float(body.get("low"), "low"),
+            "midpoint": _business_float(body.get("midpoint"), "midpoint"),
+            "high": _business_float(body.get("high"), "high"),
+            "confidence": confidence if confidence is not None else 0.5,
+            "confidence_basis": (body.get("confidence_basis") or "")[:300],
+            "required_conditions": body.get("required_conditions") or [],
+            "risk_factors": body.get("risk_factors") or [],
+            "growth_rate": _business_float(body.get("growth_rate"), "growth_rate"),
+        },
+    )
+    await db.commit()
+    return {
+        "forecast_id": getattr(event, "id", ""),
+        "created": created,
+        "metric_key": metric_key,
+        "horizon_label": horizon_label,
+        "source_event_id": getattr(event, "id", ""),
+        "generated_at": _utcnow_iso(),
+    }
+
+
+@router.post("/execution/business/drivers")
+async def brain_business_detect_driver(
+    body: dict[str, Any],
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("projects:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Record a detected business driver: evidence-backed, with the
+    deterministic link language to the affected metrics (linked to /
+    strongly associated with / evidence indicates)."""
+    from app.models.business_performance import (
+        DRIVER_DIRECTIONS,
+        DRIVER_STRENGTHS,
+        DRIVER_TYPES,
+        IMPACT_SHAPES,
+    )
+    from app.events.publisher import publish_event
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    key = (body.get("key") or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="key is required")
+    title = (body.get("title") or key)[:200]
+    driver_type = (body.get("driver_type") or "market").strip()[:24]
+    if driver_type not in DRIVER_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"driver_type must be one of {', '.join(DRIVER_TYPES)}",
+        )
+    strength = (body.get("strength") or "moderate").strip()[:16]
+    if strength not in DRIVER_STRENGTHS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"strength must be one of {', '.join(DRIVER_STRENGTHS)}",
+        )
+    direction = (body.get("direction") or "toward").strip()[:16]
+    if direction not in DRIVER_DIRECTIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"direction must be one of {', '.join(DRIVER_DIRECTIONS)}",
+        )
+    impact_shape = (body.get("impact_shape") or "aggregation").strip()[:16]
+    if impact_shape not in IMPACT_SHAPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"impact_shape must be one of {', '.join(IMPACT_SHAPES)}",
+        )
+    event = await publish_event(
+        db, name="business.driver.detected", organization_id=org.id,
+        actor_id=user.id,
+        payload={
+            "organization_id": org.id,
+            "key": key,
+            "title": title,
+            "driver_type": driver_type,
+            "strength": strength,
+            "direction": direction,
+            "impact_shape": impact_shape,
+            "metric_keys": body.get("metric_keys") or [],
+            "monetized_impact": _business_float(body.get("monetized_impact"), "monetized_impact"),
+            "evidence_count": body.get("evidence_count") or 0,
+            "note": (body.get("note") or "")[:4000] or None,
+        },
+    )
+    await db.commit()
+    return {
+        "driver_key": key,
+        "source_event_id": getattr(event, "id", ""),
+        "generated_at": _utcnow_iso(),
+    }
+
+
+@router.get("/execution/business/metrics")
+async def brain_business_metrics(
+    scope: Optional[str] = None,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """The business metric ledger: every metric with its current/previous
+    value, direction-aware trend and linked targets."""
+    from app.intelligence.business_performance_engine import business_performance_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await business_performance_engine.metrics(
+        db, organization_id=org.id, scope=scope or None,
+    )
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/business/metrics/{metric_key}")
+async def brain_business_metric(
+    metric_key: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """One metric's full evidence: the observation series, targets,
+    forecasts, drivers and recorded links."""
+    from app.intelligence.business_performance_engine import (
+        _metric_key,
+        business_performance_engine,
+    )
+    from app.models.business_performance import BusinessMetric
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    metric = (
+        await db.execute(
+            select(BusinessMetric).where(
+                BusinessMetric.organization_id == org.id,
+                BusinessMetric.key == _metric_key(metric_key),
+            )
+        )
+    ).scalar_one_or_none()
+    if metric is None:
+        raise HTTPException(status_code=404, detail="metric not found")
+    result = await business_performance_engine.metric(
+        db, organization_id=org.id, metric_id=metric.id,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="metric not found")
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/business/targets")
+async def brain_business_targets(
+    status: Optional[str] = None,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """The committed target ledger with deterministic statuses and gaps."""
+    from app.intelligence.business_performance_engine import business_performance_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await business_performance_engine.targets(
+        db, organization_id=org.id, status=status or None,
+    )
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/business/targets/{target_id}")
+async def brain_business_target(
+    target_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """One target's command center: metric, observations, gap analysis,
+    linked initiatives/projects/dependencies/decisions."""
+    from app.intelligence.business_performance_engine import business_performance_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await business_performance_engine.target(
+        db, organization_id=org.id, target_id=target_id,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="target not found")
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/business/forecasts")
+async def brain_business_forecasts(
+    metric_key: Optional[str] = None,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """The forecast ledger: conservative/base/optimistic arcs with their
+    basis and confidence — always labeled as projected, never observed."""
+    from app.intelligence.business_performance_engine import business_performance_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await business_performance_engine.forecasts(
+        db, organization_id=org.id, metric_key=metric_key or None,
+    )
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/business/drivers")
+async def brain_business_drivers(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """The detected driver ledger with the deterministic link language to
+    the metrics they move."""
+    from app.intelligence.business_performance_engine import business_performance_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await business_performance_engine.drivers(
+        db, organization_id=org.id,
+    )
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/business/performance")
+async def brain_business_performance(
+    scope: str = "org_wide",
+    scope_entity_id: str = "",
+    period_label: Optional[str] = None,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """The current evidence-backed performance assessment of a scope:
+    multidimensional health, trajectories, drivers, gains/losses and the
+    summary narrative."""
+    from app.intelligence.business_performance_engine import business_performance_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await business_performance_engine.performance(
+        db, organization_id=org.id, scope=scope,
+        scope_entity_id=scope_entity_id, period_label=period_label or None,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="no performance evidence yet")
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/business/behind-target")
+async def brain_business_behind_target(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """The flagship 'why are we behind target' chain: target -> gap ->
+    drivers -> customers -> knowledge -> strategy -> projects -> capacity
+    -> decisions -> what to do. Advisory only."""
+    from app.intelligence.business_performance_engine import business_performance_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await business_performance_engine.behind_target(
+        db, organization_id=org.id,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="no target yet")
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/business/recommendations")
+async def brain_business_recommendations(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """What leadership should do next, derived deterministically from the
+    current snapshot and the target ledger. Advisory only, bounded, every
+    item carries its evidence."""
+    from app.intelligence.business_performance_engine import business_performance_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await business_performance_engine.recommendations(
+        db, organization_id=org.id,
+    )
+    return {**result, "generated_at": _utcnow_iso()}

@@ -52,6 +52,7 @@ import { timeAgo } from "@/lib/utils";
 
 import { CoordinationTab } from "./coordination-tab";
 import { CustomerIntelligenceTab } from "./customer-intelligence-tab";
+import { BusinessPerformanceTab } from "./business-performance-tab";
 
 const HEALTH_TONE: Record<string, "success" | "warning" | "danger" | "neutral" | "brand"> = {
   healthy: "success",
@@ -194,6 +195,7 @@ export default function ExecutionPage() {
           { id: "command", label: "Command Center" },
           { id: "coordination", label: "Coordination", count: coordOpen },
           { id: "customers", label: "Customer Intelligence" },
+          { id: "business", label: "Business Performance" },
         ]}
         active={tab}
         onChange={setTab}
@@ -202,6 +204,8 @@ export default function ExecutionPage() {
       {tab === "coordination" && <CoordinationTab onOpenCount={setCoordOpen} />}
 
       {tab === "customers" && <CustomerIntelligenceTab />}
+
+      {tab === "business" && <BusinessPerformanceTab />}
 
       {tab === "command" && (
       <>

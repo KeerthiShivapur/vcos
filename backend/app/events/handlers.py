@@ -3061,3 +3061,27 @@ async def handle_customer_intelligence_state(db, event, payload):
     await customer_intelligence_engine.record_event(
         db, organization_id=org_id, event=event, payload=payload,
     )
+
+
+@on("business.metric.created")
+@on("business.metric.updated")
+@on("business.outcome.recorded")
+@on("business.target.created")
+@on("business.target.updated")
+@on("business.forecast.created")
+@on("business.forecast.updated")
+@on("business.driver.detected")
+@on("business.performance.changed")
+async def handle_business_performance_state(db, event, payload):
+    """Feed the canonical Business Performance Intelligence record (4G.6)
+    from events: canonical metrics, outcome observations, committed targets,
+    bounded forecasts and detected drivers. Only the affected metric's scope
+    snapshot is recomputed (incremental, exact-once snapshots and history)."""
+    from app.intelligence.business_performance_engine import business_performance_engine
+
+    org_id = payload.get("organization_id") or event.organization_id
+    if not org_id:
+        return
+    await business_performance_engine.record_event(
+        db, organization_id=org_id, event=event, payload=payload,
+    )

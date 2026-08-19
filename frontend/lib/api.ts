@@ -9941,3 +9941,525 @@ export async function askCustomerIntelligence(question: string): Promise<Record<
     body: { question },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Slice 4G.6 · Commercial & Business Performance Intelligence
+// ---------------------------------------------------------------------------
+
+export interface BusinessMetricRow {
+  metric_id: string;
+  key: string;
+  label: string;
+  kind: string;
+  direction: string;
+  unit: string;
+  status: string;
+  visibility: string;
+  period_granularity: string;
+  scope: string;
+  scope_entity_id: string;
+  current: number | null;
+  previous: number | null;
+  pct_change: number | null;
+  trend: string;
+  observed_count: number;
+  last_observed_at: string;
+  target: {
+    target_id: string;
+    value: number;
+    unit: string;
+    period_label: string;
+    status: string;
+    end_at: string;
+  } | null;
+}
+
+export interface BusinessMetricsResponse {
+  advisory_only: boolean;
+  total: number;
+  metrics: BusinessMetricRow[];
+  generated_at: string;
+}
+
+export interface BusinessTargetRow {
+  target_id: string;
+  metric_id: string;
+  metric_key: string;
+  metric_label: string;
+  target_value: number;
+  current: number | null;
+  unit: string;
+  period_label: string;
+  end_at: string;
+  status: string;
+  belief: string;
+  gap: number | null;
+}
+
+export interface BusinessTargetsResponse {
+  advisory_only: boolean;
+  total: number;
+  by_status: Record<string, number>;
+  targets: BusinessTargetRow[];
+  generated_at: string;
+}
+
+export interface BusinessForecastRow {
+  forecast_id: string;
+  metric_id: string;
+  metric_label: string;
+  forecast_type: string;
+  horizon_label: string;
+  basis: string;
+  path: number[];
+  low: number | null;
+  midpoint: number | null;
+  high: number | null;
+  confidence: number | null;
+  confidence_basis: string;
+  required_conditions: string[];
+  risk_factors: string[];
+  last_observed_value: number | null;
+  growth_rate: number | null;
+}
+
+export interface BusinessForecastsResponse {
+  advisory_only: boolean;
+  total: number;
+  forecasts: BusinessForecastRow[];
+  generated_at: string;
+}
+
+export interface BusinessDriverRow {
+  driver_key: string;
+  title: string;
+  driver_type: string;
+  strength: string;
+  direction: string;
+  impact_shape: string;
+  metric_keys: string[];
+  monetized_impact: number | null;
+  relation_summary: string;
+  linked_entities: string[];
+  kind: string;
+  kind_label: string;
+  description: string;
+}
+
+export interface BusinessDriversResponse {
+  advisory_only: boolean;
+  total: number;
+  by_type: Record<string, number>;
+  drivers: BusinessDriverRow[];
+  generated_at: string;
+}
+
+export interface BusinessHealthDimension {
+  key: string;
+  label: string;
+  score: number;
+  state: string;
+  reasons: string[];
+  positives: string[];
+  top_metrics: string[];
+  evidence_count: number;
+  updated_at: string;
+  metrics_count: number;
+}
+
+export interface BusinessTrajectoryRow {
+  metric_id: string;
+  metric_key: string;
+  label: string;
+  kind: string;
+  current: number | null;
+  previous: number | null;
+  delta: number | null;
+  pct_change: number | null;
+  trend: string;
+  unit: string;
+  direction: string;
+  status: string;
+  observed_count: number;
+  last_observed_at: string;
+}
+
+export interface BusinessPerformanceResponse {
+  advisory_only: boolean;
+  scope: string;
+  scope_entity_id: string;
+  compute_mode: string;
+  period_label: string;
+  health: {
+    score: number;
+    state: string;
+    dimensions: BusinessHealthDimension[];
+  };
+  metrics: {
+    total: number;
+    improving: number;
+    worsening: number;
+    trajectories: BusinessTrajectoryRow[];
+  };
+  drivers: BusinessDriverRow[];
+  gains_losses: Array<{
+    kind: string;
+    label: string;
+    key: string;
+    delta: number | null;
+    pct_change: number | null;
+    trend: string;
+    unit: string;
+  }>;
+  links: Array<{
+    link_id: string;
+    target_type: string;
+    target_id: string;
+    kind: string;
+    kind_label: string;
+    weight: number;
+    evidence_count: number;
+    reasoning: string;
+  }>;
+  summary: string[];
+  generated_at: string;
+  history: Array<{
+    period_label: string;
+    health_state: string;
+    health_score: number;
+    occurred_at: string;
+    event_name: string;
+  }>;
+}
+
+export interface BusinessRecommendationRow {
+  kind: string;
+  title: string;
+  why: string;
+  evidence_count: number;
+}
+
+export interface BusinessRecommendationsResponse {
+  advisory_only: boolean;
+  total: number;
+  recommendations: BusinessRecommendationRow[];
+  generated_at: string;
+}
+
+export interface BusinessMetricDetailResponse {
+  advisory_only: boolean;
+  metric: {
+    metric_id: string;
+    key: string;
+    label: string;
+    kind: string;
+    direction: string;
+    unit: string;
+    status: string;
+    visibility: string;
+    period_granularity: string;
+    scope: string;
+    scope_entity_id: string;
+    description: string;
+    last_value: number | null;
+    last_observed_at: string;
+  };
+  observations: Array<{
+    observations_id: string;
+    value: number;
+    observed_at: string;
+    unit: string;
+    label: string;
+    source: string;
+    provenance: string;
+    note: string;
+  }>;
+  targets: BusinessTargetRow[];
+  forecasts: BusinessForecastRow[];
+  drivers: Array<{
+    driver_key: string;
+    title: string;
+    strength: string;
+    direction: string;
+    kind: string;
+    monetized_impact: number | null;
+  }>;
+  links: Array<{
+    link_id: string;
+    target_type: string;
+    target_id: string;
+    kind: string;
+    kind_label: string;
+    weight: number;
+    evidence_count: number;
+    reasoning: string;
+  }>;
+  generated_at: string;
+}
+
+export interface BusinessTargetDetailResponse {
+  advisory_only: boolean;
+  target: {
+    target_id: string;
+    metric_id: string;
+    metric_label: string;
+    target_value: number;
+    current: number | null;
+    unit: string;
+    period_label: string;
+    start_at: string;
+    end_at: string;
+    days_left: number;
+    status: string;
+    belief: string;
+    rationale: string;
+    owner_label: string;
+    strategy_label: string;
+    periods: string[];
+    reviews: Array<{ status: string; at: string; note: string }>;
+    progress: number | null;
+    gap: number | null;
+  };
+  metric: {
+    metric_id: string;
+    key: string;
+    label: string;
+    kind: string;
+    direction: string;
+    unit: string;
+    scope: string;
+    scope_entity_id: string;
+  };
+  observations: Array<{
+    value: number;
+    observed_at: string;
+    label: string;
+    source: string;
+    provenance: string;
+  }>;
+  achievements: Array<{ value: number; observed_at: string; provenance: string }>;
+  related: {
+    initiatives: string[];
+    projects: string[];
+    dependencies: string[];
+    decisions: string[];
+    customers: string[];
+  };
+  project_states: Array<{
+    project_id: string;
+    name: string;
+    status: string;
+    execution_health: string;
+  }>;
+  generated_at: string;
+}
+
+export interface BusinessBehindTargetResponse {
+  advisory_only: boolean;
+  target: {
+    target_id: string;
+    metric_id: string;
+    metric_label: string;
+    target_value: number;
+    current: number | null;
+    unit: string;
+    period_label: string;
+    end_at: string;
+    status: string;
+    belief: string;
+    gap: number | null;
+    owner_label: string;
+    strategy_label: string;
+  };
+  metric: {
+    metric_id: string;
+    key: string;
+    label: string;
+    kind: string;
+    direction: string;
+    unit: string;
+    scope: string;
+    last_observed_at: string;
+  };
+  trajectory: Array<{ value: number; observed_at: string; label: string; source: string }>;
+  drivers: Array<{
+    driver_key: string;
+    title: string;
+    strength: string;
+    direction: string;
+    kind: string;
+    monetized_impact: number | null;
+  }>;
+  forecasts: Array<{
+    forecast_id: string;
+    forecast_type: string;
+    horizon_label: string;
+    low: number | null;
+    midpoint: number | null;
+    high: number | null;
+    confidence: number | null;
+  }>;
+  customers: {
+    at_risk: Array<{ customer_id: string; name: string; reasons: string[] }>;
+    concerned: Array<{ customer_id: string; name: string; reasons: string[] }>;
+    outcomes_matched: number;
+    outcomes_improved: number;
+  };
+  knowledge: Array<{ topic_id: string; name: string; matched: boolean; note: string }>;
+  strategy: Array<{
+    type: string;
+    id: string;
+    title: string;
+    status: string;
+    expected_outcome: string;
+  }>;
+  projects: Array<{
+    project_id: string;
+    name: string;
+    status: string;
+    execution_health: string;
+    label: string;
+  }>;
+  dependencies: { incidents: string[]; incident_count: number };
+  capacity: { bottlenecks: string[] };
+  decisions: { open: Array<{ id: string; title: string; open_actions: number }>; open_count: number };
+  expected_outcomes: string[];
+  learning: string[];
+  what_to_do: Array<{
+    kind: string;
+    action: string;
+    rationale: string;
+    evidence: string[];
+    target: string;
+    gap: number | null;
+    unit: string;
+    days_left: number;
+    confidence: number;
+  }>;
+  summary: string[];
+  generated_at: string;
+}
+
+export async function getBusinessMetrics(): Promise<BusinessMetricsResponse> {
+  return api<BusinessMetricsResponse>("/brain/execution/business/metrics");
+}
+
+export async function getBusinessMetric(metricKey: string): Promise<BusinessMetricDetailResponse> {
+  return api<BusinessMetricDetailResponse>(`/brain/execution/business/metrics/${metricKey}`);
+}
+
+export async function getBusinessTargets(status?: string): Promise<BusinessTargetsResponse> {
+  return api<BusinessTargetsResponse>(
+    `/brain/execution/business/targets${status ? `?status=${status}` : ""}`
+  );
+}
+
+export async function getBusinessTarget(targetId: string): Promise<BusinessTargetDetailResponse> {
+  return api<BusinessTargetDetailResponse>(`/brain/execution/business/targets/${targetId}`);
+}
+
+export async function getBusinessForecasts(): Promise<BusinessForecastsResponse> {
+  return api<BusinessForecastsResponse>("/brain/execution/business/forecasts");
+}
+
+export async function getBusinessDrivers(): Promise<BusinessDriversResponse> {
+  return api<BusinessDriversResponse>("/brain/execution/business/drivers");
+}
+
+export async function getBusinessPerformance(): Promise<BusinessPerformanceResponse> {
+  return api<BusinessPerformanceResponse>("/brain/execution/business/performance");
+}
+
+export async function getBusinessBehindTarget(): Promise<BusinessBehindTargetResponse> {
+  return api<BusinessBehindTargetResponse>("/brain/execution/business/behind-target");
+}
+
+export async function getBusinessRecommendations(): Promise<BusinessRecommendationsResponse> {
+  return api<BusinessRecommendationsResponse>("/brain/execution/business/recommendations");
+}
+
+export async function recordBusinessMetric(input: {
+  key: string;
+  label?: string;
+  description?: string;
+  kind?: string;
+  direction?: string;
+  unit?: string;
+  period_granularity?: string;
+  visibility?: string;
+  scope?: string;
+}): Promise<{ metric_key: string; created: boolean; source_event_id: string; generated_at: string }> {
+  return api<{ metric_key: string; created: boolean; source_event_id: string; generated_at: string }>(
+    "/brain/execution/business/metrics",
+    { method: "POST", body: input }
+  );
+}
+
+export async function recordBusinessOutcome(input: {
+  metric_key: string;
+  value: number;
+  observed_at?: string;
+  source?: string;
+  unit?: string;
+  note?: string;
+}): Promise<{ outcome_recorded: boolean; metric_key: string; source_event_id: string; generated_at: string }> {
+  return api<{ outcome_recorded: boolean; metric_key: string; source_event_id: string; generated_at: string }>(
+    "/brain/execution/business/outcomes",
+    { method: "POST", body: input }
+  );
+}
+
+export async function recordBusinessTarget(input: {
+  metric_key: string;
+  target_value: number;
+  end_at: string;
+  period_label?: string;
+  belief?: string;
+  unit?: string;
+  rationale?: string;
+  owner_label?: string;
+}): Promise<{ target_id: string; created: boolean; metric_key: string; period_label: string; source_event_id: string; generated_at: string }> {
+  return api<{ target_id: string; created: boolean; metric_key: string; period_label: string; source_event_id: string; generated_at: string }>(
+    "/brain/execution/business/targets",
+    { method: "POST", body: input }
+  );
+}
+
+export async function recordBusinessForecast(input: {
+  metric_key: string;
+  forecast_type?: string;
+  horizon_label?: string;
+  low?: number;
+  midpoint?: number;
+  high?: number;
+  confidence?: number;
+  basis?: string;
+}): Promise<{ forecast_id: string; created: boolean; metric_key: string; source_event_id: string; generated_at: string }> {
+  return api<{ forecast_id: string; created: boolean; metric_key: string; source_event_id: string; generated_at: string }>(
+    "/brain/execution/business/forecasts",
+    { method: "POST", body: input }
+  );
+}
+
+export async function recordBusinessDriver(input: {
+  key: string;
+  title: string;
+  driver_type?: string;
+  strength?: string;
+  direction?: string;
+  impact_shape?: string;
+  metric_keys?: string[];
+  description?: string;
+}): Promise<{ driver_key: string; created: boolean; source_event_id: string; generated_at: string }> {
+  return api<{ driver_key: string; created: boolean; source_event_id: string; generated_at: string }>(
+    "/brain/execution/business/drivers",
+    { method: "POST", body: input }
+  );
+}
+
+export async function askBusinessPerformance(question: string): Promise<Record<string, unknown>> {
+  return api<Record<string, unknown>>("/brain/knowledge/query", {
+    method: "POST",
+    body: { question },
+  });
+}

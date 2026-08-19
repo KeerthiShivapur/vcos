@@ -1406,7 +1406,7 @@ class CustomerIntelligenceEngine:
         """Do our own knowledge topics and learnings actually cover the
         customer themes we collect? Coverage first, then the matched items."""
         known = {
-            (t.topic.lower(), t.category.lower())
+            (t.name.lower(), t.category.lower())
             for t in list(
                 (
                     await db.execute(

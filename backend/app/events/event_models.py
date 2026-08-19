@@ -154,6 +154,16 @@ EVENT_CATALOG: dict[str, str] = {
     "customer.commitment.updated": "A customer commitment changed",
     "customer.commitment.delivered": "A customer commitment was delivered",
     "customer.outcome.recorded": "A customer outcome was recorded",
+    # Slice 4G.6 — Commercial & Business Performance Intelligence.
+    "business.metric.created": "A business metric was defined",
+    "business.metric.updated": "A business metric changed or was observed",
+    "business.outcome.recorded": "A business outcome observation was recorded",
+    "business.target.created": "A business target was committed",
+    "business.target.updated": "A business target changed",
+    "business.forecast.created": "A business forecast was committed",
+    "business.forecast.updated": "A business forecast changed",
+    "business.driver.detected": "A business driver was detected from evidence",
+    "business.performance.changed": "Business performance was recomputed",
     # --- risks
     "risk.detected": "A risk was detected",
     "risk.updated": "A risk was updated",

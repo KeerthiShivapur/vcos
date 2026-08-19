@@ -426,6 +426,16 @@ from app.models.customer_intelligence import (  # noqa: F401
     CustomerSignal,
     CustomerTheme,
 )
+from app.models.business_performance import (  # noqa: F401
+    BusinessDriver,
+    BusinessForecast,
+    BusinessMetric,
+    BusinessMetricObservation,
+    BusinessPerformanceHistory,
+    BusinessPerformanceLink,
+    BusinessPerformanceSnapshot,
+    BusinessTarget,
+)
 
 __all__ = [
     "Organization",

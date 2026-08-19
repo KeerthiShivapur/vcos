@@ -124,7 +124,7 @@ test("task execution: assignee runs the work — edit, subtasks, comments, attac
   // 6. Bob comments and mentions the founder — the founder is notified.
   await bob.getByPlaceholder("Write a comment…").fill(`@${founderEmail} please review the API design`);
   await bob.getByRole("button", { name: "Comment", exact: true }).click();
-  await expect(bob.getByText("Comment added")).toBeVisible({ timeout: 10_000 });
+  await expect(bob.getByRole("main").getByText("Comment added")).toBeVisible({ timeout: 10_000 });
   await expect(bob.getByText("please review the API design")).toBeVisible();
   await expect
     .poll(
@@ -141,7 +141,7 @@ test("task execution: assignee runs the work — edit, subtasks, comments, attac
   await bob.getByPlaceholder("File name (e.g. spec.pdf)").fill("checkout-spec.pdf");
   await bob.getByPlaceholder("https://…").fill("https://example.com/checkout-spec.pdf");
   await bob.getByRole("button", { name: "Attach" }).click();
-  await expect(bob.getByText("Attachment added")).toBeVisible({ timeout: 10_000 });
+  await expect(bob.getByRole("main").getByText("Attachment added")).toBeVisible({ timeout: 10_000 });
   await expect(bob.getByRole("link", { name: "checkout-spec.pdf" })).toBeVisible();
 
   // 8. Bob breaks the work into subtasks — parent progress follows.
