@@ -10463,3 +10463,327 @@ export async function askBusinessPerformance(question: string): Promise<Record<s
     body: { question },
   });
 }
+
+// 4G.7 — Universal Company Operating Intelligence
+
+export interface CompanyStateDimensionGoal {
+  goal_id?: string;
+  title?: string;
+  health?: string | number | null;
+  coverage?: string | number | null;
+  priority_label?: string;
+}
+
+export interface CompanyStateDimensionProject {
+  project_id?: string;
+  name?: string;
+  health_status?: string;
+  health_score?: number;
+  primary_cause?: string;
+}
+
+export interface CompanyStateDimension {
+  label?: string;
+  state?: string;
+  headline?: string;
+  goals?: CompanyStateDimensionGoal[];
+  focus?: { title?: string; why?: string }[];
+  projects?: CompanyStateDimensionProject[];
+  incidents?: unknown[];
+  top_constraint?: { capability?: string; gap?: number; recommended_action?: string } | null;
+  bottlenecks?: unknown[];
+  person_overloads?: unknown[];
+  team_overloads?: unknown[];
+  customers?: unknown[];
+  commitments?: unknown[];
+  metrics?: unknown[];
+  knowledge?: unknown[];
+}
+
+export interface CompanyStateResponse {
+  advisory_only: boolean;
+  organization_id: string;
+  dimensions: Record<string, CompanyStateDimension>;
+  attention: { priority: number; kind: string; title: string; why?: string }[];
+  generated_at: string;
+}
+
+export interface CompanyDomainConstraint {
+  label?: string;
+  detail?: string;
+  affected?: string[];
+}
+
+export interface CompanyDomainRow {
+  key: string;
+  label: string;
+  score: number;
+  state: string;
+  reasons: string[];
+  positives: string[];
+  affected: string[];
+  constraint: CompanyDomainConstraint | null;
+  root_cause?: string | null;
+  interventions: string[];
+  evidence_count: number;
+}
+
+export interface CompanyPrimaryConstraint extends CompanyDomainConstraint {
+  domain?: string;
+  domain_label?: string;
+  score?: number;
+  state?: string;
+  root_cause?: string | null;
+  interventions?: string[];
+}
+
+export interface CompanyHealthHistoryRow {
+  occurred_at: string;
+  company_score: number;
+  company_state: string;
+  event_name?: string;
+  summary?: string;
+}
+
+export interface CompanyHealthResponse {
+  advisory_only: boolean;
+  company_score: number;
+  company_state: string;
+  domains: CompanyDomainRow[];
+  primary_constraint: CompanyPrimaryConstraint | null;
+  attention: { priority: number; kind: string; title: string; why?: string }[];
+  summary?: string;
+  history: CompanyHealthHistoryRow[];
+  generated_at: string;
+}
+
+export interface CompanyRootCauseStep {
+  layer: string;
+  label: string;
+  detail: string;
+  references: string[];
+}
+
+export interface CompanyRootCauseResponse {
+  advisory_only: boolean;
+  problem: string;
+  matched_on: string;
+  chain: CompanyRootCauseStep[];
+  resolution_hint: string[];
+}
+
+export interface CompanyImpactStep {
+  step: string;
+  label: string;
+  detail: string;
+}
+
+export interface CompanyImpactResponse {
+  advisory_only: boolean;
+  subject_type: string;
+  subject_id: string;
+  label?: string;
+  chain: CompanyImpactStep[];
+  consequence_summary: string;
+}
+
+export interface CompanyRecommendationRow {
+  key: string;
+  source: string;
+  kind: string;
+  title: string;
+  why?: string;
+  impact_label?: string;
+  confidence: string;
+  owner_label: string;
+  expected_improvement: string;
+  evidence_ref: string;
+}
+
+export interface CompanyRecommendationsResponse {
+  advisory_only: boolean;
+  total: number;
+  recommendations: CompanyRecommendationRow[];
+  note?: string;
+  generated_at: string;
+}
+
+export interface CompanyWhatIfConsequence {
+  label: string;
+  impact: string;
+  detail: string;
+  confidence: string;
+}
+
+export interface CompanyWhatIfResponse {
+  advisory_only: boolean;
+  scenario_type: string;
+  scenario: Record<string, unknown>;
+  consequences: CompanyWhatIfConsequence[];
+  not_a_prediction: boolean;
+  note: string;
+  change?: Record<string, unknown>;
+  generated_at: string;
+}
+
+export interface CompanyChangeRow {
+  kind: string;
+  domain?: string;
+  label: string;
+  why_matters?: string;
+  detail: string[];
+  from_score?: number;
+  to_score?: number;
+}
+
+export interface CompanyChangesResponse {
+  advisory_only: boolean;
+  window: string;
+  company_score_before?: number;
+  company_score_after?: number;
+  company_state_before?: string;
+  company_state_after?: string;
+  changes: CompanyChangeRow[];
+  generated_at: string;
+}
+
+export interface CompanyDecisionRow {
+  decision_id: string;
+  kind: string;
+  title: string;
+  recommendation_key?: string;
+  state: string;
+  impact_label?: string;
+  expected_improvement?: string;
+  confidence?: number | null;
+  owner_label?: string;
+  approver_label?: string;
+  approved_at?: string | null;
+  executed_at?: string | null;
+  outcome_kind?: string | null;
+  effectiveness?: number | null;
+  lesson?: string | null;
+  note?: string;
+  updated_at?: string;
+}
+
+export interface CompanyLearningRow {
+  decision_id: string;
+  title: string;
+  kind: string;
+  outcome_kind?: string;
+  effectiveness?: number | null;
+  lesson?: string;
+  recorded_at?: string;
+}
+
+export interface CompanyMemoryResponse {
+  advisory_only: boolean;
+  total_decisions: number;
+  decisions: CompanyDecisionRow[];
+  learnings: CompanyLearningRow[];
+  generated_at: string;
+}
+
+export async function getCompanyState(): Promise<CompanyStateResponse> {
+  return api<CompanyStateResponse>("/brain/execution/company/state");
+}
+
+export async function getCompanyOperatingHealth(): Promise<CompanyHealthResponse> {
+  return api<CompanyHealthResponse>("/brain/execution/company/health");
+}
+
+export async function getCompanyRootCause(problem: string): Promise<CompanyRootCauseResponse> {
+  return api<CompanyRootCauseResponse>("/brain/execution/company/root-cause", {
+    query: { problem },
+  });
+}
+
+export async function getCompanyImpact(
+  subjectType: string,
+  subjectId: string
+): Promise<CompanyImpactResponse> {
+  return api<CompanyImpactResponse>("/brain/execution/company/impact", {
+    query: { subject_type: subjectType, subject_id: subjectId },
+  });
+}
+
+export async function getCompanyRecommendations(): Promise<CompanyRecommendationsResponse> {
+  return api<CompanyRecommendationsResponse>("/brain/execution/company/recommendations");
+}
+
+export async function runCompanyWhatIf(
+  scenarioType: string,
+  payload: Record<string, string | number>
+): Promise<CompanyWhatIfResponse> {
+  return api<CompanyWhatIfResponse>("/brain/execution/company/what-if", {
+    method: "POST",
+    body: { scenario_type: scenarioType, payload },
+  });
+}
+
+export async function getCompanyChanges(): Promise<CompanyChangesResponse> {
+  return api<CompanyChangesResponse>("/brain/execution/company/changes");
+}
+
+export async function getCompanyMemory(): Promise<CompanyMemoryResponse> {
+  return api<CompanyMemoryResponse>("/brain/execution/company/memory");
+}
+
+export async function recordCompanyDecision(input: {
+  kind: string;
+  title: string;
+  recommendation_key?: string;
+  rationale?: string;
+  note?: string;
+  impact_label?: string;
+  expected_improvement?: string;
+  confidence?: number;
+  owner_label?: string;
+}): Promise<{
+  decision_recorded: boolean;
+  decision_id: string;
+  kind: string;
+  title: string;
+  state: string;
+  source_event_id: string;
+  generated_at: string;
+}> {
+  return api<{
+    decision_recorded: boolean;
+    decision_id: string;
+    kind: string;
+    title: string;
+    state: string;
+    source_event_id: string;
+    generated_at: string;
+  }>("/brain/execution/company/decisions", { method: "POST", body: input });
+}
+
+export async function executeCompanyDecision(
+  decisionId: string
+): Promise<{ executed: boolean; decision_id: string; source_event_id: string; generated_at: string }> {
+  return api<{ executed: boolean; decision_id: string; source_event_id: string; generated_at: string }>(
+    `/brain/execution/company/decisions/${decisionId}/execute`,
+    { method: "POST", body: {} }
+  );
+}
+
+export async function recordCompanyOutcome(
+  decisionId: string,
+  input: { outcome_kind: string; effectiveness?: number; lesson?: string; evidence?: string[] }
+): Promise<{
+  outcome_recorded: boolean;
+  decision_id: string;
+  outcome_kind: string;
+  source_event_id: string;
+  generated_at: string;
+}> {
+  return api<{
+    outcome_recorded: boolean;
+    decision_id: string;
+    outcome_kind: string;
+    source_event_id: string;
+    generated_at: string;
+  }>(`/brain/execution/company/decisions/${decisionId}/outcome`, { method: "POST", body: input });
+}

@@ -428,21 +428,27 @@ class ResourceAllocationEngine:
                     )
                 ).scalars().all()
             }
-        customer_ids = list(
+        customer_links = list(
             (
                 await db.execute(
-                    select(CustomerProjectLink.customer_id).where(
+                    select(
+                        CustomerProjectLink.customer_id,
+                        CustomerProjectLink.project_id,
+                    ).where(
                         CustomerProjectLink.organization_id == organization_id,
                         CustomerProjectLink.project_id.in_(project_ids),
                         CustomerProjectLink.status == "active",
                     )
                 )
-            ).scalars().all()
+            ).all()
+        )
+        customer_ids = sorted(
+            {cid for cid, _ in customer_links}
         )[:MAX_GOALS_STAKES]
         customers = {}
         if customer_ids:
             customers = {
-                c.id: c.name
+                c.id: getattr(c, "company_name", None) or c.name
                 for c in (
                     await db.execute(
                         select(Customer).where(
@@ -467,10 +473,14 @@ class ResourceAllocationEngine:
                     "id": goal.id, "title": goal.title, "priority": goal.priority,
                     "status": goal.status,
                 })
-        for pid, entry in result.items():
+        for pid in project_ids:
+            entry = result.setdefault(pid, {
+                "initiatives": [], "goals": [], "customers": set(),
+            })
             entry["goals"].sort(key=lambda g: (g["priority"], g["id"]))
-            for cid, cname in customers.items():
-                entry["customers"].add(cname)
+            for cid, _ in customer_links:
+                if cid in customers and customers[cid] not in entry["customers"]:
+                    entry["customers"].add(customers[cid])
             entry["customers"] = sorted(entry["customers"])
         return result
 

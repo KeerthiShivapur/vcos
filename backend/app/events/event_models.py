@@ -419,6 +419,11 @@ EVENT_CATALOG: dict[str, str] = {
     "ownership.mismatch_detected": "Ownership analysis surfaced a declared-vs-observed mismatch",
     "ownership.signal_resolved": "An ownership signal was resolved",
     "ownership.coverage_checked": "A bounded ownership coverage check completed",
+    # --- Slice 4G.7 — universal company operating intelligence
+    "company.decision.recorded": "A company-level recommendation was approved or declined by a human",
+    "company.action.executed": "An approved company action was executed",
+    "company.outcome.recorded": "The outcome of an executed company action was recorded",
+    "company.health.recomputed": "The universal company health was recomputed",
 }
 # Events that feed the expertise engine (entity employee).
 EXPERTISE_EVENTS: dict[str, tuple[float, str]] = {

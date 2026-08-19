@@ -288,6 +288,23 @@ _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
         "what should we do about the business", "business recommendation",
         "business recommendations", "commercial recommendations",
     )),
+    # Slice 4G.7 — Universal Company Operating questions route FIRST so the
+    # company-as-a-whole meaning wins over the single-domain meanings ("what
+    # should the company do next" is the company operating queue, not the
+    # execution next list; "biggest company constraint" is the company health
+    # primary constraint, not the generic health). Distinct keywords keep the
+    # 4E.7 company_changes and the knowledge health intents untouched.
+    ("company_operating", (
+        "company as a whole", "company-level", "company level",
+        "universal company", "company operating", "operating intelligence",
+        "what should the company do", "what does the company need",
+        "company needs to do", "company needs to focus",
+        "biggest constraint", "biggest bottleneck", "company bottleneck",
+        "company constraint", "company memory", "company recommendations",
+        "company recommendation", "company-level changes",
+        "company-level change", "what should we focus on as a company",
+        "whole company", "how is the entire company",
+    )),
     # Slice 4E.7 — the company-level loop surfaces route FIRST so the company
     # meaning wins over the knowledge-only meaning ("what changed in the
     # company since yesterday" is company change, not claim change).
@@ -3554,6 +3571,89 @@ class IntelligenceEngine:
         return {**result, "question": question, "intent": "business_performance",
                 "scope": "org", "generated_at": _utcnow_iso()}
 
+    async def _company_operating_query(
+        self, db: AsyncSession, *, organization_id: str, question: str, user: Any,
+    ) -> dict[str, Any]:
+        """Slice 4G.7 — Universal Company Operating questions.
+
+        "what should the company do next" -> the universal recommendation
+        queue (prioritized, evidence-carrying, advisory-only); "biggest
+        company constraint" -> company health with the primary constraint and
+        its root cause; "company-level changes" -> the meaningful "what
+        changed" deltas; "company memory" -> the decision -> reason -> action
+        -> outcome -> learning records; "what if we reallocate/delay/hire" ->
+        the bounded scenario guidance. Every answer composes the canonical
+        4G.1-4G.6 surfaces — advisory, never executed. Scoped callers do not
+        see company-level views — they are org-wide.
+        """
+        from app.intelligence.company_operating_engine import company_operating_engine
+
+        access = await self._access(db, organization_id=organization_id, user=user)
+        if not access.org_wide:
+            return {
+                "question": question, "intent": "company_operating",
+                "scope": "project",
+                "answer": "Company operating views are organization-wide; "
+                          "your scope does not include them.",
+                "advisory_only": True,
+                "generated_at": _utcnow_iso(),
+            }
+        lowered = question.lower()
+        if any(k in lowered for k in (
+            "what if we", "what-if", "what if", "reallocat", "delay the",
+            "hire", "scenario",
+        )):
+            scenario_type = "delay" if "delay" in lowered else (
+                "hire" if "hire" in lowered else (
+                    "reallocate" if "reallocat" in lowered else ""
+                )
+            )
+            result = await company_operating_engine.what_if(
+                db, organization_id=organization_id,
+                scenario_type=scenario_type or "delay",
+                payload={},
+            )
+            return {**result, "question": question, "intent": "company_operating",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        if any(k in lowered for k in (
+            "recommend", "should the company do", "company needs",
+            "do next", "focus on as a company",
+        )):
+            result = await company_operating_engine.recommendations(
+                db, organization_id=organization_id,
+            )
+            return {**result, "question": question, "intent": "company_operating",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        if any(k in lowered for k in ("memory", "learned", "learned as a company")):
+            result = await company_operating_engine.memory(
+                db, organization_id=organization_id,
+            )
+            return {**result, "question": question, "intent": "company_operating",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        if any(k in lowered for k in ("changed", "change")):
+            result = await company_operating_engine.changes(
+                db, organization_id=organization_id,
+            )
+            return {**result, "question": question, "intent": "company_operating",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        if any(k in lowered for k in ("constraint", "bottleneck", "blocking")):
+            result = await company_operating_engine.health(
+                db, organization_id=organization_id,
+            )
+            return {**result, "question": question, "intent": "company_operating",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        if any(k in lowered for k in ("state", "status", "overview", "doing")):
+            result = await company_operating_engine.company_state(
+                db, organization_id=organization_id,
+            )
+            return {**result, "question": question, "intent": "company_operating",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        result = await company_operating_engine.health(
+            db, organization_id=organization_id,
+        )
+        return {**result, "question": question, "intent": "company_operating",
+                "scope": "org", "generated_at": _utcnow_iso()}
+
     async def _capability_query(
         self,
         db: AsyncSession,
@@ -4056,6 +4156,10 @@ class IntelligenceEngine:
                 "generated_at": _utcnow_iso(),
             }
         # --------------------------------------------------- Slice 4E.7 loop
+        if intent == "company_operating":
+            return await self._company_operating_query(
+                db, organization_id=organization_id, question=question, user=user,
+            )
         if intent == "company_changes":
             from app.knowledge.learning_engine import learning_engine
 

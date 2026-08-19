@@ -6867,3 +6867,358 @@ async def brain_business_recommendations(
         db, organization_id=org.id,
     )
     return {**result, "generated_at": _utcnow_iso()}
+
+
+# ---------------------------------------------------------------------------
+# Slice 4G.7 — Universal Company Operating Intelligence
+#
+# The company-level operating layer: one composed company state, eight-domain
+# company health with root causes, root-cause chains, impact propagation, the
+# universal recommendation queue, bounded what-if scenarios, "What changed?"
+# synthesis, and the company memory (decision -> reason -> action -> outcome
+# -> learning). Every read composes the canonical 4G.1-4G.6 engines; the only
+# writes are governed human approvals (advisory-first — nothing executes
+# without a human).
+# ---------------------------------------------------------------------------
+
+
+@router.get("/execution/company/state")
+async def brain_company_state(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """The universal company state: one composed picture of the company as a
+    whole — strategy, execution, coordination, capacity, people, customers,
+    financial and knowledge — plus what the company as a whole should pay
+    attention to next."""
+    from app.intelligence.company_operating_engine import company_operating_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    result = await company_operating_engine.company_state(
+        db, organization_id=org.id,
+    )
+    return {**result, "generated_at": _utcnow_iso()}
+
+
+@router.get("/execution/company/health")
+async def brain_company_health(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Eight-domain company health with the primary constraint, its root
+    cause and interventions — the answer to 'how is the company as a whole
+    doing'."""
+    from app.intelligence.company_operating_engine import company_operating_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    return await company_operating_engine.health(
+        db, organization_id=org.id,
+    )
+
+
+@router.get("/execution/company/root-cause")
+async def brain_company_root_cause(
+    problem: str = Query(..., min_length=1),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Walk a business problem down to people and capability: business
+    problem -> metric -> driver -> customer impact -> project ->
+    task/dependency -> capacity constraint -> people/capability."""
+    from app.intelligence.company_operating_engine import company_operating_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    return await company_operating_engine.root_cause(
+        db, organization_id=org.id, problem=problem,
+    )
+
+
+@router.get("/execution/company/impact")
+async def brain_company_impact(
+    subject_type: str = Query(...),
+    subject_id: str = Query(..., min_length=1),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Propagate a change across the company: person | project | capability |
+    customer | goal -> execution -> strategy -> customers -> business."""
+    from app.intelligence.company_operating_engine import company_operating_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    return await company_operating_engine.impact(
+        db, organization_id=org.id,
+        subject_type=subject_type, subject_id=subject_id,
+    )
+
+
+@router.get("/execution/company/recommendations")
+async def brain_company_recommendations(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """The universal company recommendation queue: what the company as a whole
+    should do next, prioritized, evidence-carrying, advisory-only."""
+    from app.intelligence.company_operating_engine import company_operating_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    return await company_operating_engine.recommendations(
+        db, organization_id=org.id,
+    )
+
+
+class BrainCompanyWhatIfIn(BaseModel):
+    scenario_type: str
+    payload: Optional[dict[str, Any]] = None
+    project_id: Optional[str] = None
+    days: Optional[int] = None
+    capability: Optional[str] = None
+    from_project_id: Optional[str] = None
+    to_project_id: Optional[str] = None
+    units: Optional[int] = None
+    people: Optional[int] = None
+    ramp_days: Optional[int] = None
+
+
+@router.post("/execution/company/what-if")
+async def brain_company_what_if(
+    body: BrainCompanyWhatIfIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Bounded deterministic consequences of a scenario — reallocate | delay |
+    hire. Never a prediction, never executed; humans decide."""
+    from app.intelligence.company_operating_engine import company_operating_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    flat = body.model_dump(exclude_none=True)
+    scenario_payload = body.payload or {
+        k: v for k, v in flat.items()
+        if k in ("project_id", "days", "capability", "from_project_id",
+                 "to_project_id", "units", "people", "ramp_days")
+    }
+    return await company_operating_engine.what_if(
+        db, organization_id=org.id,
+        scenario_type=body.scenario_type,
+        payload=scenario_payload,
+    )
+
+
+@router.get("/execution/company/changes")
+async def brain_company_changes(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """'What changed?' — the meaningful company-level deltas since the
+    previous health assessment, each with why it matters."""
+    from app.intelligence.company_operating_engine import company_operating_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    return await company_operating_engine.changes(
+        db, organization_id=org.id,
+    )
+
+
+@router.get("/execution/company/memory")
+async def brain_company_memory(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("brain:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Company memory: the governed decision history and what the company
+    learned (decision -> reason -> action -> outcome -> learning)."""
+    from app.intelligence.company_operating_engine import company_operating_engine
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    return await company_operating_engine.memory(
+        db, organization_id=org.id,
+    )
+
+
+class BrainCompanyDecisionIn(BaseModel):
+    kind: str
+    title: str
+    recommendation_key: Optional[str] = None
+    rationale: Optional[str] = None
+    note: Optional[str] = None
+    impact_label: Optional[str] = None
+    expected_improvement: Optional[str] = None
+    confidence: Optional[float] = None
+    owner_label: Optional[str] = None
+    state: Optional[str] = None
+
+
+@router.post("/execution/company/decisions")
+async def brain_company_record_decision(
+    body: BrainCompanyDecisionIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("projects:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """GOVERNED WRITE — a human approves (or declines) a company
+    recommendation. Nothing executes without this human approval; the
+    decision becomes part of company memory."""
+    import uuid as _uuid
+
+    from app.models.company_operating import DECISION_KINDS, DECISION_STATES
+    from app.events.publisher import publish_event
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    kind = (body.kind or "").strip()
+    title = (body.title or "").strip()
+    if kind not in DECISION_KINDS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"kind must be one of {', '.join(DECISION_KINDS)}",
+        )
+    if not title:
+        raise HTTPException(status_code=400, detail="title is required")
+    state = (body.state or "approved").strip()
+    if state not in DECISION_STATES or state not in ("approved", "declined"):
+        raise HTTPException(status_code=400, detail="state must be approved or declined")
+    if body.confidence is not None and not (0.0 <= body.confidence <= 1.0):
+        raise HTTPException(status_code=400, detail="confidence must be between 0 and 1")
+    decision_id = f"dec:{kind}:{_uuid.uuid4().hex[:12]}"
+    event = await publish_event(
+        db, name="company.decision.recorded", organization_id=org.id,
+        actor_id=user.id,
+        payload={
+            "organization_id": org.id,
+            "decision_id": decision_id,
+            "kind": kind,
+            "title": title,
+            "recommendation_key": (body.recommendation_key or "").strip(),
+            "rationale": (body.rationale or "").strip(),
+            "note": (body.note or "").strip(),
+            "impact_label": (body.impact_label or "").strip(),
+            "expected_improvement": (body.expected_improvement or "").strip(),
+            "confidence": body.confidence,
+"owner_label": (body.owner_label or "").strip(),
+                "state": state,
+                "approver_label": (user.full_name or user.email or user.id),
+            },
+    )
+    await db.commit()
+    return {
+        "decision_recorded": True,
+        "decision_id": decision_id,
+        "kind": kind,
+        "title": title,
+        "state": state,
+        "source_event_id": getattr(event, "id", ""),
+        "generated_at": _utcnow_iso(),
+    }
+
+
+@router.post("/execution/company/decisions/{decision_id}/execute")
+async def brain_company_execute_decision(
+    decision_id: str,
+    body: dict[str, Any],
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("projects:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """GOVERNED WRITE — mark an approved company decision as executed (the
+    human action that closes the recommendation -> action loop)."""
+    from app.events.publisher import publish_event
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    event = await publish_event(
+        db, name="company.action.executed", organization_id=org.id,
+        actor_id=user.id,
+        payload={
+            "organization_id": org.id,
+            "decision_id": decision_id,
+            "executed_by_label": (
+                (body.get("executed_by_label") or "").strip()
+                or (user.full_name or user.email or user.id)
+            ),
+        },
+    )
+    await db.commit()
+    return {
+        "executed": True,
+        "decision_id": decision_id,
+        "source_event_id": getattr(event, "id", ""),
+        "generated_at": _utcnow_iso(),
+    }
+
+
+class BrainCompanyOutcomeIn(BaseModel):
+    outcome_kind: str
+    effectiveness: Optional[float] = None
+    lesson: Optional[str] = None
+    evidence: Optional[list] = None
+
+
+@router.post("/execution/company/decisions/{decision_id}/outcome")
+async def brain_company_record_outcome(
+    decision_id: str,
+    body: BrainCompanyOutcomeIn,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("projects:manage")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """GOVERNED WRITE — record the observed outcome + lesson of an executed
+    company action. Closes the learning loop: the lesson becomes part of
+    company memory that future recommendations cite."""
+    from app.models.company_operating import OUTCOME_KINDS
+    from app.events.publisher import publish_event
+
+    access = await _people_access(db, org, user)
+    if not access.org_wide:
+        raise HTTPException(status_code=404, detail="scope not found")
+    outcome_kind = (body.outcome_kind or "").strip()
+    if outcome_kind not in OUTCOME_KINDS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"outcome_kind must be one of {', '.join(OUTCOME_KINDS)}",
+        )
+    if body.effectiveness is not None and not (0.0 <= body.effectiveness <= 1.0):
+        raise HTTPException(status_code=400, detail="effectiveness must be between 0 and 1")
+    event = await publish_event(
+        db, name="company.outcome.recorded", organization_id=org.id,
+        actor_id=user.id,
+        payload={
+            "organization_id": org.id,
+            "decision_id": decision_id,
+            "outcome_kind": outcome_kind,
+            "effectiveness": body.effectiveness,
+            "lesson": (body.lesson or "").strip(),
+            "evidence": body.evidence or [],
+        },
+    )
+    await db.commit()
+    return {
+        "outcome_recorded": True,
+        "decision_id": decision_id,
+        "outcome_kind": outcome_kind,
+        "source_event_id": getattr(event, "id", ""),
+        "generated_at": _utcnow_iso(),
+    }

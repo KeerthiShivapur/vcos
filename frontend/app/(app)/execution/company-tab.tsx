@@ -1,0 +1,794 @@
+"use client";
+
+import {
+  Activity,
+  AlertTriangle,
+  ArrowRight,
+  CheckCircle2,
+  CircleDashed,
+  FlaskConical,
+  HeartPulse,
+  History,
+  Lightbulb,
+  ListChecks,
+  Loader2,
+  Send,
+  Target,
+} from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+
+import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
+import { StatCard } from "@/components/ui/PageHeader";
+import { useAuth } from "@/hooks/useAuth";
+import {
+  executeCompanyDecision,
+  getCompanyChanges,
+  getCompanyMemory,
+  getCompanyOperatingHealth,
+  getCompanyRecommendations,
+  getCompanyState,
+  recordCompanyDecision,
+  recordCompanyOutcome,
+  runCompanyWhatIf,
+  type CompanyChangesResponse,
+  type CompanyDecisionRow,
+  type CompanyHealthResponse,
+  type CompanyMemoryResponse,
+  type CompanyRecommendationsResponse,
+  type CompanyStateResponse,
+  type CompanyWhatIfResponse,
+} from "@/lib/api";
+import { PERMISSIONS } from "@/lib/permissions";
+import { timeAgo } from "@/lib/utils";
+
+const STATE_TONE: Record<string, "success" | "warning" | "danger" | "neutral" | "brand"> = {
+  healthy: "success",
+  concerned: "warning",
+  watch: "warning",
+  at_risk: "danger",
+  critical: "danger",
+  excellent: "success",
+} as const;
+
+const CHANGE_TONE: Record<string, "brand" | "danger" | "warning" | "neutral" | "success"> = {
+  new_constraint: "danger",
+  resolved_constraint: "success",
+  declined: "danger",
+  state_shift: "warning",
+  improved: "success",
+  no_window: "neutral",
+} as const;
+
+const SOURCE_TONE: Record<string, "brand" | "danger" | "warning" | "neutral" | "success"> = {
+  strategy: "brand",
+  execution: "brand",
+  capacity: "warning",
+  coordination: "warning",
+  customer: "danger",
+  business: "brand",
+  knowledge: "neutral",
+} as const;
+
+function decisionKindFor(recommendation: {
+  title: string;
+  source: string;
+  kind: string;
+}): string {
+  const lowered = `${recommendation.title} ${recommendation.source} ${recommendation.kind}`.toLowerCase();
+  if (lowered.includes("hire")) return "hire";
+  if (lowered.includes("delay")) return "delay_project";
+  if (lowered.includes("realloc")) return "reallocate_capacity";
+  if (lowered.includes("priorit")) return "change_priority";
+  if (lowered.includes("conflict")) return "resolve_conflict";
+  if (lowered.includes("coordination")) return "improve_coordination";
+  if (lowered.includes("customer") || lowered.includes("commitment")) return "customer_mitigation";
+  if (recommendation.source === "business") return "commercial_action";
+  return "other";
+}
+
+export function CompanyTab() {
+  const { can } = useAuth();
+  const canManage = can(PERMISSIONS.PROJECTS_MANAGE);
+
+  const [state, setState] = useState<CompanyStateResponse | null>(null);
+  const [health, setHealth] = useState<CompanyHealthResponse | null>(null);
+  const [recommendations, setRecommendations] = useState<CompanyRecommendationsResponse | null>(null);
+  const [changes, setChanges] = useState<CompanyChangesResponse | null>(null);
+  const [memory, setMemory] = useState<CompanyMemoryResponse | null>(null);
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actingKey, setActingKey] = useState<string | null>(null);
+
+  const [scenario, setScenario] = useState<"delay" | "hire">("delay");
+  const [whatIfPayload, setWhatIfPayload] = useState<Record<string, string>>({
+    project_id: "",
+    days: "21",
+    capability: "",
+    people: "2",
+    ramp_days: "30",
+  });
+  const [whatIf, setWhatIf] = useState<CompanyWhatIfResponse | null>(null);
+  const [running, setRunning] = useState(false);
+
+  const [outcomeForm, setOutcomeForm] = useState<Record<string, { kind: string; effectiveness: string; lesson: string }>>({});
+
+  const refresh = useCallback(async () => {
+    setError(null);
+    try {
+      const [s, h, r, c, m] = await Promise.all([
+        getCompanyState(),
+        getCompanyOperatingHealth(),
+        getCompanyRecommendations(),
+        getCompanyChanges(),
+        getCompanyMemory(),
+      ]);
+      setState(s);
+      setHealth(h);
+      setRecommendations(r);
+      setChanges(c);
+      setMemory(m);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load the company operating view");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  if (error && !health && !loading) {
+    return <ErrorState title="Could not load company operating intelligence" message={error} />;
+  }
+
+  const domainStates = (health?.domains ?? []).filter((d) => ["at_risk", "critical"].includes(d.state));
+  const domainScores = (health?.domains ?? []).map((d) => d.score);
+  const avgScore = domainScores.length
+    ? Math.round(domainScores.reduce((a, b) => a + b, 0) / domainScores.length)
+    : 0;
+
+  async function approve(recommendation: {
+    key: string;
+    source: string;
+    kind: string;
+    title: string;
+    why?: string;
+    impact_label?: string;
+    owner_label: string;
+    expected_improvement: string;
+    confidence: string;
+  }) {
+    if (!canManage) return;
+    setActingKey(recommendation.key);
+    setActionError(null);
+    try {
+      await recordCompanyDecision({
+        kind: decisionKindFor(recommendation),
+        title: recommendation.title,
+        recommendation_key: recommendation.key,
+        rationale: recommendation.why ?? "approved from the company recommendation queue",
+        impact_label: recommendation.impact_label,
+        expected_improvement: recommendation.expected_improvement,
+        confidence: recommendation.confidence === "high" ? 0.8 : recommendation.confidence === "medium" ? 0.6 : 0.4,
+        owner_label: recommendation.owner_label,
+      });
+      await refresh();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Unable to record the decision");
+    } finally {
+      setActingKey(null);
+    }
+  }
+
+  async function execute(decision: CompanyDecisionRow) {
+    setActingKey(decision.decision_id);
+    setActionError(null);
+    try {
+      await executeCompanyDecision(decision.decision_id);
+      await refresh();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Unable to mark the decision as executed");
+    } finally {
+      setActingKey(null);
+    }
+  }
+
+  async function recordOutcome(decision: CompanyDecisionRow) {
+    const form = outcomeForm[decision.decision_id];
+    if (!form) return;
+    setActingKey(decision.decision_id);
+    setActionError(null);
+    try {
+      await recordCompanyOutcome(decision.decision_id, {
+        outcome_kind: form.kind,
+        effectiveness: form.effectiveness ? Math.max(0, Math.min(1, Number(form.effectiveness))) : undefined,
+        lesson: form.lesson.trim() || undefined,
+      });
+      await refresh();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Unable to record the outcome");
+    } finally {
+      setActingKey(null);
+    }
+  }
+
+  async function runWhatIf() {
+    setRunning(true);
+    setActionError(null);
+    try {
+      const payload: Record<string, string | number> = {};
+      if (scenario === "delay") {
+        payload.project_id = whatIfPayload.project_id.trim();
+        payload.days = Number(whatIfPayload.days) || 0;
+      } else {
+        payload.capability = whatIfPayload.capability.trim();
+        payload.people = Number(whatIfPayload.people) || 1;
+        payload.ramp_days = Number(whatIfPayload.ramp_days) || 0;
+      }
+      setWhatIf(await runCompanyWhatIf(scenario, payload));
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Unable to run the what-if");
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  const dimensions = state?.dimensions ?? {};
+  const dimKeys = Object.keys(dimensions);
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <StatCard
+          label="Company score"
+          value={loading ? "…" : health?.company_score ?? "—"}
+          icon={HeartPulse}
+        />
+        <StatCard label="Company state" value={loading ? "…" : health?.company_state ?? "—"} icon={Target} />
+        <StatCard
+          label="Domains at risk"
+          value={loading ? "…" : domainStates.length}
+          icon={AlertTriangle}
+        />
+        <StatCard
+          label="Attention items"
+          value={loading ? "…" : (state?.attention ?? []).length}
+          icon={ListChecks}
+        />
+        <StatCard
+          label="Recommendations"
+          value={loading ? "…" : recommendations?.total ?? 0}
+          icon={Activity}
+        />
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="space-y-6 lg:col-span-2">
+          <Card
+            title="Universal company state"
+            subtitle="One composed picture of the company as a whole — every dimension is the canonical engine's own output, bounded."
+          >
+            {loading ? (
+              <div className="flex items-center gap-2 py-6 text-[12px] text-faint">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Composing the company state
+              </div>
+            ) : dimKeys.length === 0 ? (
+              <EmptyState
+                icon={Target}
+                title="No company state yet"
+                description="The eight dimensions appear once the company has real activity across the canonical systems."
+              />
+            ) : (
+              <ul className="grid gap-2 sm:grid-cols-2">
+                {dimKeys.map((key) => {
+                  const dim = dimensions[key];
+                  return (
+                    <li key={key} className="rounded-lg border border-line/70 bg-elevated p-3">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Badge tone="brand">{dim.label ?? key}</Badge>
+                        {dim.state && (
+                          <Badge tone={STATE_TONE[dim.state] ?? "neutral"}>{dim.state}</Badge>
+                        )}
+                      </div>
+                      {dim.headline && (
+                        <p className="mt-1.5 text-[11px] leading-relaxed text-muted">{dim.headline}</p>
+                      )}
+                      {key === "capacity" && dim.top_constraint?.capability && (
+                        <p className="mt-1.5 text-[11px] text-faint">
+                          top constraint: <span className="text-ink">{dim.top_constraint.capability}</span>
+                          {dim.top_constraint.gap != null ? ` · gap ${dim.top_constraint.gap}` : ""}
+                        </p>
+                      )}
+                      {(dim.goals ?? []).length > 0 && (
+                        <p className="mt-1.5 flex flex-wrap gap-1">
+                          {(dim.goals ?? []).map((g) => (
+                            <Badge key={g.goal_id ?? g.title} tone="neutral">
+                              {g.title}
+                            </Badge>
+                          ))}
+                        </p>
+                      )}
+                      {(dim.projects ?? []).length > 0 && (
+                        <p className="mt-1.5 text-[11px] text-faint">
+                          {(dim.projects ?? []).map((p) => p.name).join(" · ")}
+                        </p>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </Card>
+
+          <Card
+            title={`Company health · ${health?.company_score ?? "—"}/100 (${avgScore} domain average)`}
+            subtitle={
+              health?.summary ??
+              "Eight explainable domains — every score carries the reasons and the primary constraint carries its root cause."
+            }
+          >
+            {loading ? (
+              <div className="flex items-center gap-2 py-6 text-[12px] text-faint">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Assessing the eight domains
+              </div>
+            ) : (health?.domains ?? []).length === 0 ? (
+              <EmptyState
+                icon={HeartPulse}
+                title="No health assessment yet"
+                description="Company activity produces the exact-once health trail — replays converge, history answers what changed."
+              />
+            ) : (
+              <>
+                <ul className="space-y-3">
+                  {(health?.domains ?? []).map((row) => (
+                    <li key={row.key} className="rounded-lg border border-line/70 bg-elevated p-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge tone="brand">{row.label}</Badge>
+                        <Badge tone={STATE_TONE[row.state] ?? "neutral"}>{row.state}</Badge>
+                        <span className="text-[12px] font-semibold text-ink">{row.score}/100</span>
+                        {row.evidence_count > 0 && (
+                          <span className="ml-auto text-[11px] text-faint">{row.evidence_count} evidence</span>
+                        )}
+                      </div>
+                      {row.reasons.length > 0 && (
+                        <p className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                          {row.reasons.map((reason) => (
+                            <Badge key={reason} tone="warning">
+                              {reason}
+                            </Badge>
+                          ))}
+                        </p>
+                      )}
+                      {row.positives.length > 0 && (
+                        <p className="mt-1 flex flex-wrap items-center gap-1.5">
+                          {row.positives.map((positive) => (
+                            <Badge key={positive} tone="success">
+                              {positive}
+                            </Badge>
+                          ))}
+                        </p>
+                      )}
+                      {row.constraint && (
+                        <div className="mt-2 rounded-lg border border-danger/20 bg-danger/5 px-3 py-2">
+                          <p className="text-[12px] font-medium text-ink">
+                            <AlertTriangle className="mr-1 inline h-3.5 w-3.5 text-danger" />
+                            {row.constraint.label}
+                          </p>
+                          {row.constraint.detail && (
+                            <p className="mt-0.5 text-[11px] text-muted">{row.constraint.detail}</p>
+                          )}
+                          {row.root_cause && (
+                            <p className="mt-0.5 text-[11px] text-faint">root cause: {row.root_cause}</p>
+                          )}
+                          {row.interventions.length > 0 && (
+                            <p className="mt-1 flex flex-wrap gap-1">
+                              {row.interventions.map((intervention) => (
+                                <Badge key={intervention} tone="brand">
+                                  {intervention}
+                                </Badge>
+                              ))}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                {health?.primary_constraint && (
+                  <div className="mt-3 rounded-lg border border-brand/30 bg-brand/5 px-3 py-2">
+                    <p className="text-[12px] font-semibold text-ink">
+                      Primary company constraint · {health.primary_constraint.domain_label ?? health.primary_constraint.domain}
+                      {health.primary_constraint.score != null && ` (${health.primary_constraint.score}/100)`}
+                    </p>
+                    <p className="mt-0.5 text-[11px] leading-relaxed text-muted">
+                      {health.primary_constraint.label}
+                      {health.primary_constraint.detail ? ` — ${health.primary_constraint.detail}` : ""}
+                    </p>
+                  </div>
+                )}
+                {(health?.history ?? []).length > 0 && (
+                  <details className="mt-3">
+                    <summary className="cursor-pointer text-[12px] font-semibold text-ink">
+                      Health trail · {health?.history.length} assessments
+                    </summary>
+                    <ol className="mt-2 space-y-1">
+                      {(health?.history ?? []).map((h, idx) => (
+                        <li key={idx} className="flex flex-wrap items-center gap-2 text-[11px] text-faint">
+                          <Badge tone={STATE_TONE[h.company_state] ?? "neutral"}>{h.company_state}</Badge>
+                          <span className="font-medium text-ink">{h.company_score}/100</span>
+                          {h.event_name && <span>{h.event_name}</span>}
+                          <span className="ml-auto">{timeAgo(h.occurred_at)}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  </details>
+                )}
+              </>
+            )}
+          </Card>
+
+          <Card
+            title={`What changed · ${changes?.window ?? "no window yet"}`}
+            subtitle="Real deltas over the exact-once health trail — improved, declined, or the constraint moving."
+          >
+            {loading ? (
+              <div className="flex items-center gap-2 py-6 text-[12px] text-faint">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Diffing the trail
+              </div>
+            ) : (changes?.changes ?? []).length === 0 ? (
+              <EmptyState
+                icon={History}
+                title="Nothing changed"
+                description="No meaningful company-level delta between the last two assessments."
+              />
+            ) : (
+              <>
+                {changes?.company_score_before != null && changes?.company_score_after != null && (
+                  <p className="mb-2 flex flex-wrap items-center gap-2 text-[12px]">
+                    <Badge tone="neutral">{changes.company_state_before ?? "—"}</Badge>
+                    <span className="font-semibold text-ink">{changes.company_score_before}</span>
+                    <ArrowRight className="h-3.5 w-3.5 text-faint" />
+                    <Badge tone={STATE_TONE[changes.company_state_after ?? ""] ?? "neutral"}>
+                      {changes.company_state_after ?? "—"}
+                    </Badge>
+                    <span className="font-semibold text-ink">{changes.company_score_after}</span>
+                  </p>
+                )}
+                <ul className="space-y-2">
+                  {(changes?.changes ?? []).map((row, idx) => (
+                    <li key={idx} className="rounded-lg border border-line/70 bg-elevated p-3">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Badge tone={CHANGE_TONE[row.kind] ?? "neutral"}>{row.kind}</Badge>
+                        {row.domain && <Badge tone="neutral">{row.domain}</Badge>}
+                        <p className="text-[12px] font-medium text-ink">{row.label}</p>
+                      </div>
+                      {row.why_matters && (
+                        <p className="mt-1 text-[11px] leading-relaxed text-muted">{row.why_matters}</p>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </Card>
+        </div>
+
+        <div className="space-y-6">
+          <Card
+            title={`Attention · ${(state?.attention ?? []).length}`}
+            subtitle="What the company as a whole should pay attention to next."
+          >
+            {loading ? (
+              <div className="flex items-center gap-2 py-6 text-[12px] text-faint">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Ranking attention
+              </div>
+            ) : (state?.attention ?? []).length === 0 ? (
+              <EmptyState
+                icon={ListChecks}
+                title="Nothing urgent"
+                description="Attention builds from the composed company state across the eight dimensions."
+              />
+            ) : (
+              <ol className="space-y-1.5">
+                {(state?.attention ?? []).map((item, idx) => (
+                  <li key={idx} className="rounded-lg border border-line/70 bg-surface px-3 py-2">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Badge tone={item.priority === 1 ? "danger" : item.priority === 2 ? "warning" : "neutral"}>
+                        {item.priority}
+                      </Badge>
+                      <Badge tone="brand">{item.kind}</Badge>
+                    </div>
+                    <p className="mt-1 text-[12px] font-medium text-ink">{item.title}</p>
+                    {item.why && <p className="mt-0.5 text-[11px] text-faint">{item.why}</p>}
+                  </li>
+                ))}
+              </ol>
+            )}
+          </Card>
+
+          <Card
+            title={`Recommendations · ${recommendations?.total ?? 0}`}
+            subtitle="The universal queue — every item carries its impact, confidence, owner and evidence; nothing executes without human approval."
+          >
+            {loading ? (
+              <div className="flex items-center gap-2 py-6 text-[12px] text-faint">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Deriving the queue
+              </div>
+            ) : (recommendations?.recommendations ?? []).length === 0 ? (
+              <EmptyState
+                icon={CircleDashed}
+                title="Nothing to recommend"
+                description="Recommendations derive deterministically from the composed company state."
+              />
+            ) : (
+              <ul className="space-y-2">
+                {(recommendations?.recommendations ?? []).map((row) => (
+                  <li key={row.key} className="rounded-lg border border-line/70 bg-elevated p-3">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Badge tone={SOURCE_TONE[row.source] ?? "neutral"}>{row.source}</Badge>
+                      <Badge tone="neutral">{row.kind}</Badge>
+                      <span className="ml-auto text-[11px] text-faint">{row.confidence}</span>
+                    </div>
+                    <p className="mt-1 text-[12px] font-medium text-ink">{row.title}</p>
+                    {row.why && <p className="mt-0.5 text-[11px] text-faint">{row.why}</p>}
+                    <p className="mt-0.5 text-[11px] text-muted">
+                      {row.expected_improvement}
+                      {row.owner_label ? ` · ${row.owner_label}` : ""}
+                    </p>
+                    {row.impact_label && (
+                      <p className="mt-0.5 text-[11px] text-faint">{row.impact_label}</p>
+                    )}
+                    {canManage ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="mt-2"
+                        onClick={() => approve(row)}
+                        disabled={actingKey === row.key}
+                      >
+                        {actingKey === row.key ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                        )}
+                        Approve as decision
+                      </Button>
+                    ) : (
+                      <p className="mt-2 text-[11px] text-faint">
+                        Approving recommendations requires project management access.
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          <Card
+            title="What-if"
+            subtitle="Bounded deterministic consequences — declared, never a prediction, never executed."
+          >
+            <div className="space-y-2">
+              <div className="flex gap-1.5">
+                {(["delay", "hire"] as const).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setScenario(s)}
+                    className={`flex-1 rounded-lg border px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                      scenario === s
+                        ? "border-brand/40 bg-brand/10 text-brand"
+                        : "border-line bg-surface text-faint hover:text-ink"
+                    }`}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+              {scenario === "delay" ? (
+                <input
+                  value={whatIfPayload.project_id}
+                  onChange={(e) => setWhatIfPayload({ ...whatIfPayload, project_id: e.target.value })}
+                  placeholder="project id"
+                  className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-[13px] text-ink outline-none focus:border-brand"
+                />
+              ) : (
+                <input
+                  value={whatIfPayload.capability}
+                  onChange={(e) => setWhatIfPayload({ ...whatIfPayload, capability: e.target.value })}
+                  placeholder="capability (e.g. platform_eng)"
+                  className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-[13px] text-ink outline-none focus:border-brand"
+                />
+              )}
+              <div className="grid grid-cols-3 gap-1.5">
+                {scenario === "delay" ? (
+                  <>
+                    <input
+                      value={whatIfPayload.days}
+                      onChange={(e) => setWhatIfPayload({ ...whatIfPayload, days: e.target.value })}
+                      placeholder="days"
+                      className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-[13px] text-ink outline-none focus:border-brand"
+                    />
+                    <span className="text-[11px] text-faint" />
+                    <span className="text-[11px] text-faint" />
+                  </>
+                ) : (
+                  <>
+                    <input
+                      value={whatIfPayload.people}
+                      onChange={(e) => setWhatIfPayload({ ...whatIfPayload, people: e.target.value })}
+                      placeholder="people"
+                      className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-[13px] text-ink outline-none focus:border-brand"
+                    />
+                    <input
+                      value={whatIfPayload.ramp_days}
+                      onChange={(e) => setWhatIfPayload({ ...whatIfPayload, ramp_days: e.target.value })}
+                      placeholder="ramp days"
+                      className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-[13px] text-ink outline-none focus:border-brand"
+                    />
+                    <span className="text-[11px] text-faint" />
+                  </>
+                )}
+              </div>
+              <Button size="sm" className="w-full" onClick={runWhatIf} disabled={running}>
+                {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <FlaskConical className="h-4 w-4" />}
+                Run what-if
+              </Button>
+              {whatIf && (
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge tone="brand">{whatIf.scenario_type}</Badge>
+                    {whatIf.not_a_prediction && <Badge tone="neutral">not a prediction</Badge>}
+                  </div>
+                  <ul className="space-y-1.5">
+                    {whatIf.consequences.map((c, idx) => (
+                      <li key={idx} className="rounded-lg border border-line/70 bg-surface px-3 py-2">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <p className="text-[12px] font-medium text-ink">{c.label}</p>
+                          <Badge tone="neutral">{c.confidence}</Badge>
+                        </div>
+                        {c.detail && <p className="mt-0.5 text-[11px] text-faint">{c.detail}</p>}
+                      </li>
+                    ))}
+                  </ul>
+                  {whatIf.note && <p className="text-[11px] leading-relaxed text-muted">{whatIf.note}</p>}
+                </div>
+              )}
+            </div>
+          </Card>
+
+          <Card
+            title={`Company memory · ${memory?.total_decisions ?? 0}`}
+            subtitle="The governed loop: human approves → human executes → outcome recorded → the lesson enters company memory."
+          >
+            {loading ? (
+              <div className="flex items-center gap-2 py-6 text-[12px] text-faint">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading company memory
+              </div>
+            ) : (memory?.decisions ?? []).length === 0 ? (
+              <EmptyState
+                icon={Lightbulb}
+                title="No decisions yet"
+                description="Approve a recommendation to open the governed decision loop."
+              />
+            ) : (
+              <ul className="space-y-2">
+                {(memory?.decisions ?? []).map((decision) => {
+                  const form = outcomeForm[decision.decision_id] ?? { kind: "successful", effectiveness: "", lesson: "" };
+                  return (
+                    <li key={decision.decision_id} className="rounded-lg border border-line/70 bg-elevated p-3">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Badge tone={STATE_TONE[decision.state] ?? "neutral"}>{decision.state}</Badge>
+                        <Badge tone="neutral">{decision.kind}</Badge>
+                        <span className="ml-auto text-[11px] text-faint">
+                          {decision.updated_at ? timeAgo(decision.updated_at) : ""}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[12px] font-medium text-ink">{decision.title}</p>
+                      {decision.owner_label && (
+                        <p className="mt-0.5 text-[11px] text-faint">owner: {decision.owner_label}</p>
+                      )}
+                      {decision.lesson && (
+                        <p className="mt-1 rounded-lg border border-brand/20 bg-brand/5 px-2 py-1.5 text-[11px] leading-relaxed text-muted">
+                          <Lightbulb className="mr-1 inline h-3 w-3 text-brand" />
+                          {decision.lesson}
+                        </p>
+                      )}
+                      {decision.state === "approved" && canManage && (
+                        <Button size="sm" variant="secondary" className="mt-2" onClick={() => execute(decision)} disabled={actingKey === decision.decision_id}>
+                          {actingKey === decision.decision_id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                          )}
+                          Mark as executed
+                        </Button>
+                      )}
+                      {decision.state === "executed" && canManage && (
+                        <div className="mt-2 space-y-1.5">
+                          <div className="flex gap-1.5">
+                            <select
+                              value={form.kind}
+                              onChange={(e) =>
+                                setOutcomeForm({
+                                  ...outcomeForm,
+                                  [decision.decision_id]: { ...form, kind: e.target.value },
+                                })
+                              }
+                              className="flex-1 rounded-lg border border-line bg-surface px-2 py-1.5 text-[12px] text-ink outline-none focus:border-brand"
+                            >
+                              <option value="successful">successful</option>
+                              <option value="partial">partial</option>
+                              <option value="unsuccessful">unsuccessful</option>
+                            </select>
+                            <input
+                              value={form.effectiveness}
+                              onChange={(e) =>
+                                setOutcomeForm({
+                                  ...outcomeForm,
+                                  [decision.decision_id]: { ...form, effectiveness: e.target.value },
+                                })
+                              }
+                              placeholder="effectiveness 0-1"
+                              className="w-24 rounded-lg border border-line bg-surface px-2 py-1.5 text-[12px] text-ink outline-none focus:border-brand"
+                            />
+                          </div>
+                          <textarea
+                            value={form.lesson}
+                            onChange={(e) =>
+                              setOutcomeForm({
+                                ...outcomeForm,
+                                [decision.decision_id]: { ...form, lesson: e.target.value },
+                              })
+                            }
+                            placeholder="lesson for company memory"
+                            rows={2}
+                            className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-[12px] text-ink outline-none focus:border-brand"
+                          />
+                          <Button
+                            size="sm"
+                            className="w-full"
+                            onClick={() => recordOutcome(decision)}
+                            disabled={actingKey === decision.decision_id}
+                          >
+                            {actingKey === decision.decision_id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Send className="h-3.5 w-3.5" />
+                            )}
+                            Record outcome + lesson
+                          </Button>
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </Card>
+
+          <Card title="Advisory only" subtitle="The company layer never executes anything.">
+            <div className="flex items-center gap-2 text-[12px] text-muted">
+              <CircleDashed className="h-3.5 w-3.5 shrink-0 text-faint" />
+              The company view composes the canonical systems for humans — decisions are recorded, never made, by the platform.
+            </div>
+          </Card>
+        </div>
+      </div>
+
+      {actionError && (
+        <p className="rounded-lg border border-danger/30 bg-danger/10 p-2 text-[11px] text-danger">{actionError}</p>
+      )}
+      {error && !loading && (
+        <p className="rounded-lg border border-danger/30 bg-danger/10 p-2 text-[11px] text-danger">{error}</p>
+      )}
+    </div>
+  );
+}

@@ -3085,3 +3085,111 @@ async def handle_business_performance_state(db, event, payload):
     await business_performance_engine.record_event(
         db, organization_id=org_id, event=event, payload=payload,
     )
+
+
+# ---------------------------------------------------------------------------
+# Slice 4G.7 — Universal Company Operating Intelligence bridge
+#
+# The company layer is change-driven: every meaningful upstream event (from
+# the canonical 4G systems) recomputes the company health trail exactly-once,
+# so the "What changed?" window and the "Why?" layer stay deterministic. The
+# three governed write events (decision / execute / outcome) additionally
+# update the company memory — the human approval artifacts. The bridge never
+# publishes its own events (no recompute loops): upstream events ARE the
+# triggers.
+# ---------------------------------------------------------------------------
+
+@on("project.created")
+@on("project.started")
+@on("project.paused")
+@on("project.completed")
+@on("project.cancelled")
+@on("task.completed")
+@on("task.blocked")
+@on("task.unblocked")
+@on("milestone.completed")
+@on("strategy.goal.priority.changed")
+@on("strategy.objective.created")
+@on("strategy.objective.updated")
+@on("strategy.initiative.created")
+@on("strategy.initiative.updated")
+@on("strategy.initiative.linked")
+@on("strategy.initiative.unlinked")
+@on("strategy.outcome.recorded")
+@on("capacity.demand.created")
+@on("capacity.demand.updated")
+@on("capacity.demand.removed")
+@on("capacity.allocation.created")
+@on("capacity.allocation.completed")
+@on("customer.signal.recorded")
+@on("customer.signal.resolved")
+@on("customer.commitment.created")
+@on("customer.commitment.updated")
+@on("customer.commitment.delivered")
+@on("customer.outcome.recorded")
+@on("business.metric.created")
+@on("business.metric.updated")
+@on("business.outcome.recorded")
+@on("business.target.created")
+@on("business.target.updated")
+@on("business.forecast.created")
+@on("business.forecast.updated")
+@on("business.driver.detected")
+@on("business.performance.changed")
+@on("company.intel.insight.created")
+@on("company.intel.insight.updated")
+@on("company.decision.recorded")
+@on("company.action.executed")
+@on("company.outcome.recorded")
+async def handle_company_operating_state(db, event, payload):
+    """Recompute the Universal Company Operating state (4G.7) from every
+    meaningful upstream event: one exact-once CompanyHealthHistory row per
+    source event, composing the canonical 4G.1-4G.6 records."""
+    from app.intelligence.company_operating_engine import company_operating_engine
+
+    org_id = payload.get("organization_id") or event.organization_id
+    if not org_id:
+        return
+    await company_operating_engine.refresh(
+        db, organization_id=org_id, event=event, payload=payload,
+    )
+
+
+@on("company.decision.recorded")
+async def handle_company_decision_recorded(db, event, payload):
+    """A human approved or declined a company recommendation — record the
+    governed decision artifact (exact-once)."""
+    from app.intelligence.company_operating_engine import company_operating_engine
+
+    org_id = payload.get("organization_id") or event.organization_id
+    if not org_id:
+        return
+    await company_operating_engine.record_decision(
+        db, organization_id=org_id, event=event, payload=payload,
+    )
+
+
+@on("company.action.executed")
+async def handle_company_action_executed(db, event, payload):
+    """An approved company action was executed — transition the decision."""
+    from app.intelligence.company_operating_engine import company_operating_engine
+
+    org_id = payload.get("organization_id") or event.organization_id
+    if not org_id:
+        return
+    await company_operating_engine.execute_decision(
+        db, organization_id=org_id, event=event, payload=payload,
+    )
+
+
+@on("company.outcome.recorded")
+async def handle_company_outcome_recorded(db, event, payload):
+    """The outcome + lesson of an executed action — close the learning loop."""
+    from app.intelligence.company_operating_engine import company_operating_engine
+
+    org_id = payload.get("organization_id") or event.organization_id
+    if not org_id:
+        return
+    await company_operating_engine.record_outcome(
+        db, organization_id=org_id, event=event, payload=payload,
+    )

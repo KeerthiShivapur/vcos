@@ -436,6 +436,10 @@ from app.models.business_performance import (  # noqa: F401
     BusinessPerformanceSnapshot,
     BusinessTarget,
 )
+from app.models.company_operating import (  # noqa: F401
+    CompanyDecision,
+    CompanyHealthHistory,
+)
 
 __all__ = [
     "Organization",
@@ -836,4 +840,14 @@ __all__ = [
     "CapacityAllocation",
     "CapacityHistory",
     "CapacitySnapshot",
+    "BusinessDriver",
+    "BusinessForecast",
+    "BusinessMetric",
+    "BusinessMetricObservation",
+    "BusinessPerformanceHistory",
+    "BusinessPerformanceLink",
+    "BusinessPerformanceSnapshot",
+    "BusinessTarget",
+    "CompanyDecision",
+    "CompanyHealthHistory",
 ]
