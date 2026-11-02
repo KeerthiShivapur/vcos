@@ -4,12 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { CheckCircle2, CheckSquare, ListChecks, Trash2 } from "lucide-react";
 
-import {
-  deleteSop,
-  getSop,
-  publishSop,
-  touchPresence,
-} from "@/lib/api";
+import { deleteSop, getSop, publishSop, touchPresence } from "@/lib/api";
 import { roleCan, PERMISSIONS } from "@/lib/permissions";
 import type { SOP } from "@/types";
 import { useAuth } from "@/hooks/useAuth";
@@ -93,11 +88,20 @@ function DetailContent() {
   }
 
   if (loading) {
-    return <div className="flex justify-center py-24"><Spinner label="Loading SOP" /></div>;
+    return (
+      <div className="flex justify-center py-24">
+        <Spinner label="Loading SOP" />
+      </div>
+    );
   }
 
   if (error || !sop) {
-    return <ErrorState title="SOP not found" message={error ?? "It may have been deleted."} />;
+    return (
+      <ErrorState
+        title="SOP not found"
+        message={error ?? "It may have been deleted."}
+      />
+    );
   }
 
   const steps = sop.steps ?? [];
@@ -115,11 +119,20 @@ function DetailContent() {
             {canManage && (
               <>
                 {sop.status !== "published" && (
-                  <Button size="sm" variant="secondary" onClick={publish} loading={busy}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={publish}
+                    loading={busy}
+                  >
                     <CheckCircle2 className="h-4 w-4" /> Publish
                   </Button>
                 )}
-                <Button size="sm" variant="ghost" onClick={() => setShowDelete(true)}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setShowDelete(true)}
+                >
                   <Trash2 className="h-4 w-4 text-danger" />
                 </Button>
               </>
@@ -131,12 +144,20 @@ function DetailContent() {
       <WatchBar kind="sop" entityId={sop.id} />
 
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-[12px] text-muted">
-        {sop.owner_name && <span className="flex items-center gap-1.5"><Avatar name={sop.owner_name} size="xs" /> {sop.owner_name}</span>}
+        {sop.owner_name && (
+          <span className="flex items-center gap-1.5">
+            <Avatar name={sop.owner_name} size="xs" /> {sop.owner_name}
+          </span>
+        )}
         <span>v{sop.version}</span>
         <span>{sop.view_count} views</span>
-        <span>{steps.length} step{steps.length === 1 ? "" : "s"}</span>
+        <span>
+          {steps.length} step{steps.length === 1 ? "" : "s"}
+        </span>
         {sop.category && <Badge tone="neutral">{sop.category}</Badge>}
-        <span className="ml-auto text-faint">Updated {formatDate(sop.updated_at)}</span>
+        <span className="ml-auto text-faint">
+          Updated {formatDate(sop.updated_at)}
+        </span>
       </div>
 
       <div className="card p-6">
@@ -152,14 +173,26 @@ function DetailContent() {
         </div>
 
         {steps.length === 0 ? (
-          <EmptyState icon={ListChecks} title="No steps yet" description="This SOP has no procedure steps." />
+          <EmptyState
+            icon={ListChecks}
+            title="No steps yet"
+            description="This SOP has no procedure steps."
+          />
         ) : (
           <div className="space-y-2">
             {steps.map((step) => (
-              <div key={step.id} className="flex items-start gap-3 rounded-lg border border-line px-4 py-3">
+              <div
+                key={step.id}
+                className="flex items-start gap-3 rounded-lg border border-line px-4 py-3"
+              >
                 <button
                   type="button"
-                  onClick={() => setChecked((prev) => ({ ...prev, [step.id]: !prev[step.id] }))}
+                  onClick={() =>
+                    setChecked((prev) => ({
+                      ...prev,
+                      [step.id]: !prev[step.id],
+                    }))
+                  }
                   className="mt-0.5 shrink-0"
                   aria-label="Toggle step"
                 >
@@ -169,10 +202,16 @@ function DetailContent() {
                   />
                 </button>
                 <div className="min-w-0 flex-1">
-                  <p className={`text-[14px] font-medium ${checked[step.id] ? "text-faint line-through" : "text-ink"}`}>
+                  <p
+                    className={`text-[14px] font-medium ${checked[step.id] ? "text-faint line-through" : "text-ink"}`}
+                  >
                     {step.sort_order + 1}. {step.title}
                   </p>
-                  {step.instruction && <p className="mt-0.5 text-[13px] text-muted">{step.instruction}</p>}
+                  {step.instruction && (
+                    <p className="mt-0.5 text-[13px] text-muted">
+                      {step.instruction}
+                    </p>
+                  )}
                 </div>
                 {step.is_checklist && <Badge tone="neutral">checklist</Badge>}
               </div>
@@ -184,17 +223,28 @@ function DetailContent() {
       {sop.content && (
         <div className="card p-6">
           <p className="mb-2 text-[13px] font-semibold text-ink">Overview</p>
-          <div className="whitespace-pre-wrap text-[14px] leading-relaxed text-muted">{sop.content}</div>
+          <div className="whitespace-pre-wrap text-[14px] leading-relaxed text-muted">
+            {sop.content}
+          </div>
         </div>
       )}
 
       <CommentsPanel kind="sop" entityId={sop.id} />
       <VersionHistory kind="sop" entityId={sop.id} />
 
-      <Modal open={showDelete} onClose={() => setShowDelete(false)} title="Delete SOP?" description="This cannot be undone.">
+      <Modal
+        open={showDelete}
+        onClose={() => setShowDelete(false)}
+        title="Delete SOP?"
+        description="This cannot be undone."
+      >
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={() => setShowDelete(false)}>Cancel</Button>
-          <Button variant="danger" onClick={remove} loading={busy}>Delete</Button>
+          <Button variant="ghost" onClick={() => setShowDelete(false)}>
+            Cancel
+          </Button>
+          <Button variant="danger" onClick={remove} loading={busy}>
+            Delete
+          </Button>
         </div>
       </Modal>
     </div>

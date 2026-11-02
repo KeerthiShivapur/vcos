@@ -31,7 +31,12 @@ function LoginForm() {
     setLoading(true);
     try {
       await login(email, password);
-      await refreshProfile();
+      const status = await refreshProfile();
+      if (status === "unauthenticated") {
+        throw new Error(
+          "Signed in, but the session could not be established. Please try again.",
+        );
+      }
       toastSuccess("Welcome back", "Signed in to your company.");
       router.replace(searchParams.get("next") || "/home");
     } catch (err) {
@@ -48,8 +53,12 @@ function LoginForm() {
           <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-brand text-white shadow-popover">
             <Sparkles className="h-6 w-6" />
           </div>
-          <h1 className="text-xl font-bold tracking-tight text-ink">Sign in to your company</h1>
-          <p className="mt-1 text-sm text-muted">Your work starts here — every morning.</p>
+          <h1 className="text-xl font-bold tracking-tight text-ink">
+            Sign in to your company
+          </h1>
+          <p className="mt-1 text-sm text-muted">
+            Your work starts here — every morning.
+          </p>
         </div>
 
         <form onSubmit={handleSubmit} className="card space-y-4 p-6">
@@ -85,7 +94,11 @@ function LoginForm() {
               className="absolute right-3 top-8 text-faint hover:text-muted"
               aria-label="Toggle password visibility"
             >
-              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              {showPassword ? (
+                <EyeOff className="h-4 w-4" />
+              ) : (
+                <Eye className="h-4 w-4" />
+              )}
             </button>
           </div>
 
@@ -98,7 +111,10 @@ function LoginForm() {
               />
               Remember me
             </label>
-            <Link href="/forgot-password" className="font-medium text-brand hover:underline">
+            <Link
+              href="/forgot-password"
+              className="font-medium text-brand hover:underline"
+            >
               Forgot password?
             </Link>
           </div>
@@ -110,7 +126,10 @@ function LoginForm() {
 
         <p className="mt-6 text-center text-[13px] text-muted">
           New company?{" "}
-          <Link href="/register" className="font-semibold text-brand hover:underline">
+          <Link
+            href="/register"
+            className="font-semibold text-brand hover:underline"
+          >
             Create your organization
           </Link>
         </p>

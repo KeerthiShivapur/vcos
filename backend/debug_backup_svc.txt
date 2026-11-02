@@ -1,0 +1,74 @@
+async def create_full_backup(
+        self,
+        db: AsyncSession,
+        kind: BackupKind = BackupKind.FULL,
+        retention_days: int = 30,
+        organization_id: Optional[str] = None,
+    ) -> BackupMetadata:
+        """
+        Create a full database backup with metadata.
+        
+        Uses pgbackrest for consistent, transactional backup.
+        """
+        self.db = db
+        backup_id = f"bkp-{uuid.uuid4().hex[:12]}"
+        started_at = utcnow()
+        
+        # Create manifest record
+        org_id = organization_id or (self.settings.ORGANIZATION_ID if hasattr(self.settings, 'ORGANIZATION_ID') else "default")
+        manifest = BackupManifest(
+            id=backup_id,
+            organization_id=org_id,
+            backup_kind=kind,
+            status=BackupStatus.IN_PROGRESS,
+            started_at=utcnow(),
+            retention_days=retention_days,
+            expires_at=utcnow() + timedelta(days=retention_days),
+            backup_format="pgbackrest",
+        )
+        db.add(manifest)
+        await db.flush()
+
+        try:
+            # Execute pgbackrest backup
+            backup_result = await self._execute_pgbackrest_backup(kind)
+            
+            # Collect metadata
+            manifest.completed_at = utcnow()
+            manifest.backup_size_bytes = backup_result.get("size_bytes", 0)
+            manifest.checksum_sha256 = backup_result.get("checksum")
+            manifest.tables_included = backup_result.get("tables", [])
+            manifest.status = BackupStatus.COMPLETED
+            manifest.pg_version = await self._get_pg_version(db)
+            manifest.schema_version = await self._get_schema_version(db)
+            manifest.vcos_version = get_settings().APP_VERSION if hasattr(get_settings(), 'APP_VERSION') else "1.0.0"
+
+            # Store completed metadata
+            await db.flush()
+
+            # Verify backup
+            verification = await self.verify_backup(db, backup_id)
+            if not verification.verified:
+                manifest.status = BackupStatus.FAILED_VERIFICATION
+                manifest.error = f"Backup verification failed: {verification.errors}"
+                await db.flush()
+                raise RuntimeError(f"Backup verification failed: {verification.errors}")
+
+            manifest.status = BackupStatus.VERIFIED
+            await db.flush()
+
+            logger.info(f"Backup {backup_id} completed and verified successfully")
+            return BackupMetadata(
+                backup_id=manifest.id,
+                backup_kind=manifest.backup_kind,
+                status=manifest.status,
+                started_at=manifest.started_at,
+                completed_at=manifest.completed_at,
+                backup_size_bytes=manifest.backup_size_bytes,
+                checksum_sha256=manifest.checksum_sha256,
+                tables_included=manifest.tables_included,
+            )
+
+        except Exception as e:
+            manifest.status = BackupStatus.FAILED
+            manifest

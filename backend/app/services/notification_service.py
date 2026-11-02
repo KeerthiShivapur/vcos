@@ -37,12 +37,11 @@ class NotificationService:
             title=title,
             body=body,
             priority=priority,
-            channel=channel,
+            channels=[channel] if channel else ["in_app"],
             link=link,
             entity_type=entity_type,
             entity_id=entity_id,
-            metadata_json=json.dumps(metadata, default=str) if metadata else None,
-            delivered_at=datetime.now(timezone.utc),
+            notificationtype_metadata=metadata or {},
         )
         db.add(notification)
         await db.flush()

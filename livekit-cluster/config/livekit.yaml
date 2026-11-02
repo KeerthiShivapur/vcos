@@ -1,0 +1,284 @@
+# LiveKit Cluster Configuration for VCOS
+# High Availability Configuration with Recorder, Ingress/Egress
+
+# Server Configuration
+port: 7880
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 60000
+  use_external_ip: true
+  external_ip: ""  # Set to your public IP
+  node_ip: ""      # Set to your internal IP for clustering
+
+# Redis for clustering and room state
+redis:
+  address: "redis-cluster:6379"
+  username: ""
+  password: "${REDIS_PASSWORD}"
+  db: 0
+  use_tls: false
+  # Sentinel for HA
+  sentinel:
+    enabled: true
+    master_name: "mymaster"
+    addresses:
+      - "redis-sentinel-1:26379"
+      - "redis-sentinel-2:26379"
+      - "redis-sentinel-3:26379"
+
+# Database for persistent storage (rooms, recordings, etc.)
+store:
+  type: "postgres"
+  postgres:
+    host: "postgres-cluster"
+    port: 5432
+    database: "livekit"
+    user: "livekit"
+    password: "${POSTGRES_PASSWORD}"
+    max_connections: 100
+    max_idle_connections: 10
+
+# Keys for JWT authentication
+keys:
+  ${LIVEKIT_API_KEY}: "${LIVEKIT_API_SECRET}"
+  # Additional keys for multi-tenant
+  # "api-key-2": "secret-2"
+
+# TURN server configuration
+turn:
+  enabled: true
+  domain: "turn.vcos.io"
+  tls_port: 5349
+  external_tls: true
+  cert_file: "/etc/livekit/certs/turn.pem"
+  key_file: "/etc/livekit/certs/turn.key"
+
+# Recording configuration
+recording:
+  enabled: true
+  # Local storage for recordings
+  storage:
+    type: "s3"
+    s3:
+      bucket: "vcos-recordings"
+      region: "us-east-1"
+      access_key: "${AWS_ACCESS_KEY}"
+      secret_key: "${AWS_SECRET_KEY}"
+      endpoint: ""  # For S3-compatible storage
+      force_path_style: false
+    # Local fallback
+    local:
+      path: "/var/lib/livekit/recordings"
+  
+  # Recording outputs
+  outputs:
+    - type: "file"
+      file:
+        path: "/var/lib/livekit/recordings"
+        format: "mp4"
+    - type: "s3"
+      s3:
+        bucket: "vcos-recordings"
+        region: "us-east-1"
+  
+  # Egress configuration for streaming to external platforms
+  egress:
+    enabled: true
+    # RTMP outputs (YouTube, Twitch, etc.)
+    rtmp:
+      enabled: true
+      max_bitrate: 6000000  # 6 Mbps
+      max_framerate: 60
+    # HLS outputs
+    hls:
+      enabled: true
+      segment_duration: 6
+      playlist_window: 30
+    # Custom HTTP outputs
+    http:
+      enabled: true
+
+# Ingress configuration (streaming INTO LiveKit)
+ingress:
+  enabled: true
+  # WHIP ingestion
+  whip:
+    enabled: true
+    port: 7882
+  # RTMP ingestion
+  rtmp:
+    enabled: true
+    port: 1935
+  # SRT ingestion
+  srt:
+    enabled: true
+    port: 8888
+
+# Logging
+logging:
+  level: "info"
+  format: "json"
+  output: "stdout"
+  # Structured logging for observability
+  sampling:
+    initial: 100
+    thereafter: 100
+
+# Metrics and monitoring
+metrics:
+  enabled: true
+  port: 9090
+  path: "/metrics"
+
+# Development/Testing
+development: false
+# Debug endpoints (disable in production)
+debug:
+  pprof: false
+  zpages: false
+
+# Node configuration for clustering
+node:
+  # Unique node ID (auto-generated if not set)
+  id: ""
+  # Region for multi-region deployments
+  region: "us-east-1"
+  # Zone within region
+  zone: "us-east-1a"
+  # Labels for routing
+  labels:
+    environment: "production"
+    cluster: "vcos-primary"
+    tier: "media"
+
+# Room defaults
+room:
+  # Default room settings
+  empty_timeout: "300s"  # Auto-delete empty rooms after 5 minutes
+  max_participants: 500
+  # Default permissions
+  default_permissions:
+    can_publish: true
+    can_subscribe: true
+    can_publish_data: true
+    hidden: false
+    recorder: false
+  
+  # Auto-recording
+  auto_recording:
+    enabled: true
+    output:
+      type: "composite"
+      filepath: "/recordings/{{ .Room.Name }}-{{ .StartTime }}.mp4"
+      format: "mp4"
+
+# Agent configuration (for AI agents, bots, etc.)
+agent:
+  enabled: true
+  # Dispatch rules for agents
+  dispatch_rules:
+    - name: "default"
+      room_prefix: ""
+      agent_name: ""
+      num_agents: 1
+
+# SIP configuration (for phone integration)
+sip:
+  enabled: false
+  # SIP trunk configuration
+  trunk:
+    host: ""
+    port: 5060
+    transport: "udp"
+    username: ""
+    password: ""
+
+# Webhook configuration
+webhook:
+  urls:
+    - "https://api.vcos.io/webhooks/livekit"
+  # Retry policy
+  retry:
+    max_retries: 3
+    backoff: "exponential"
+  # Events to send
+  events:
+    - "room_started"
+    - "room_finished"
+    - "participant_joined"
+    - "participant_left"
+    - "track_published"
+    - "track_unpublished"
+    - "recording_started"
+    - "recording_finished"
+    - "egress_started"
+    - "egress_finished"
+    - "ingress_started"
+    - "ingress_finished"
+
+# Performance tuning
+performance:
+  # Worker processes
+  num_workers: 0  # 0 = auto (CPU cores)
+  
+  # Buffer sizes
+  send_buffer: 10485760  # 10MB
+  recv_buffer: 10485760  # 10MB
+  
+  # ICE settings
+  ice:
+    timeout: "30s"
+    keepalive_interval: "10s"
+    nominal_timeout: "5s"
+  
+  # Bandwidth estimation
+  bandwidth_estimation:
+    enabled: true
+    min_bitrate: 100000
+    max_bitrate: 10000000
+    start_bitrate: 1000000
+
+# Security
+security:
+  # TLS settings
+  tls:
+    cert_file: "/etc/livekit/certs/tls.pem"
+    key_file: "/etc/livekit/certs/tls.key"
+    # ACME/Let's Encrypt
+    acme:
+      enabled: false
+      email: "admin@vcos.io"
+      domains:
+        - "livekit.vcos.io"
+  
+  # CORS
+  cors:
+    enabled: true
+    allowed_origins:
+      - "https://app.vcos.io"
+      - "https://admin.vcos.io"
+    allowed_methods:
+      - "GET"
+      - "POST"
+      - "OPTIONS"
+    allowed_headers:
+      - "Authorization"
+      - "Content-Type"
+  
+  # Rate limiting
+  rate_limit:
+    enabled: true
+    requests_per_second: 100
+    burst: 200
+
+# Backup and disaster recovery
+backup:
+  enabled: true
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  retention_days: 30
+  storage:
+    type: "s3"
+    s3:
+      bucket: "vcos-livekit-backups"
+      region: "us-east-1"

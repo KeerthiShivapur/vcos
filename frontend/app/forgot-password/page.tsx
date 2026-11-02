@@ -20,11 +20,17 @@ function ForgotPasswordForm() {
     setError(null);
     setLoading(true);
     try {
-      await api("/auth/forgot-password", { method: "POST", auth: false, body: { email } });
+      await api("/auth/forgot-password", {
+        method: "POST",
+        auth: false,
+        body: { email },
+      });
       setSent(true);
       toastSuccess("Reset link sent", "Check your inbox for instructions.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to send reset link");
+      setError(
+        err instanceof Error ? err.message : "Unable to send reset link",
+      );
     } finally {
       setLoading(false);
     }
@@ -37,7 +43,9 @@ function ForgotPasswordForm() {
           <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-brand text-white shadow-popover">
             <KeyRound className="h-6 w-6" />
           </div>
-          <h1 className="text-xl font-bold tracking-tight text-ink">Reset your password</h1>
+          <h1 className="text-xl font-bold tracking-tight text-ink">
+            Reset your password
+          </h1>
           <p className="mt-1 text-sm text-muted">
             {sent
               ? "If an account exists for that email, a reset link is on its way."
@@ -47,8 +55,14 @@ function ForgotPasswordForm() {
 
         {sent ? (
           <div className="card p-6 text-center">
-            <p className="text-sm text-muted">The email has been sent. Follow the link inside to choose a new password.</p>
-            <Link href="/login" className="mt-4 inline-block text-sm font-semibold text-brand hover:underline">
+            <p className="text-sm text-muted">
+              The email has been sent. Follow the link inside to choose a new
+              password.
+            </p>
+            <Link
+              href="/login"
+              className="mt-4 inline-block text-sm font-semibold text-brand hover:underline"
+            >
               Back to sign in
             </Link>
           </div>
@@ -77,7 +91,10 @@ function ForgotPasswordForm() {
 
         <p className="mt-6 text-center text-[13px] text-muted">
           Remembered it?{" "}
-          <Link href="/login" className="font-semibold text-brand hover:underline">
+          <Link
+            href="/login"
+            className="font-semibold text-brand hover:underline"
+          >
             Sign in
           </Link>
         </p>

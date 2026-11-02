@@ -1,0 +1,37 @@
+{
+  "run_id": "4c5848df-785",
+  "state": "FAILED",
+  "profile_name": "startup",
+  "employee_count": 5,
+  "tenant_count": 1,
+  "environment_type": "external_postgres",
+  "dataset_identity": {
+    "vcos_revision": "cd653b84c2a4",
+    "schema_revision": "unknown",
+    "generator_revision": "1.0",
+    "scale_profile": "startup",
+    "employee_count": 5,
+    "tenant_count": 1,
+    "seed": 42,
+    "density_strategy": "standard",
+    "environment_fingerprint": "a486493b8a2b23f5"
+  },
+  "ownership": {
+    "run_id": "4c5848df-785",
+    "owns_database": false,
+    "owns_schema": false,
+    "owns_tables": false,
+    "database_name": null,
+    "schema_name": null,
+    "created_tables": [],
+    "temporary_resources": []
+  },
+  "checkpoints": [],
+  "current_phase": "generation",
+  "started_at": "2026-09-25T14:13:31.628032",
+  "updated_at": "2026-09-25T14:13:32.418493",
+  "completed_at": "2026-09-25T14:13:32.418511",
+  "error": "Use async session for external PostgreSQL environment",
+  "retry_count": 0,
+  "max_retries": 3
+}

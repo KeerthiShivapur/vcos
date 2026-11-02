@@ -1,0 +1,7 @@
+import jwt
+from app.core.config import get_settings
+
+settings = get_settings()
+token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI3Njc3NGNjZC1kZjk2LTQzNmUtYTU2ZS0zMzBmYjZlMzU0MzEiLCJvcmciOiI2YjlmMDQ1Yy1hZjYwLTQ0MmMtYjhkNC1kMWU3OWFjZDU4ZTQiLCJ0eXBlIjoiYWNjZXNzIiwiaWF0IjoxNzkzNTA5MzQ1LCJleHAiOjE3OTM1MTEwNDUsImp0aSI6IjEwMDgyYjYzZDJkZjQyNzdiYWY4NDUwMzdlMzlmMTc4In0.L_gSzZk9fbQ36nRecvjNaRSGIJk52sxM-dhqowf5sO0'
+payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+print(payload)

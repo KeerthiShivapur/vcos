@@ -1,180 +1,185 @@
-"""Phase 8 — Executive Intelligence & Digital Twin data models.
+"""Executive models for dashboards, insights, reports, and strategic planning."""
 
-The executive layer is the organization's living digital model: company
-health, strategic risks, executive recommendations, predictions, simulations,
-strategic goals, reports, snapshots of the digital twin and metric history all
-persist per organization with the standard multi-tenancy columns so every
-insight is traceable to underlying organizational data.
-"""
+from datetime import datetime, date
+from typing import Optional, List
+from sqlalchemy import DateTime, Date, ForeignKey, String, Text, JSON, Boolean, Index, UniqueConstraint, Integer
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from typing import Any, Optional
-
-from sqlalchemy import Float, ForeignKey, Integer, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
-
-from app.db.database import Base
-from app.models.organization import TimestampMixin, gen_uuid
+from app.models.base import Base, TimestampMixin, gen_uuid
 
 
 class CompanyHealth(Base, TimestampMixin):
-    """A computed company health score (Phase 8.2)."""
-
     __tablename__ = "company_health"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
     organization_id: Mapped[str] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    score: Mapped[float] = mapped_column(Float, default=0.0)
-    status: Mapped[str] = mapped_column(String(20), default="stable")  # excellent | good | watch | at_risk
-    breakdown_json: Mapped[Optional[str]] = mapped_column(Text)  # dimension -> score
-    period_start: Mapped[Optional[str]] = mapped_column(String(40))
-    period_end: Mapped[Optional[str]] = mapped_column(String(40))
+    health_score: Mapped[float] = mapped_column(default=0.0, nullable=False)
+    health_status: Mapped[str] = mapped_column(String(24), default="good", nullable=False)  # excellent, good, fair, poor, critical
+    metrics_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    trends: Mapped[dict] = mapped_column(JSON, default=dict)
+    alerts: Mapped[List[dict]] = mapped_column(JSON, default=list)
+    recommendations: Mapped[List[dict]] = mapped_column(JSON, default=list)
+    period_start: Mapped[date] = mapped_column(Date, nullable=False)
+    period_end: Mapped[date] = mapped_column(Date, nullable=False)
+    calculated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
-    @property
-    def breakdown(self) -> dict[str, Any]:
-        import json
-
-        if not self.breakdown_json:
-            return {}
-        try:
-            return json.loads(self.breakdown_json)
-        except (json.JSONDecodeError, TypeError):
-            return {}
+    __table_args__ = (
+        UniqueConstraint("organization_id", "period_end", name="uq_company_health_org_period"),
+        Index("ix_company_health_org_period", "organization_id", "period_end"),
+    )
 
 
 class ExecutiveInsight(Base, TimestampMixin):
-    """A single explainable executive insight (Phase 8.1/8.12)."""
-
     __tablename__ = "executive_insights"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
     organization_id: Mapped[str] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    kind: Mapped[str] = mapped_column(String(60), index=True)  # growth | decline | risk | achievement | attention
+    insight_type: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(300), nullable=False)
-    content: Mapped[Optional[str]] = mapped_column(Text)
-    evidence_json: Mapped[Optional[str]] = mapped_column(Text)  # traceable evidence chain
-    severity: Mapped[str] = mapped_column(String(10), default="info")  # info | warning | critical
-    status: Mapped[str] = mapped_column(String(20), default="open", index=True)  # open | acknowledged | resolved
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    detail: Mapped[Optional[str]] = mapped_column(Text)
+    severity: Mapped[str] = mapped_column(String(20), default="info", nullable=False)  # info, warning, critical
+    confidence: Mapped[float] = mapped_column(default=0.0, nullable=False)
+    impact_score: Mapped[float] = mapped_column(default=0.0, nullable=False)
+    affected_entities: Mapped[List[dict]] = mapped_column(JSON, default=list)
+    actionable_recommendations: Mapped[List[dict]] = mapped_column(JSON, default=list)
+    source_data_refs: Mapped[List[str]] = mapped_column(JSON, default=list)
+    status: Mapped[str] = mapped_column(String(24), default="new", nullable=False)  # new, acknowledged, actioned, dismissed
+    acknowledged_by: Mapped[Optional[str]] = mapped_column(ForeignKey("employees.id", ondelete="SET NULL"))
+    acknowledged_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        Index("ix_executive_insights_org_type", "organization_id", "insight_type"),
+        Index("ix_executive_insights_org_severity", "organization_id", "severity"),
+        Index("ix_executive_insights_org_status", "organization_id", "status"),
+    )
 
 
 class ExecutiveMetric(Base, TimestampMixin):
-    """A time-bucketed organizational metric for trend analysis (Phase 8.10)."""
-
-    __tablename__ = "organization_metrics"
+    __tablename__ = "executive_metrics"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
     organization_id: Mapped[str] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    metric: Mapped[str] = mapped_column(String(80), index=True)  # tasks_completed | meetings_held | knowledge_published | ...
-    value: Mapped[float] = mapped_column(Float, default=0.0)
-    unit: Mapped[str] = mapped_column(String(30), default="count")
-    period: Mapped[str] = mapped_column(String(10), index=True)  # daily | weekly | monthly | quarterly | yearly
-    period_start: Mapped[str] = mapped_column(String(40), index=True)
-    meta_json: Mapped[Optional[str]] = mapped_column(Text)
+    metric_key: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    metric_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    category: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
+    value: Mapped[float] = mapped_column(default=0.0, nullable=False)
+    previous_value: Mapped[Optional[float]] = mapped_column(default=None)
+    target_value: Mapped[Optional[float]] = mapped_column(default=None)
+    unit: Mapped[Optional[str]] = mapped_column(String(20))
+    trend: Mapped[str] = mapped_column(String(20), default="stable", nullable=False)  # up, down, stable, volatile
+    change_percent: Mapped[float] = mapped_column(default=0.0, nullable=False)
+    period: Mapped[str] = mapped_column(String(20), default="monthly", nullable=False)  # daily, weekly, monthly, quarterly, yearly
+    period_start: Mapped[date] = mapped_column(Date, nullable=False)
+    period_end: Mapped[date] = mapped_column(Date, nullable=False)
+    data_source: Mapped[Optional[str]] = mapped_column(String(100))
+    companyhealth_metadata: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+
+    __table_args__ = (
+        UniqueConstraint("organization_id", "metric_key", "period", "period_end", name="uq_exec_metrics_org_key_period"),
+        Index("ix_executive_metrics_org_category", "organization_id", "category"),
+        Index("ix_executive_metrics_org_period", "organization_id", "period_end"),
+    )
 
 
 class ExecutiveRecommendation(Base, TimestampMixin):
-    """An evidence-grounded strategic recommendation (Phase 8.5)."""
-
     __tablename__ = "executive_recommendations"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
     organization_id: Mapped[str] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    kind: Mapped[str] = mapped_column(String(60), index=True)  # hire | assign | document | reduce_meetings | review | ...
     title: Mapped[str] = mapped_column(String(300), nullable=False)
-    rationale: Mapped[Optional[str]] = mapped_column(Text)  # why
-    evidence_json: Mapped[Optional[str]] = mapped_column(Text)  # evidence
-    expected_outcome: Mapped[Optional[str]] = mapped_column(Text)  # expected result
-    confidence: Mapped[float] = mapped_column(Float, default=0.7)
-    impact: Mapped[str] = mapped_column(String(20), default="medium")  # high | medium | low
-    status: Mapped[str] = mapped_column(String(20), default="active", index=True)  # active | accepted | dismissed
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
+    priority: Mapped[str] = mapped_column(String(20), default="medium", nullable=False)  # low, medium, high, critical
+    impact_score: Mapped[float] = mapped_column(default=0.0, nullable=False)
+    effort_score: Mapped[float] = mapped_column(default=0.0, nullable=False)
+    confidence: Mapped[float] = mapped_column(default=0.0, nullable=False)
+    roi_estimate: Mapped[Optional[float]] = mapped_column(default=None)
+    status: Mapped[str] = mapped_column(String(24), default="proposed", nullable=False)  # proposed, approved, in_progress, completed, rejected
+    assigned_to: Mapped[Optional[str]] = mapped_column(ForeignKey("employees.id", ondelete="SET NULL"), index=True)
+    due_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    supporting_data: Mapped[dict] = mapped_column(JSON, default=dict)
+    related_insights: Mapped[List[str]] = mapped_column(JSON, default=list)
+    companyhealth_metadata: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
 
-
-class StrategicRisk(Base, TimestampMixin):
-    """A proactively detected strategic risk (Phase 8.4)."""
-
-    __tablename__ = "strategic_risks"
-
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
-    organization_id: Mapped[str] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    __table_args__ = (
+        Index("ix_exec_recs_org_category", "organization_id", "category"),
+        Index("ix_executive_recs_org_priority", "organization_id", "priority"),
+        Index("ix_executive_recs_org_status", "organization_id", "status"),
     )
-    kind: Mapped[str] = mapped_column(String(60), index=True)  # project_delay | key_dependency | overload | ...
-    title: Mapped[str] = mapped_column(String(300), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text)
-    probability: Mapped[float] = mapped_column(Float, default=0.5)
-    impact: Mapped[float] = mapped_column(Float, default=0.5)
-    score: Mapped[float] = mapped_column(Float, default=0.25)
-    level: Mapped[str] = mapped_column(String(10), default="low")  # low | medium | high | critical
-    subject_type: Mapped[Optional[str]] = mapped_column(String(40))  # project | team | employee | organization
-    subject_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
-    subject_name: Mapped[Optional[str]] = mapped_column(String(300))
-    affected_teams_json: Mapped[Optional[str]] = mapped_column(Text)
-    recommended_actions_json: Mapped[Optional[str]] = mapped_column(Text)
-    evidence_json: Mapped[Optional[str]] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(String(20), default="open", index=True)  # open | accepted | mitigated
-
-
-class OrganizationSnapshot(Base, TimestampMixin):
-    """A persisted snapshot of the digital twin (Phase 8.6)."""
-
-    __tablename__ = "organization_snapshots"
-
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
-    organization_id: Mapped[str] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
-    )
-    twin_json: Mapped[Optional[str]] = mapped_column(Text)  # full twin payload
-    entity_counts_json: Mapped[Optional[str]] = mapped_column(Text)
-    captured_at: Mapped[Optional[str]] = mapped_column(String(40))
-
-
-class Simulation(Base, TimestampMixin):
-    """A scenario simulation run and its results (Phase 8.7)."""
-
-    __tablename__ = "simulations"
-
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
-    organization_id: Mapped[str] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
-    )
-    user_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    scenario: Mapped[str] = mapped_column(String(60), index=True)  # hire_engineers | delay_release | lose_specialist | ...
-    title: Mapped[str] = mapped_column(String(300), nullable=False)
-    assumptions_json: Mapped[Optional[str]] = mapped_column(Text)
-    results_json: Mapped[Optional[str]] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(String(20), default="completed")
 
 
 class ExecutiveReport(Base, TimestampMixin):
-    """An automatically generated executive report (Phase 8.13)."""
-
     __tablename__ = "executive_reports"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
     organization_id: Mapped[str] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    user_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    report_type: Mapped[str] = mapped_column(String(40), index=True)  # daily | weekly | monthly | quarterly | board | annual | department | hiring | innovation | knowledge | compliance
     title: Mapped[str] = mapped_column(String(300), nullable=False)
+    report_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)  # weekly, monthly, quarterly, annual, custom
+    period_start: Mapped[date] = mapped_column(Date, nullable=False)
+    period_end: Mapped[date] = mapped_column(Date, nullable=False)
+    generated_by: Mapped[str] = mapped_column(ForeignKey("employees.id", ondelete="CASCADE"), index=True)
+    status: Mapped[str] = mapped_column(String(24), default="draft", nullable=False)  # draft, generating, completed, distributed
     content: Mapped[Optional[str]] = mapped_column(Text)
-    period_start: Mapped[Optional[str]] = mapped_column(String(40))
-    period_end: Mapped[Optional[str]] = mapped_column(String(40))
-    export_format: Mapped[str] = mapped_column(String(10), default="text")  # text | markdown | csv
-    status: Mapped[str] = mapped_column(String(20), default="generated")
+    summary: Mapped[Optional[str]] = mapped_column(Text)
+    sections: Mapped[List[dict]] = mapped_column(JSON, default=list)
+    metrics_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    insights: Mapped[List[str]] = mapped_column(JSON, default=list)
+    recommendations: Mapped[List[str]] = mapped_column(JSON, default=list)
+    generated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    distributed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    recipients: Mapped[List[str]] = mapped_column(JSON, default=list)
+
+    __table_args__ = (
+        Index("ix_executive_reports_org_period", "organization_id", "period_end"),
+        Index("ix_executive_reports_org_type", "organization_id", "report_type"),
+    )
 
 
-class StrategicGoal(Base, TimestampMixin):
-    """A strategic goal tracked by the executive strategy layer (Phase 8.4/8.15)."""
+class OrganizationSnapshot(Base, TimestampMixin):
+    __tablename__ = "organization_snapshots"
 
-    __tablename__ = "strategic_goals"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    snapshot_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    snapshot_type: Mapped[str] = mapped_column(String(24), default="daily", nullable=False)  # daily, weekly, monthly, quarterly, annual
+    headcount: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    active_employees: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    departments_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    teams_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    projects_active: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    projects_completed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    revenue: Mapped[Optional[float]] = mapped_column(default=None)
+    expenses: Mapped[Optional[float]] = mapped_column(default=None)
+    profit: Mapped[Optional[float]] = mapped_column(default=None)
+    cash_balance: Mapped[Optional[float]] = mapped_column(default=None)
+    runway_months: Mapped[Optional[float]] = mapped_column(default=None)
+    metrics_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    health_score: Mapped[Optional[float]] = mapped_column(default=None)
+    companyhealth_metadata: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+
+    __table_args__ = (
+        UniqueConstraint("organization_id", "snapshot_date", "snapshot_type", name="uq_org_snapshots_org_date_type"),
+        Index("ix_org_snapshots_org_type", "organization_id", "snapshot_type"),
+    )
+
+
+class Simulation(Base, TimestampMixin):
+    __tablename__ = "simulations"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
     organization_id: Mapped[str] = mapped_column(
@@ -182,10 +187,77 @@ class StrategicGoal(Base, TimestampMixin):
     )
     name: Mapped[str] = mapped_column(String(300), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text)
-    timeframe: Mapped[str] = mapped_column(String(30), default="quarter")  # quarter | half | year | multi_year
-    status: Mapped[str] = mapped_column(String(20), default="planned")  # planned | in_progress | completed | at_risk
-    progress: Mapped[float] = mapped_column(Float, default=0.0)  # 0-100
-    priority: Mapped[str] = mapped_column(String(20), default="medium")
-    focus: Mapped[str] = mapped_column(String(40), default="growth")  # growth | retention | innovation | efficiency | expansion | learning
-    links_json: Mapped[Optional[str]] = mapped_column(Text)  # linked projects/departments/initiatives
-    owner_id: Mapped[Optional[str]] = mapped_column(ForeignKey("employees.id", ondelete="SET NULL"))
+    simulation_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)  # scenario, forecast, what-if, stress-test
+    scenario_params: Mapped[dict] = mapped_column(JSON, default=dict)
+    model_used: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="pending", nullable=False)  # pending, running, completed, failed
+    results: Mapped[Optional[dict]] = mapped_column(JSON)
+    confidence_interval: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    error_message: Mapped[Optional[str]] = mapped_column(Text)
+    created_by: Mapped[str] = mapped_column(ForeignKey("employees.id", ondelete="CASCADE"), index=True)
+
+    __table_args__ = (
+        Index("ix_simulations_org_status", "organization_id", "status"),
+        Index("ix_simulations_org_type", "organization_id", "simulation_type"),
+    )
+
+
+class StrategicRisk(Base, TimestampMixin):
+    __tablename__ = "strategic_risks"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    risk_category: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
+    likelihood: Mapped[int] = mapped_column(Integer, default=3, nullable=False)  # 1-5
+    impact: Mapped[int] = mapped_column(Integer, default=3, nullable=False)  # 1-5
+    risk_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    owner_id: Mapped[str] = mapped_column(
+        ForeignKey("employees.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    mitigation_strategy: Mapped[Optional[str]] = mapped_column(Text)
+    contingency_plan: Mapped[Optional[str]] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(24), default="identified", nullable=False)  # identified, monitoring, mitigating, resolved
+    identified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    next_review_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    tags: Mapped[List[str]] = mapped_column(JSON, default=list)
+
+    __table_args__ = (
+        Index("ix_strategic_risks_org_status", "organization_id", "status"),
+        Index("ix_strategic_risks_org_category", "organization_id", "risk_category"),
+    )
+
+
+class StrategicGoal(Base, TimestampMixin):
+    __tablename__ = "strategic_goals"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    time_horizon: Mapped[str] = mapped_column(String(24), default="yearly", nullable=False)  # quarterly, yearly, 3_year, 5_year
+    start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[date] = mapped_column(Date, nullable=False)
+    owner_id: Mapped[str] = mapped_column(
+        ForeignKey("employees.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(24), default="planning", nullable=False)  # planning, active, on_track, at_risk, completed, cancelled
+    progress: Mapped[float] = mapped_column(default=0.0, nullable=False)
+    parent_goal_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    success_criteria: Mapped[List[str]] = mapped_column(JSON, default=list)
+    key_results: Mapped[List[dict]] = mapped_column(JSON, default=list)
+    tags: Mapped[List[str]] = mapped_column(JSON, default=list)
+    companyhealth_metadata: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+
+    __table_args__ = (
+        Index("ix_strategic_goals_org_status", "organization_id", "status"),
+        Index("ix_strategic_goals_org_owner", "organization_id", "owner_id"),
+    )

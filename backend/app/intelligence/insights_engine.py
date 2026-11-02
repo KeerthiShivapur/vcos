@@ -308,13 +308,13 @@ class InsightsEngine:
     # ------------------------------------------------------------------ notifications
 
     async def _notify_executives(self, db: AsyncSession, organization_id: str, brief: DailyBrief) -> None:
-        from app.models.role import Role, UserRole
+        from app.models.role import Role, UserRoleModelModel
 
         rows = (
             await db.execute(
                 select(User.id)
-                .join(UserRole, UserRole.user_id == User.id)
-                .join(Role, Role.id == UserRole.role_id)
+                .join(UserRoleModel, UserRoleModel.user_id == User.id)
+                .join(Role, Role.id == UserRoleModel.role_id)
                 .where(
                     User.organization_id == organization_id,
                     User.status == "active",

@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
@@ -13,12 +14,22 @@ import { useRouter } from "next/navigation";
 import {
   api,
   apiUrl,
-  ApiError,
   isAuthenticated,
   logout as apiLogout,
   tokenStore,
 } from "@/lib/api";
-import type { Organization, PlatformInfo, User } from "@/types";
+import {
+  AuthBootstrapRunner,
+  type AuthOutcome,
+  type AuthStatus,
+} from "@/lib/auth-bootstrap";
+import type {
+  Organization,
+  PlatformInfo,
+  User,
+  CompanyExperienceProfile,
+  SuggestedProfileOut,
+} from "@/types";
 
 interface AuthContextValue {
   user: User | null;
@@ -26,33 +37,28 @@ interface AuthContextValue {
   platform: PlatformInfo | null;
   loading: boolean;
   ready: boolean;
+  status: AuthStatus;
   authFailed: boolean;
-  refreshProfile: () => Promise<void>;
+  authError: string | null;
+  refreshProfile: () => Promise<AuthStatus>;
+  retry: () => Promise<void>;
   logout: (allDevices?: boolean) => Promise<void>;
   can: (permission: string) => boolean;
   updateUser: (user: User) => void;
   updateOrganization: (org: Organization) => void;
+  experienceProfile: CompanyExperienceProfile | null;
+  setExperienceProfile: (profile: CompanyExperienceProfile) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-// A browser request drop can persist for the whole lifetime of a page (the
-// network stack to the API host stays wedged for 10s+ while the shell sits on
-// the spinner). In-page retries alone cannot beat that window, so the
-// bootstrap escalates to a full page reload — a fresh document and network
-// stack. sessionStorage keeps the counter across reloads to cap the loop.
-const BOOT_RELOAD_KEY = "vcos.bootReloads";
-const MAX_BOOT_RELOADS = 2;
+const AUTH_DEBUG_ENABLED =
+  process.env.NODE_ENV !== "production" ||
+  process.env.NEXT_PUBLIC_AUTH_DEBUG === "1";
 
-function bootReloads(): number {
-  if (typeof window === "undefined") return 0;
-  return Number(window.sessionStorage.getItem(BOOT_RELOAD_KEY) || 0);
-}
-function markBootReload(): void {
-  window.sessionStorage.setItem(BOOT_RELOAD_KEY, String(bootReloads() + 1));
-}
-function resetBootReloads(): void {
-  window.sessionStorage.removeItem(BOOT_RELOAD_KEY);
+function authLog(event: string, detail?: Record<string, unknown>): void {
+  if (!AUTH_DEBUG_ENABLED) return;
+  console.debug(`[auth] ${event}`, detail ?? {});
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -60,99 +66,128 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [organization, setOrganization] = useState<Organization | null>(null);
   const [platform, setPlatform] = useState<PlatformInfo | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [experienceProfile, setExperienceProfile] =
+    useState<CompanyExperienceProfile | null>(null);
+  const [status, setStatus] = useState<AuthStatus>("initializing");
   const [authFailed, setAuthFailed] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const statusRef = useRef<AuthStatus>("initializing");
 
-  // Single-flight: React StrictMode double-mounts effects in dev, which would
-  // otherwise fire two concurrent bootstrap trios (6 parallel requests). Under
-  // load the browser cancels one trio before sending; a Promise.all reject in
-  // that case used to wipe a perfectly valid session (tokenStore.clear()) and
-  // leave the app shell stuck on "Opening your company" forever.
-  let profilePromise: Promise<void> | null = null;
-
-  // Sequential critical path: each request fires alone so a browser burst can
-  // only drop one of them, and /auth/me then /organizations/me are both
-  // required — a drop of either throws so the bootstrap effect retries.
-  // /platform is best-effort and never blocks the shell.
-  const refreshProfile = useCallback(async () => {
-    if (!profilePromise) {
-      profilePromise = (async () => {
-        const me = await api<User>("/auth/me");
-        setUser(me);
-        tokenStore.setUser(me);
-        const org = await api<Organization>("/organizations/me");
-        setOrganization(org);
-        tokenStore.setOrg(org);
-        try {
-          const info = await api<PlatformInfo>("/platform", { auth: false });
-          setPlatform(info);
-        } catch {
-          /* best-effort */
-        }
-      })();
-    }
-    try {
-      await profilePromise;
-    } finally {
-      profilePromise = null;
-    }
+  const updateStatus = useCallback((next: AuthStatus) => {
+    statusRef.current = next;
+    setStatus(next);
   }, []);
 
+  const runner = useMemo(
+    () =>
+      new AuthBootstrapRunner({
+        hasSession: () => isAuthenticated(),
+        fetchMe: (signal) => api<User>("/auth/me", { signal }),
+        fetchOrganization: (signal) =>
+          api<Organization>("/organizations/me", { signal }),
+        fetchExperienceProfile: (signal) =>
+          api<SuggestedProfileOut>("/company-experience/profile", { signal }),
+        fetchPlatform: (signal) =>
+          api<PlatformInfo>("/platform", { auth: false, signal }),
+        log: authLog,
+      }),
+    [],
+  );
+
+  const applyOutcome = useCallback(
+    (outcome: AuthOutcome) => {
+      authLog("state.apply", { status: outcome.status });
+      switch (outcome.status) {
+        case "authenticated":
+          tokenStore.setUser(outcome.user);
+          tokenStore.setOrg(outcome.organization);
+          setUser(outcome.user);
+          setOrganization(outcome.organization);
+          setPlatform(outcome.platform);
+          setExperienceProfile(outcome.experienceProfile);
+          setAuthError(null);
+          setAuthFailed(false);
+          updateStatus("authenticated");
+          break;
+        case "unauthenticated":
+          tokenStore.clear();
+          setUser(null);
+          setOrganization(null);
+          setPlatform(null);
+          setExperienceProfile(null);
+          setAuthError(null);
+          setAuthFailed(outcome.reason === "rejected");
+          updateStatus("unauthenticated");
+          break;
+        case "organization_unavailable":
+          setUser(outcome.user);
+          setOrganization(null);
+          setPlatform(null);
+          setExperienceProfile(null);
+          setAuthFailed(false);
+          setAuthError(outcome.message);
+          updateStatus("organization_unavailable");
+          break;
+        case "error":
+          if (statusRef.current === "authenticated") {
+            authLog("refresh.error", { message: outcome.message });
+            return;
+          }
+          setAuthFailed(false);
+          setAuthError(outcome.message);
+          updateStatus("error");
+          break;
+      }
+    },
+    [updateStatus],
+  );
+
   useEffect(() => {
-    let active = true;
-    (async () => {
-      if (!isAuthenticated()) {
-        if (active) setLoading(false);
-        return;
-      }
-      // Transient failures (browser-cancelled or hung requests during
-      // navigation bursts) are retried in the background. The shell keeps
-      // showing the spinner instead of redirecting to /login with a perfectly
-      // valid session — only a genuine 401 marks the session dead. After
-      // several consecutive drops the network stack to the API host is likely
-      // wedged for this page, so escalate to a full reload.
-      let transientFailures = 0;
-      while (active) {
-        try {
-          await refreshProfile();
-          resetBootReloads();
-          if (active) setLoading(false);
-          return;
-        } catch (err) {
-          if (err instanceof ApiError && err.status === 401) {
-            tokenStore.clear();
-            if (active) {
-              setLoading(false);
-              setAuthFailed(true);
-            }
-            return;
-          }
-          transientFailures += 1;
-          if (transientFailures >= 3 && bootReloads() < MAX_BOOT_RELOADS) {
-            markBootReload();
-            window.location.reload();
-            return;
-          }
-          await new Promise((resolve) => setTimeout(resolve, 400));
-        }
-      }
-    })();
+    let disposed = false;
+    const handle = runner.start();
+    handle.outcome.then((outcome) => {
+      if (disposed || !runner.isCurrent(handle.generation)) return;
+      applyOutcome(outcome);
+    });
     return () => {
-      active = false;
+      disposed = true;
+      runner.cancel();
     };
-  }, [refreshProfile]);
+  }, [runner, applyOutcome]);
+
+  const refreshProfile = useCallback(async (): Promise<AuthStatus> => {
+    const handle = runner.restart();
+    const outcome = await handle.outcome;
+    if (!runner.isCurrent(handle.generation)) return statusRef.current;
+    applyOutcome(outcome);
+    return outcome.status;
+  }, [runner, applyOutcome]);
+
+  const retry = useCallback(async () => {
+    authLog("bootstrap.retry");
+    setAuthError(null);
+    updateStatus("initializing");
+    await refreshProfile();
+  }, [refreshProfile, updateStatus]);
 
   const logout = useCallback(
     async (allDevices = false) => {
+      runner.cancel();
       try {
         await apiLogout(allDevices);
       } finally {
+        tokenStore.clear();
         setUser(null);
         setOrganization(null);
+        setPlatform(null);
+        setExperienceProfile(null);
+        setAuthFailed(false);
+        setAuthError(null);
+        updateStatus("unauthenticated");
         router.replace("/login");
       }
     },
-    [router]
+    [router, runner, updateStatus],
   );
 
   const can = useCallback(
@@ -163,7 +198,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       return user.permissions.includes(permission);
     },
-    [user]
+    [user],
   );
 
   const value = useMemo<AuthContextValue>(
@@ -171,16 +206,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       organization,
       platform,
-      loading,
-      ready: Boolean(user && organization),
+      loading: status === "initializing",
+      ready: status === "authenticated",
+      status,
       authFailed,
+      authError,
       refreshProfile,
+      retry,
       logout,
       can,
       updateUser: setUser,
       updateOrganization: setOrganization,
+      experienceProfile,
+      setExperienceProfile,
     }),
-    [user, organization, platform, loading, authFailed, refreshProfile, logout, can]
+    [
+      user,
+      organization,
+      platform,
+      status,
+      authFailed,
+      authError,
+      refreshProfile,
+      retry,
+      logout,
+      can,
+      experienceProfile,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

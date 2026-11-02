@@ -1,0 +1,32 @@
+{
+  "run_id": "e7a22211-659",
+  "manifest_schema_version": "1.0",
+  "scale_profile": "startup",
+  "employee_count": 5,
+  "tenant_count": 1,
+  "seed": 42,
+  "density_strategy": "standard",
+  "dataset_identity": {
+    "vcos_revision": "cd653b84c2a4",
+    "schema_revision": "unknown",
+    "generator_revision": "1.0",
+    "scale_profile": "startup",
+    "employee_count": 5,
+    "tenant_count": 1,
+    "seed": 42,
+    "density_strategy": "standard",
+    "environment_fingerprint": "pending"
+  },
+  "environment_fingerprint": {},
+  "schema_revision": "unknown",
+  "vcos_revision": "cd653b84c2a4",
+  "generator_revision": "1.0",
+  "evidence_schema_version": "1.0",
+  "start_time": "2026-09-25T12:51:24.163931",
+  "end_time": "2026-09-25T12:51:24.782353",
+  "duration_seconds": 0.608973,
+  "acceptance_result": "FAIL",
+  "acceptance_reason": "",
+  "evidence_artifact_path": null,
+  "manifest_fingerprint": "2e7f6a23ebe350fcfd825d0086085351"
+}

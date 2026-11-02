@@ -83,13 +83,18 @@ function CommunityDetailContent() {
       }
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to update membership");
+      setError(
+        err instanceof Error ? err.message : "Unable to update membership",
+      );
     } finally {
       setBusy(false);
     }
   }
 
-  async function changeRole(member: CommunityMember, role: "owner" | "moderator" | "member") {
+  async function changeRole(
+    member: CommunityMember,
+    role: "owner" | "moderator" | "member",
+  ) {
     if (!community) return;
     setBusy(true);
     try {
@@ -109,17 +114,29 @@ function CommunityDetailContent() {
       await deleteCommunity(community.id);
       router.push("/communities");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to delete community");
+      setError(
+        err instanceof Error ? err.message : "Unable to delete community",
+      );
       setBusy(false);
     }
   }
 
   if (loading) {
-    return <div className="flex justify-center py-24"><Spinner label="Loading community" /></div>;
+    return (
+      <div className="flex justify-center py-24">
+        <Spinner label="Loading community" />
+      </div>
+    );
   }
 
   if (error || !community) {
-    return <ErrorState title="Could not load community" message={error ?? "Not found"} onRetry={load} />;
+    return (
+      <ErrorState
+        title="Could not load community"
+        message={error ?? "Not found"}
+        onRetry={load}
+      />
+    );
   }
 
   const iAmOwner =
@@ -129,7 +146,11 @@ function CommunityDetailContent() {
 
   return (
     <div className="space-y-6">
-      <Button variant="ghost" size="sm" onClick={() => router.push("/communities")}>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => router.push("/communities")}
+      >
         <ArrowLeft className="h-4 w-4" /> All communities
       </Button>
 
@@ -145,15 +166,30 @@ function CommunityDetailContent() {
               </Button>
             ) : (
               <>
-                <Button variant="secondary" size="sm" onClick={() => router.push(`/feed?community_id=${community.id}`)}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() =>
+                    router.push(`/feed?community_id=${community.id}`)
+                  }
+                >
                   View feed
                 </Button>
                 {iAmOwner && (
-                  <Button variant="danger" size="sm" onClick={() => setDeleteOpen(true)}>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={() => setDeleteOpen(true)}
+                  >
                     Delete
                   </Button>
                 )}
-                <Button variant="ghost" size="sm" onClick={toggleMembership} loading={busy}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={toggleMembership}
+                  loading={busy}
+                >
                   <LogOut className="h-4 w-4" /> Leave
                 </Button>
               </>
@@ -174,49 +210,86 @@ function CommunityDetailContent() {
             <dl className="mt-4 grid grid-cols-2 gap-4 text-[13px] sm:grid-cols-3">
               <div>
                 <dt className="text-faint">Members</dt>
-                <dd className="mt-0.5 font-semibold text-ink">{community.member_count}</dd>
+                <dd className="mt-0.5 font-semibold text-ink">
+                  {community.member_count}
+                </dd>
               </div>
               <div>
                 <dt className="text-faint">Posts</dt>
-                <dd className="mt-0.5 font-semibold text-ink">{community.post_count}</dd>
+                <dd className="mt-0.5 font-semibold text-ink">
+                  {community.post_count}
+                </dd>
               </div>
               <div>
                 <dt className="text-faint">Created</dt>
-                <dd className="mt-0.5 font-semibold text-ink">{formatDate(community.created_at)}</dd>
+                <dd className="mt-0.5 font-semibold text-ink">
+                  {formatDate(community.created_at)}
+                </dd>
               </div>
             </dl>
           </div>
 
           <div className="rounded-lg border border-line bg-surface">
             <div className="flex items-center justify-between border-b border-line px-5 py-3">
-              <h3 className="text-sm font-semibold text-ink">Members ({members.length})</h3>
+              <h3 className="text-sm font-semibold text-ink">
+                Members ({members.length})
+              </h3>
             </div>
             {members.length === 0 ? (
-              <EmptyState icon={UserPlus} title="No members yet" description="Invite colleagues to join this community." />
+              <EmptyState
+                icon={UserPlus}
+                title="No members yet"
+                description="Invite colleagues to join this community."
+              />
             ) : (
               <ul className="divide-y divide-line">
                 {members.map((member) => {
                   const isMe = member.employee_id === myEmployeeId;
                   return (
-                    <li key={member.id} className="flex items-center gap-3 px-5 py-3">
+                    <li
+                      key={member.id}
+                      className="flex items-center gap-3 px-5 py-3"
+                    >
                       <Avatar name={member.employee_name} size="sm" />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-[13px] font-semibold text-ink">
                           {member.employee_name ?? "Unknown"}
-                          {isMe && <span className="ml-1.5 text-[11px] font-normal text-faint">(you)</span>}
+                          {isMe && (
+                            <span className="ml-1.5 text-[11px] font-normal text-faint">
+                              (you)
+                            </span>
+                          )}
                         </p>
                       </div>
-                      <Badge tone={member.role === "owner" ? "brand" : member.role === "moderator" ? "warning" : "neutral"}>
+                      <Badge
+                        tone={
+                          member.role === "owner"
+                            ? "brand"
+                            : member.role === "moderator"
+                              ? "warning"
+                              : "neutral"
+                        }
+                      >
                         {member.role}
                       </Badge>
                       {iAmOwner && !isMe && member.role !== "owner" && (
                         <div className="flex gap-1">
                           {member.role === "moderator" ? (
-                            <Button variant="ghost" size="sm" disabled={busy} onClick={() => changeRole(member, "member")}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={busy}
+                              onClick={() => changeRole(member, "member")}
+                            >
                               Demote
                             </Button>
                           ) : (
-                            <Button variant="ghost" size="sm" disabled={busy} onClick={() => changeRole(member, "moderator")}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={busy}
+                              onClick={() => changeRole(member, "moderator")}
+                            >
                               Make moderator
                             </Button>
                           )}
@@ -238,12 +311,19 @@ function CommunityDetailContent() {
         description="This will permanently delete the community and all of its posts. This cannot be undone."
         footer={
           <>
-            <Button variant="ghost" onClick={() => setDeleteOpen(false)}>Cancel</Button>
-            <Button variant="danger" onClick={remove} loading={busy}>Delete community</Button>
+            <Button variant="ghost" onClick={() => setDeleteOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={remove} loading={busy}>
+              Delete community
+            </Button>
           </>
         }
       >
-        <p className="text-[13px] text-muted">Are you sure you want to delete <span className="font-semibold text-ink">{community.name}</span>?</p>
+        <p className="text-[13px] text-muted">
+          Are you sure you want to delete{" "}
+          <span className="font-semibold text-ink">{community.name}</span>?
+        </p>
       </Modal>
     </div>
   );

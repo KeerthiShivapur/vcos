@@ -11,6 +11,8 @@ multi-tenant isolation, search integration and the Phase 12 workers.
 
 import pytest
 
+from datetime import date, timedelta
+
 from tests.conftest import register_org
 
 
@@ -315,7 +317,8 @@ async def test_contracts_approval_sign_and_renewals(client):
         "/api/v1/contracts",
         json={"title": "Master Services Agreement", "contract_type": "msa",
               "customer_id": customer_id, "value": 500000, "currency": "USD",
-              "effective_from": "2026-08-01", "expires_at": "2026-08-20",
+              "effective_from": (date.today() - timedelta(days=5)).isoformat(),
+              "expires_at": (date.today() + timedelta(days=14)).isoformat(),
               "approval_status": "pending_approval", "terms": "Standard terms"},
         headers=headers)
     assert contract.status_code == 200, contract.text

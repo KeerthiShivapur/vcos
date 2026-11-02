@@ -1,44 +1,34 @@
-"""Phase 19 — Organization Graph edges.
+"""Organization Edge model."""
 
-Relationships: works_with, created, reviewed, approved, depends_on, reports_to,
-knows, mentored, learned, owns, blocked_by, customer_of, vendor_of, attended,
-mentioned, linked_to, member_of, assigned_to, contributed_to.
-"""
+from datetime import datetime
+from typing import Optional
+from sqlalchemy import DateTime, ForeignKey, String, Text, JSON, Boolean, Index, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from typing import Any, Optional
-
-from sqlalchemy import JSON, Float, ForeignKey, Index, String
-from sqlalchemy.orm import Mapped, mapped_column
-
-from app.db.database import Base
-from app.models.organization import TimestampMixin, gen_uuid
-
-EDGE_RELATIONS = (
-    "works_with", "created", "reviewed", "approved", "depends_on", "reports_to",
-    "knows", "mentored", "learned", "owns", "blocked_by", "customer_of",
-    "vendor_of", "attended", "mentioned", "linked_to", "member_of",
-    "assigned_to", "contributed_to",
-)
+from app.models.base import Base, TimestampMixin, gen_uuid
 
 
 class OrganizationEdge(Base, TimestampMixin):
-    """One relationship between two organization graph nodes."""
-
     __tablename__ = "organization_edges"
-    __table_args__ = (
-        Index("ix_org_edges_org_source", "organization_id", "source_id"),
-        Index("ix_org_edges_org_target", "organization_id", "target_id"),
-        Index("ix_org_edges_org_relation", "organization_id", "relation"),
-    )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
     organization_id: Mapped[str] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    source_type: Mapped[str] = mapped_column(String(30), nullable=False)
-    source_id: Mapped[str] = mapped_column(String(32), nullable=False)
-    target_type: Mapped[str] = mapped_column(String(30), nullable=False)
-    target_id: Mapped[str] = mapped_column(String(32), nullable=False)
-    relation: Mapped[str] = mapped_column(String(40), nullable=False)
-    weight: Mapped[float] = mapped_column(Float, default=1.0)
-    properties: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, default=dict)
+    source_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    source_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    target_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    target_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    relationship: Mapped[str] = mapped_column(String(60), nullable=False)
+    weight: Mapped[float] = mapped_column(default=1.0, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    organizationedge_metadata: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+    valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    valid_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        UniqueConstraint("organization_id", "source_type", "source_id", "target_type", "target_id", "relationship", name="uq_org_edges_unique"),
+        Index("ix_org_edges_org_source", "organization_id", "source_type", "source_id"),
+        Index("ix_org_edges_org_target", "organization_id", "target_type", "target_id"),
+        Index("ix_org_edges_org_active", "organization_id", "is_active"),
+    )

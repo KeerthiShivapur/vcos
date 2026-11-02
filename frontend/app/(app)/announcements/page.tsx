@@ -60,7 +60,9 @@ function AnnouncementsContent() {
       setAnnouncements(list);
       setMyEmployeeId(me?.id ?? null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load announcements");
+      setError(
+        err instanceof Error ? err.message : "Unable to load announcements",
+      );
     } finally {
       setLoading(false);
     }
@@ -76,7 +78,11 @@ function AnnouncementsContent() {
       try {
         await markAnnouncementRead(announcement.id);
         setAnnouncements((prev) =>
-          prev.map((a) => (a.id === announcement.id ? { ...a, read_by_me: true, read_count: a.read_count + 1 } : a))
+          prev.map((a) =>
+            a.id === announcement.id
+              ? { ...a, read_by_me: true, read_count: a.read_count + 1 }
+              : a,
+          ),
         );
       } catch {
         /* ignore */
@@ -90,9 +96,13 @@ function AnnouncementsContent() {
       setAnnouncements((prev) =>
         prev.map((a) =>
           a.id === announcement.id
-            ? { ...a, acknowledged_by_me: true, acknowledged_count: a.acknowledged_count + 1 }
-            : a
-        )
+            ? {
+                ...a,
+                acknowledged_by_me: true,
+                acknowledged_count: a.acknowledged_count + 1,
+              }
+            : a,
+        ),
       );
     } catch {
       /* ignore */
@@ -113,11 +123,13 @@ function AnnouncementsContent() {
       <PageHeader
         title="Announcements"
         description="Company-wide news, policies, and important updates."
-        actions={canManage ? (
-          <Button size="sm" onClick={() => setCreateOpen(true)}>
-            <Plus className="h-4 w-4" /> New announcement
-          </Button>
-        ) : undefined}
+        actions={
+          canManage ? (
+            <Button size="sm" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-4 w-4" /> New announcement
+            </Button>
+          ) : undefined
+        }
       />
 
       <div className="w-44">
@@ -135,17 +147,27 @@ function AnnouncementsContent() {
       </div>
 
       {error ? (
-        <ErrorState title="Could not load announcements" message={error} onRetry={load} />
+        <ErrorState
+          title="Could not load announcements"
+          message={error}
+          onRetry={load}
+        />
       ) : loading ? (
-        <div className="flex justify-center py-24"><Spinner label="Loading announcements" /></div>
+        <div className="flex justify-center py-24">
+          <Spinner label="Loading announcements" />
+        </div>
       ) : announcements.length === 0 ? (
         <EmptyState
           icon={Megaphone}
           title="No announcements"
           description="Important updates will appear here."
-          action={canManage ? (
-            <Button size="sm" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" /> New announcement</Button>
-          ) : undefined}
+          action={
+            canManage ? (
+              <Button size="sm" onClick={() => setCreateOpen(true)}>
+                <Plus className="h-4 w-4" /> New announcement
+              </Button>
+            ) : undefined
+          }
         />
       ) : (
         <div className="space-y-4">
@@ -221,40 +243,79 @@ function AnnouncementCard({
         <Avatar name={announcement.author_name} size="md" />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-[15px] font-semibold text-ink">{announcement.title}</h3>
+            <h3 className="text-[15px] font-semibold text-ink">
+              {announcement.title}
+            </h3>
             <Badge tone={priorityTone}>{announcement.priority}</Badge>
             <Badge tone="neutral">{announcement.type}</Badge>
-            {announcement.pinned && <Badge tone="brand"><Pin className="h-3 w-3" /> Pinned</Badge>}
-            {announcement.status === "draft" && <Badge tone="warning">Draft</Badge>}
+            {announcement.pinned && (
+              <Badge tone="brand">
+                <Pin className="h-3 w-3" /> Pinned
+              </Badge>
+            )}
+            {announcement.status === "draft" && (
+              <Badge tone="warning">Draft</Badge>
+            )}
           </div>
           <p className="mt-0.5 text-[12px] text-faint">
             {announcement.author_name} · {timeAgo(announcement.created_at)}
-            {announcement.department_name && ` · ${announcement.department_name}`}
+            {announcement.department_name &&
+              ` · ${announcement.department_name}`}
             {announcement.team_id && " · Team"}
           </p>
           {announcement.body && (
-            <p className="mt-2 whitespace-pre-wrap text-[13px] leading-relaxed text-muted">{announcement.body}</p>
+            <p className="mt-2 whitespace-pre-wrap text-[13px] leading-relaxed text-muted">
+              {announcement.body}
+            </p>
           )}
           <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-line pt-3 text-[12px] text-faint">
-            <span className="flex items-center gap-1"><Eye className="h-3.5 w-3.5" /> {announcement.read_count}</span>
+            <span className="flex items-center gap-1">
+              <Eye className="h-3.5 w-3.5" /> {announcement.read_count}
+            </span>
             {announcement.acknowledge_required && (
-              <span className="flex items-center gap-1"><CheckCheck className="h-3.5 w-3.5" /> {announcement.acknowledged_count}</span>
+              <span className="flex items-center gap-1">
+                <CheckCheck className="h-3.5 w-3.5" />{" "}
+                {announcement.acknowledged_count}
+              </span>
             )}
-            {announcement.status === "published" && !announcement.read_by_me && !isMine && (
-              <span className="text-brand">New</span>
-            )}
-            {announcement.acknowledge_required && !announcement.acknowledged_by_me && !isMine && (
-              <Button size="sm" variant="secondary" onClick={(e) => { e.stopPropagation(); onAcknowledge(); }}>
-                Acknowledge
-              </Button>
-            )}
+            {announcement.status === "published" &&
+              !announcement.read_by_me &&
+              !isMine && <span className="text-brand">New</span>}
+            {announcement.acknowledge_required &&
+              !announcement.acknowledged_by_me &&
+              !isMine && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onAcknowledge();
+                  }}
+                >
+                  Acknowledge
+                </Button>
+              )}
             {isMine && announcement.status === "draft" && (
-              <Button size="sm" variant="secondary" onClick={(e) => { e.stopPropagation(); onPublish(); }}>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPublish();
+                }}
+              >
                 Publish
               </Button>
             )}
             {canManage && (
-              <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); showReceipts(); }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  showReceipts();
+                }}
+              >
                 Receipts
               </Button>
             )}
@@ -273,17 +334,26 @@ function AnnouncementCard({
             <p className="text-[13px] text-muted">No reads recorded yet.</p>
           ) : (
             receipts.map((receipt) => (
-              <div key={receipt.id} className="flex items-center justify-between rounded-md bg-surface-muted px-3 py-2">
-                <span className="text-[13px] font-medium text-ink">{receipt.employee_name ?? "Unknown"}</span>
+              <div
+                key={receipt.id}
+                className="flex items-center justify-between rounded-md bg-surface-muted px-3 py-2"
+              >
+                <span className="text-[13px] font-medium text-ink">
+                  {receipt.employee_name ?? "Unknown"}
+                </span>
                 <div className="flex gap-3 text-[12px] text-faint">
                   <span className="flex items-center gap-1">
                     <Eye className="h-3.5 w-3.5" />
-                    {receipt.read_at ? new Date(receipt.read_at).toLocaleString() : "not read"}
+                    {receipt.read_at
+                      ? new Date(receipt.read_at).toLocaleString()
+                      : "not read"}
                   </span>
                   {announcement.acknowledge_required && (
                     <span className="flex items-center gap-1">
                       <CheckCheck className="h-3.5 w-3.5" />
-                      {receipt.acknowledged_at ? new Date(receipt.acknowledged_at).toLocaleString() : "not acknowledged"}
+                      {receipt.acknowledged_at
+                        ? new Date(receipt.acknowledged_at).toLocaleString()
+                        : "not acknowledged"}
                     </span>
                   )}
                 </div>
@@ -346,7 +416,9 @@ function CreateAnnouncementModal({
       setPinned(false);
       setAcknowledge(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to create announcement");
+      setError(
+        err instanceof Error ? err.message : "Unable to create announcement",
+      );
     }
   }
 
@@ -358,14 +430,27 @@ function CreateAnnouncementModal({
       description="Publish an update to your organization."
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
           <Button onClick={submit}>Create</Button>
         </>
       }
     >
       <div className="space-y-4">
-        <Input label="Title" placeholder="e.g. New office hours" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <Textarea label="Body" placeholder="Details of the announcement…" value={body} onChange={(e) => setBody(e.target.value)} rows={5} />
+        <Input
+          label="Title"
+          placeholder="e.g. New office hours"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+        />
+        <Textarea
+          label="Body"
+          placeholder="Details of the announcement…"
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          rows={5}
+        />
         <div className="grid grid-cols-2 gap-3">
           <Select
             label="Type"
@@ -391,11 +476,19 @@ function CreateAnnouncementModal({
           />
         </div>
         <label className="flex items-center gap-2 text-[13px] text-muted">
-          <input type="checkbox" checked={pinned} onChange={(e) => setPinned(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={pinned}
+            onChange={(e) => setPinned(e.target.checked)}
+          />
           Pin this announcement
         </label>
         <label className="flex items-center gap-2 text-[13px] text-muted">
-          <input type="checkbox" checked={acknowledge} onChange={(e) => setAcknowledge(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={acknowledge}
+            onChange={(e) => setAcknowledge(e.target.checked)}
+          />
           Require acknowledgement
         </label>
         {error && <p className="text-[13px] text-danger">{error}</p>}

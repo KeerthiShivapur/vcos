@@ -1,0 +1,339 @@
+# LiveKit Cluster - Docker Compose for Development/Testing
+# Production uses Kubernetes manifests
+
+version: '3.8'
+
+services:
+  # LiveKit Server (Primary)
+  livekit-primary:
+    image: livekit/livekit-server:v1.5.0
+    container_name: vcos-livekit-primary
+    ports:
+      - "7880:7880"    # HTTP/WebSocket
+      - "7881:7881"    # RTC TCP
+      - "50000-60000:50000-60000/udp"  # RTC UDP
+      - "7882:7882"    # WHIP Ingress
+      - "1935:1935"    # RTMP Ingress
+      - "8888:8888/udp" # SRT Ingress
+      - "9090:9090"    # Metrics
+    environment:
+      - LIVEKIT_CONFIG_FILE=/etc/livekit/livekit.yaml
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - AWS_ACCESS_KEY=${AWS_ACCESS_KEY}
+      - AWS_SECRET_KEY=${AWS_SECRET_KEY}
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
+    volumes:
+      - ./config/livekit.yaml:/etc/livekit/livekit.yaml:ro
+      - ./certs:/etc/livekit/certs:ro
+      - livekit-recordings:/var/lib/livekit/recordings
+      - livekit-data:/var/lib/livekit
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7880/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+    networks:
+      - livekit-network
+
+  # LiveKit Server (Secondary for HA)
+  livekit-secondary:
+    image: livekit/livekit-server:v1.5.0
+    container_name: vcos-livekit-secondary
+    ports:
+      - "7883:7880"
+      - "7884:7881"
+      - "60001-61000:50000-60000/udp"
+      - "7885:7882"
+      - "1936:1935"
+      - "8889:8888/udp"
+      - "9091:9090"
+    environment:
+      - LIVEKIT_CONFIG_FILE=/etc/livekit/livekit.yaml
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - AWS_ACCESS_KEY=${AWS_ACCESS_KEY}
+      - AWS_SECRET_KEY=${AWS_SECRET_KEY}
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
+    volumes:
+      - ./config/livekit.yaml:/etc/livekit/livekit.yaml:ro
+      - ./certs:/etc/livekit/certs:ro
+      - livekit-recordings:/var/lib/livekit/recordings
+      - livekit-data-secondary:/var/lib/livekit
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7880/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+    networks:
+      - livekit-network
+
+  # LiveKit Egress (for streaming out)
+  livekit-egress:
+    image: livekit/egress:v1.5.0
+    container_name: vcos-livekit-egress
+    environment:
+      - LIVEKIT_EGRESS_CONFIG_FILE=/etc/livekit/egress.yaml
+    volumes:
+      - ./config/egress.yaml:/etc/livekit/egress.yaml:ro
+    depends_on:
+      - livekit-primary
+    networks:
+      - livekit-network
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '4'
+        reservations:
+          memory: 1G
+          cpus: '1'
+    deploy:
+      replicas: 2
+
+  # LiveKit Ingress (for streaming in)
+  livekit-ingress:
+    image: livekit/ingress:v1.5.0
+    container_name: vcos-livekit-ingress
+    ports:
+      - "7882:7882"   # WHIP
+      - "1935:1935"   # RTMP
+      - "8888:8888/udp" # SRT
+    environment:
+      - LIVEKIT_INGRESS_CONFIG_FILE=/etc/livekit/ingress.yaml
+    volumes:
+      - ./config/ingress.yaml:/etc/livekit/ingress.yaml:ro
+    depends_on:
+      - livekit-primary
+    networks:
+      - livekit-network
+    deploy:
+      replicas: 2
+
+  # LiveKit SIP (for phone integration)
+  livekit-sip:
+    image: livekit/sip:v1.5.0
+    container_name: vcos-livekit-sip
+    environment:
+      - LIVEKIT_SIP_CONFIG_FILE=/etc/livekit/sip.yaml
+    volumes:
+      - ./config/sip.yaml:/etc/livekit/sip.yaml:ro
+    depends_on:
+      - livekit-primary
+    networks:
+      - livekit-network
+
+  # Redis Cluster (for LiveKit clustering)
+  redis:
+    image: redis:7-alpine
+    container_name: vcos-livekit-redis
+    command: redis-server /usr/local/etc/redis/redis.conf
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+    networks:
+      - livekit-network
+
+  # Redis Sentinel for HA
+  redis-sentinel-1:
+    image: redis:7-alpine
+    container_name: vcos-redis-sentinel-1
+    command: redis-sentinel /usr/local/etc/redis/sentinel.conf
+    volumes:
+      - ./redis/sentinel.conf:/usr/local/etc/redis/sentinel.conf:ro
+    depends_on:
+      - redis
+    networks:
+      - livekit-network
+
+  redis-sentinel-2:
+    image: redis:7-alpine
+    container_name: vcos-redis-sentinel-2
+    command: redis-sentinel /usr/local/etc/redis/sentinel.conf
+    volumes:
+      - ./redis/sentinel.conf:/usr/local/etc/redis/sentinel.conf:ro
+    depends_on:
+      - redis
+    networks:
+      - livekit-network
+
+  redis-sentinel-3:
+    image: redis:7-alpine
+    container_name: vcos-redis-sentinel-3
+    command: redis-sentinel /usr/local/etc/redis/sentinel.conf
+    volumes:
+      - ./redis/sentinel.conf:/usr/local/etc/redis/sentinel.conf:ro
+    depends_on:
+      - redis
+    networks:
+      - livekit-network
+
+  # PostgreSQL Cluster (for persistent storage)
+  postgres:
+    image: postgres:15-alpine
+    container_name: vcos-livekit-postgres
+    environment:
+      - POSTGRES_DB=livekit
+      - POSTGRES_USER=livekit
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_MAX_CONNECTIONS=200
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U livekit -d livekit"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+    networks:
+      - livekit-network
+
+  # Prometheus for metrics
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: vcos-livekit-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    networks:
+      - livekit-network
+
+  # Grafana for dashboards
+  grafana:
+    image: grafana/grafana:10.1.0
+    container_name: vcos-livekit-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - livekit-network
+
+  # Coturn TURN/STUN server
+  coturn:
+    image: coturn/coturn:4.6.2
+    container_name: vcos-turn
+    ports:
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+      - "5349:5349/tcp"
+      - "5349:5349/udp"
+      - "49152-65535:49152-65535/udp"
+    environment:
+      - TURN_SERVER_NAME=turn.vcos.io
+      - TURN_REALM=vcos.io
+      - TURN_USERNAME=vcos
+      - TURN_PASSWORD=${TURN_PASSWORD}
+      - TURN_SECRET=${TURN_SECRET}
+      - EXTERNAL_IP=${EXTERNAL_IP}
+      - MIN_PORT=49152
+      - MAX_PORT=65535
+    volumes:
+      - ./config/turnserver.conf:/etc/turnserver.conf:ro
+      - ./certs:/etc/turnserver/certs:ro
+    networks:
+      - livekit-network
+
+  # NGINX for load balancing and SSL termination
+  nginx:
+    image: nginx:alpine
+    container_name: vcos-livekit-nginx
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      - livekit-primary
+      - livekit-secondary
+    networks:
+      - livekit-network
+
+volumes:
+  livekit-recordings:
+  livekit-data:
+  livekit-data-secondary:
+  redis-data:
+  postgres-data:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  livekit-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

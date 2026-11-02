@@ -1,0 +1,5 @@
+_phase_backup_selected(self, db: AsyncSession, context: RestoreContext, restore_op: RestoreOperation) -> Dict[str, Any]:
+        """Phase 1: Verify backup exists and is selectable."""
+        backup = await db.get(BackupManifest, context.backup_id)
+        if not backup:
+            return {"passed"

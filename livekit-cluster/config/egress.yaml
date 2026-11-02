@@ -1,0 +1,163 @@
+# LiveKit Egress Configuration
+# For streaming recordings to external platforms
+
+# Output configurations
+outputs:
+  # File output (local/S3)
+  - name: "file-output"
+    type: "file"
+    file:
+      path: "/var/lib/livekit/egress"
+      format: "mp4"
+      # Segment for long recordings
+      segment_duration: "3600s"  # 1 hour segments
+
+  # S3 output for permanent storage
+  - name: "s3-output"
+    type: "s3"
+    s3:
+      bucket: "vcos-recordings"
+      region: "us-east-1"
+      access_key: "${AWS_ACCESS_KEY}"
+      secret_key: "${AWS_SECRET_KEY}"
+      prefix: "egress/"
+      # Multipart upload for large files
+      multipart:
+        enabled: true
+        part_size: "100MB"
+
+  # RTMP output (YouTube, Twitch, Facebook, etc.)
+  - name: "rtmp-output"
+    type: "rtmp"
+    rtmp:
+      url: "${RTMP_URL}"  # e.g., rtmp://a.rtmp.youtube.com/live2/stream-key
+      # Stream settings
+      video:
+        codec: "h264"
+        bitrate: "5000k"
+        framerate: 30
+        width: 1920
+        height: 1080
+      audio:
+        codec: "aac"
+        bitrate: "128k"
+        sample_rate: 48000
+        channels: 2
+
+  # HLS output for adaptive streaming
+  - name: "hls-output"
+    type: "hls"
+    hls:
+      playlist_name: "index.m3u8"
+      segment_duration: 6
+      playlist_window: 30
+      segment_prefix: "segment"
+      # Master playlist for adaptive bitrate
+      variants:
+        - name: "1080p"
+          video:
+            width: 1920
+            height: 1080
+            bitrate: "5000k"
+          audio:
+            bitrate: "128k"
+        - name: "720p"
+          video:
+            width: 1280
+            height: 720
+            bitrate: "2500k"
+          audio:
+            bitrate: "128k"
+        - name: "480p"
+          video:
+            width: 854
+            height: 480
+            bitrate: "1000k"
+          audio:
+            bitrate: "96k"
+        - name: "360p"
+          video:
+            width: 640
+            height: 360
+            bitrate: "500k"
+          audio:
+            bitrate: "64k"
+
+  # Webhook callback for egress events
+  - name: "webhook-callback"
+    type: "webhook"
+    webhook:
+      url: "https://api.vcos.io/webhooks/livekit/egress"
+      headers:
+        Authorization: "Bearer ${WEBHOOK_SECRET}"
+      events:
+        - "started"
+        - "updated"
+        - "ended"
+        - "failed"
+
+# Default egress settings
+defaults:
+  # Default encoding settings
+  encoding:
+    video:
+      codec: "h264"
+      preset: "medium"
+      profile: "high"
+      level: "4.2"
+      # Quality settings
+      crf: 23
+      # Force keyframe interval
+      gop_size: 60
+    audio:
+      codec: "aac"
+      bitrate: "128k"
+      sample_rate: 48000
+      channels: 2
+  
+  # Segmentation
+  segment_duration: 6
+  max_segment_duration: 10
+  
+  # Retry settings
+  retry:
+    max_attempts: 3
+    backoff: "exponential"
+    max_backoff: "60s"
+
+# Resource limits
+resources:
+  # Per-egress limits
+  max_concurrent: 10
+  max_duration: "24h"
+  max_file_size: "50GB"
+  
+  # CPU/Memory limits per worker
+  cpu_limit: "2000m"
+  memory_limit: "4Gi"
+  cpu_request: "500m"
+  memory_request: "1Gi"
+
+# Monitoring
+monitoring:
+  prometheus:
+    enabled: true
+    port: 9090
+    path: "/metrics"
+  
+  # Health check
+  health_check:
+    enabled: true
+    path: "/health"
+    interval: "30s"
+    timeout: "10s"
+
+# Logging
+logging:
+  level: "info"
+  format: "json"
+  output: "stdout"
+  # Structured fields
+  fields:
+    service: "livekit-egress"
+    cluster: "vcos-primary"

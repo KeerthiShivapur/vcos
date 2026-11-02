@@ -8,7 +8,13 @@ import { api } from "@/lib/api";
 import { Avatar } from "@/components/ui/Avatar";
 import { classNames } from "@/lib/utils";
 
-export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function CommandPalette({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResponse | null>(null);
@@ -41,7 +47,9 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     setLoading(true);
     const timer = window.setTimeout(async () => {
       try {
-        const data = await api<SearchResponse>(`/search?q=${encodeURIComponent(query)}&limit=8`);
+        const data = await api<SearchResponse>(
+          `/search?q=${encodeURIComponent(query)}&limit=8`,
+        );
         if (active) setResults(data);
       } catch {
         if (active) setResults({ query, results: [], total: 0, took_ms: 0 });
@@ -70,7 +78,10 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
 
   return (
     <div className="fixed inset-0 z-[80] flex items-start justify-center p-4 pt-[12vh]">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
+      <div
+        className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
+        onClick={onClose}
+      />
       <div className="relative z-10 w-full max-w-xl animate-pop overflow-hidden rounded-xl border border-line bg-elevated shadow-popover">
         <div className="flex items-center gap-3 border-b border-line px-4">
           <Search className="h-4 w-4 shrink-0 text-faint" />
@@ -79,7 +90,8 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && query.trim()) go(`/search?q=${encodeURIComponent(query)}`);
+              if (e.key === "Enter" && query.trim())
+                go(`/search?q=${encodeURIComponent(query)}`);
             }}
             placeholder="Search employees, roles, anything in the company…"
             className="h-12 w-full bg-transparent text-sm text-ink outline-none placeholder:text-faint"
@@ -95,9 +107,15 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
               Type at least 2 characters to search your company.
             </p>
           )}
-          {loading && <p className="px-3 py-6 text-center text-xs text-faint">Searching…</p>}
+          {loading && (
+            <p className="px-3 py-6 text-center text-xs text-faint">
+              Searching…
+            </p>
+          )}
           {!loading && results && results.results.length === 0 && (
-            <p className="px-3 py-6 text-center text-xs text-faint">No results for “{query}”.</p>
+            <p className="px-3 py-6 text-center text-xs text-faint">
+              No results for “{query}”.
+            </p>
           )}
           {results?.results.map((result) => (
             <button
@@ -109,12 +127,22 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
                 {result.type === "user" ? (
                   <Avatar name={result.title} size="xs" className="h-8 w-8" />
                 ) : (
-                  typeIcon[result.type] ?? <Search className="h-4 w-4 text-faint" />
+                  (typeIcon[result.type] ?? (
+                    <Search className="h-4 w-4 text-faint" />
+                  ))
                 )}
               </span>
               <span className="min-w-0 flex-1">
-                <span className={classNames("block truncate text-sm font-medium text-ink")}>{result.title}</span>
-                <span className="block truncate text-xs text-faint">{result.subtitle}</span>
+                <span
+                  className={classNames(
+                    "block truncate text-sm font-medium text-ink",
+                  )}
+                >
+                  {result.title}
+                </span>
+                <span className="block truncate text-xs text-faint">
+                  {result.subtitle}
+                </span>
               </span>
               <span className="shrink-0 rounded-full bg-canvas px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-faint">
                 {result.type.replace("_", " ")}
@@ -123,8 +151,12 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
           ))}
         </div>
         <div className="flex items-center gap-3 border-t border-line px-4 py-2 text-[10px] text-faint">
-          <span><kbd className="font-medium text-muted">Esc</kbd> close</span>
-          <span><kbd className="font-medium text-muted">Enter</kbd> open results</span>
+          <span>
+            <kbd className="font-medium text-muted">Esc</kbd> close
+          </span>
+          <span>
+            <kbd className="font-medium text-muted">Enter</kbd> open results
+          </span>
           <span className="ml-auto">VCOS universal search</span>
         </div>
       </div>

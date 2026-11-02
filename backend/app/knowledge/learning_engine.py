@@ -29,9 +29,8 @@ from typing import Any, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.timeutils import ensure_aware
+from app.core.timeutils import ensure_aware, utcnow as now_utc
 from app.intelligence.company_context import CallerAccess, resolve_caller_access
-from app.knowledge.canonical_service import now_utc
 from app.knowledge.intelligence_engine import _fingerprint
 from app.knowledge.synthesis_engine import _json_loads
 from app.models.company_actions import CompanyAction, CompanyActionOutcome

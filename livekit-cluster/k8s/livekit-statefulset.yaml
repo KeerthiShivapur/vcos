@@ -1,0 +1,303 @@
+# LiveKit Server Kubernetes Deployment
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: livekit-server
+  namespace: livekit
+  labels:
+    app: livekit-server
+    component: media-server
+spec:
+  serviceName: livekit-server
+  replicas: 3
+  selector:
+    matchLabels:
+      app: livekit-server
+  template:
+    metadata:
+      labels:
+        app: livekit-server
+        component: media-server
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: livekit-sa
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        runAsNonRoot: true
+      initContainers:
+        - name: wait-for-dependencies
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z redis-cluster 6379; do echo "Waiting for Redis..."; sleep 2; done
+              until nc -z postgres-cluster 5432; do echo "Waiting for PostgreSQL..."; sleep 2; done
+              echo "Dependencies ready"
+      containers:
+        - name: livekit-server
+          image: livekit/livekit-server:v1.5.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 7880
+              name: http
+              protocol: TCP
+            - containerPort: 7881
+              name: rtc-tcp
+              protocol: TCP
+            - containerPort: 50000
+              name: rtc-udp-start
+              protocol: UDP
+            - containerPort: 60000
+              name: rtc-udp-end
+              protocol: UDP
+            - containerPort: 7882
+              name: whip
+              protocol: TCP
+            - containerPort: 1935
+              name: rtmp
+              protocol: TCP
+            - containerPort: 8888
+              name: srt
+              protocol: UDP
+            - containerPort: 9090
+              name: metrics
+              protocol: TCP
+          env:
+            - name: LIVEKIT_CONFIG_FILE
+              value: "/etc/livekit/livekit.yaml"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: livekit-secrets
+                  key: redis-password
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: livekit-secrets
+                  key: postgres-password
+            - name: AWS_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: livekit-secrets
+                  key: aws-access-key
+            - name: AWS_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: livekit-secrets
+                  key: aws-secret-key
+            - name: LIVEKIT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: livekit-secrets
+                  key: api-key
+            - name: LIVEKIT_API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: livekit-secrets
+                  key: api-secret
+            - name: TURN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: livekit-secrets
+                  key: turn-password
+            - name: TURN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: livekit-secrets
+                  key: turn-secret
+            - name: EXTERNAL_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/livekit
+              readOnly: true
+            - name: certs
+              mountPath: /etc/livekit/certs
+              readOnly: true
+            - name: recordings
+              mountPath: /var/lib/livekit/recordings
+            - name: data
+              mountPath: /var/lib/livekit
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 7880
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 7880
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 10"]
+      volumes:
+        - name: config
+          configMap:
+            name: livekit-config
+            items:
+              - key: livekit.yaml
+                path: livekit.yaml
+        - name: certs
+          secret:
+            secretName: livekit-certs
+        - name: recordings
+          persistentVolumeClaim:
+            claimName: livekit-recordings-pvc
+        - name: data
+          emptyDir: {}
+      podManagementPolicy: Parallel
+      updateStrategy:
+        type: RollingUpdate
+        rollingUpdate:
+          partition: 0
+          maxUnavailable: 1
+---
+# Service for LiveKit Server
+apiVersion: v1
+kind: Service
+metadata:
+  name: livekit-server
+  namespace: livekit
+  labels:
+    app: livekit-server
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+spec:
+  type: LoadBalancer
+  ports:
+    - name: http
+      port: 7880
+      targetPort: 7880
+      protocol: TCP
+    - name: rtc-tcp
+      port: 7881
+      targetPort: 7881
+      protocol: TCP
+    - name: rtc-udp
+      port: 50000
+      targetPort: 50000
+      protocol: UDP
+    - name: whip
+      port: 7882
+      targetPort: 7882
+      protocol: TCP
+    - name: rtmp
+      port: 1935
+      targetPort: 1935
+      protocol: TCP
+    - name: srt
+      port: 8888
+      targetPort: 8888
+      protocol: UDP
+    - name: metrics
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+  selector:
+    app: livekit-server
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800
+---
+# ConfigMap for LiveKit configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: livekit-config
+  namespace: livekit
+data:
+  livekit.yaml: |
+    # LiveKit configuration will be mounted from config/livekit.yaml
+    # This is a placeholder - actual config comes from the config file
+    port: 7880
+    rtc:
+      tcp_port: 7881
+      port_range_start: 50000
+      port_range_end: 60000
+      use_external_ip: true
+    redis:
+      address: "redis-cluster:6379"
+    store:
+      type: "postgres"
+      postgres:
+        host: "postgres-cluster"
+        port: 5432
+        database: "livekit"
+    keys:
+      ${LIVEKIT_API_KEY}: "${LIVEKIT_API_SECRET}"
+---
+# Secret for LiveKit
+apiVersion: v1
+kind: Secret
+metadata:
+  name: livekit-secrets
+  namespace: livekit
+type: Opaque
+stringData:
+  redis-password: "your-redis-password"
+  postgres-password: "your-postgres-password"
+  aws-access-key: "your-aws-access-key"
+  aws-secret-key: "your-aws-secret-key"
+  api-key: "your-api-key"
+  api-secret: "your-api-secret"
+  turn-password: "your-turn-password"
+  turn-secret: "your-turn-secret"
+---
+# PersistentVolumeClaim for recordings
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: livekit-recordings-pvc
+  namespace: livekit
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: efs-sc
+---
+# ServiceMonitor for Prometheus
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: livekit-server-monitor
+  namespace: livekit
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: livekit-server
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+  namespaceSelector:
+    matchNames:
+      - livekit

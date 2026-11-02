@@ -1,0 +1,524 @@
+# Multi-Region Active-Active Configuration for VCOS
+# Global deployment with active-active clusters across regions
+
+# Global configuration
+global:
+  project: "vcos"
+  environment: "production"
+  domains:
+    global: "vcos.io"
+    api: "api.vcos.io"
+    app: "app.vcos.io"
+    ws: "ws.vcos.io"
+
+# Region definitions
+regions:
+  - name: "us-east-1"
+    display_name: "US East (N. Virginia)"
+    primary: true
+    provider: "aws"
+    kubernetes:
+      cluster_name: "vcos-us-east-1"
+      version: "1.28"
+      node_groups:
+        - name: "general"
+          instance_type: "m6i.xlarge"
+          min_size: 3
+          max_size: 50
+          desired_size: 6
+        - name: "compute"
+          instance_type: "c6i.2xlarge"
+          min_size: 2
+          max_size: 20
+          desired_size: 4
+        - name: "memory"
+          instance_type: "r6i.xlarge"
+          min_size: 1
+          max_size: 10
+          desired_size: 2
+    networking:
+      vpc_cidr: "10.0.0.0/16"
+      public_subnets:
+        - "10.0.0.0/20"
+        - "10.0.16.0/20"
+      private_subnets:
+        - "10.0.32.0/20"
+        - "10.0.48.0/20"
+      database_subnets:
+        - "10.0.64.0/20"
+        - "10.0.80.0/20"
+    services:
+      livekit:
+        replicas: 3
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+      postgres:
+        instance_class: "db.r6g.xlarge"
+        multi_az: true
+        storage: "500Gi"
+      redis:
+        node_type: "cache.r6g.xlarge"
+        num_cache_nodes: 3
+        automatic_failover: true
+      s3:
+        bucket: "vcos-us-east-1"
+        versioning: true
+        replication:
+          destination: "vcos-eu-west-1"
+      cloudfront:
+        enabled: true
+        price_class: "PriceClass_All"
+      route53:
+        hosted_zone: "vcos.io"
+        health_checks: true
+
+  - name: "eu-west-1"
+    display_name: "EU West (Ireland)"
+    primary: false
+    provider: "aws"
+    kubernetes:
+      cluster_name: "vcos-eu-west-1"
+      version: "1.28"
+      node_groups:
+        - name: "general"
+          instance_type: "m6i.xlarge"
+          min_size: 3
+          max_size: 30
+          desired_size: 4
+        - name: "compute"
+          instance_type: "c6i.2xlarge"
+          min_size: 2
+          max_size: 15
+          desired_size: 3
+        - name: "memory"
+          instance_type: "r6i.xlarge"
+          min_size: 1
+          max_size: 8
+          desired_size: 2
+    networking:
+      vpc_cidr: "10.1.0.0/16"
+      public_subnets:
+        - "10.1.0.0/20"
+        - "10.1.16.0/20"
+      private_subnets:
+        - "10.1.32.0/20"
+        - "10.1.48.0/20"
+      database_subnets:
+        - "10.1.64.0/20"
+        - "10.1.80.0/20"
+    services:
+      livekit:
+        replicas: 2
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+      postgres:
+        instance_class: "db.r6g.xlarge"
+        multi_az: true
+        storage: "300Gi"
+      redis:
+        node_type: "cache.r6g.xlarge"
+        num_cache_nodes: 3
+        automatic_failover: true
+      s3:
+        bucket: "vcos-eu-west-1"
+        versioning: true
+        replication:
+          destination: "vcos-us-east-1"
+      cloudfront:
+        enabled: true
+        price_class: "PriceClass_100"
+      route53:
+        hosted_zone: "vcos.io"
+        health_checks: true
+
+  - name: "ap-southeast-1"
+    display_name: "Asia Pacific (Singapore)"
+    primary: false
+    provider: "aws"
+    kubernetes:
+      cluster_name: "vcos-ap-southeast-1"
+      version: "1.28"
+      node_groups:
+        - name: "general"
+          instance_type: "m6i.xlarge"
+          min_size: 2
+          max_size: 20
+          desired_size: 3
+        - name: "compute"
+          instance_type: "c6i.2xlarge"
+          min_size: 1
+          max_size: 10
+          desired_size: 2
+        - name: "memory"
+          instance_type: "r6i.xlarge"
+          min_size: 1
+          max_size: 6
+          desired_size: 1
+    networking:
+      vpc_cidr: "10.2.0.0/16"
+      public_subnets:
+        - "10.2.0.0/20"
+        - "10.2.16.0/20"
+      private_subnets:
+        - "10.2.32.0/20"
+        - "10.2.48.0/20"
+      database_subnets:
+        - "10.2.64.0/20"
+        - "10.2.80.0/20"
+    services:
+      livekit:
+        replicas: 2
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+      postgres:
+        instance_class: "db.r6g.large"
+        multi_az: true
+        storage: "200Gi"
+      redis:
+        node_type: "cache.r6g.large"
+        num_cache_nodes: 2
+        automatic_failover: true
+      s3:
+        bucket: "vcos-ap-southeast-1"
+        versioning: true
+        replication:
+          destination: "vcos-us-east-1"
+      cloudfront:
+        enabled: true
+        price_class: "PriceClass_200"
+      route53:
+        hosted_zone: "vcos.io"
+        health_checks: true
+
+# Global services configuration
+global_services:
+  # Global load balancer (AWS Global Accelerator / Cloudflare)
+  global_load_balancer:
+    provider: "cloudflare"
+    domains:
+      - "vcos.io"
+      - "api.vcos.io"
+      - "app.vcos.io"
+      - "ws.vcos.io"
+    health_checks:
+      interval: 30
+      timeout: 10
+      threshold: 3
+    failover:
+      enabled: true
+      threshold: 3
+    geo_routing: true
+    ddos_protection: true
+
+  # Global DNS
+  dns:
+    provider: "route53"
+    hosted_zone: "vcos.io"
+    records:
+      - name: "vcos.io"
+        type: "A"
+        alias: "global-accelerator"
+      - name: "api.vcos.io"
+        type: "CNAME"
+        value: "global-alb.vcos.io"
+      - name: "ws.vcos.io"
+        type: "CNAME"
+        value: "ws-global-alb.vcos.io"
+      - name: "turn.vcos.io"
+        type: "A"
+        geo_routing: true
+        records:
+          - region: "us-east-1"
+            value: "turn-us-east-1.vcos.io"
+          - region: "eu-west-1"
+            value: "turn-eu-west-1.vcos.io"
+          - region: "ap-southeast-1"
+            value: "turn-ap-southeast-1.vcos.io"
+
+  # Global database (read replicas)
+  database:
+    primary_region: "us-east-1"
+    replicas:
+      - region: "eu-west-1"
+        lag_max_seconds: 5
+        promoted_on_failover: true
+      - region: "ap-southeast-1"
+        lag_max_seconds: 10
+        promoted_on_failover: false
+    read_replicas:
+      - region: "eu-west-1"
+        instance_class: "db.r6g.large"
+      - region: "ap-southeast-1"
+        instance_class: "db.r6g.large"
+    connection_pooling:
+      pgbouncer:
+        enabled: true
+        pool_mode: "transaction"
+        max_client_conn: 1000
+        default_pool_size: 50
+
+  # Global Redis (cross-region replication)
+  redis:
+    primary_region: "us-east-1"
+    replicas:
+      - region: "eu-west-1"
+      - region: "ap-southeast-1"
+    sentinel:
+      enabled: true
+      quorum: 2
+
+  # Global object storage
+  object_storage:
+    primary: "us-east-1"
+    buckets:
+      - name: "vcos-recordings"
+        regions:
+          - "us-east-1"
+          - "eu-west-1"
+          - "ap-southeast-1"
+        replication:
+          rule: "crr"
+          priority: 1
+      - name: "vcos-assets"
+        regions:
+          - "us-east-1"
+          - "eu-west-1"
+          - "ap-southeast-1"
+        replication:
+          rule: "crr"
+          priority: 1
+      - name: "vcos-backups"
+        regions:
+          - "us-east-1"
+          - "eu-west-1"
+          - "ap-southeast-1"
+        replication:
+          rule: "crr"
+          priority: 2
+
+  # CDN
+  cdn:
+    provider: "cloudflare"
+    domains:
+      - "cdn.vcos.io"
+    cache_rules:
+      - pattern: "*.js"
+        ttl: "1y"
+      - pattern: "*.css"
+        ttl: "1y"
+      - pattern: "*.png"
+        ttl: "1y"
+      - pattern: "*.jpg"
+        ttl: "1y"
+      - pattern: "*.webp"
+        ttl: "1y"
+      - pattern: "/api/*"
+        ttl: "0"
+        cache: false
+    edge_locations: "all"
+
+# Traffic management
+traffic_management:
+  # Latency-based routing
+  latency_routing:
+    enabled: true
+    regions:
+      - "us-east-1"
+      - "eu-west-1"
+      - "ap-southeast-1"
+
+  # Geo-routing
+  geo_routing:
+    enabled: true
+    mappings:
+      - region: "us-east-1"
+        countries: ["US", "CA", "MX", "BR", "AR", "CL", "CO"]
+      - region: "eu-west-1"
+        countries: ["GB", "DE", "FR", "IT", "ES", "NL", "BE", "CH", "AT", "PL", "SE", "NO", "FI", "DK", "IE", "PT"]
+      - region: "ap-southeast-1"
+        countries: ["SG", "MY", "TH", "ID", "PH", "VN", "AU", "NZ", "JP", "KR", "CN", "HK", "TW"]
+
+  # Failover policies
+  failover:
+    enabled: true
+    health_check_interval: 30
+    failure_threshold: 3
+    recovery_threshold: 2
+    manual_approval_required: false
+    notification_channels:
+      - "slack"
+      - "pagerduty"
+      - "email"
+
+# Data replication
+replication:
+  # PostgreSQL cross-region replication
+  postgres:
+    synchronous_replication: false
+    max_replication_lag_seconds: 10
+    failover_timeout: 60
+    promotion_priority:
+      - "us-east-1"
+      - "eu-west-1"
+      - "ap-southeast-1"
+
+  # Redis cross-region replication
+  redis:
+    replication_mode: "async"
+    max_lag_seconds: 5
+    failover_automatic: true
+
+  # S3 cross-region replication
+  s3:
+    replication_rules:
+      - id: "recordings-replication"
+        source_bucket: "vcos-recordings-us-east-1"
+        destinations:
+          - bucket: "vcos-recordings-eu-west-1"
+            region: "eu-west-1"
+            storage_class: "STANDARD_IA"
+          - bucket: "vcos-recordings-ap-southeast-1"
+            region: "ap-southeast-1"
+            storage_class: "STANDARD_IA"
+        status: "enabled"
+        priority: 1
+      - id: "assets-replication"
+        source_bucket: "vcos-assets-us-east-1"
+        destinations:
+          - bucket: "vcos-assets-eu-west-1"
+            region: "eu-west-1"
+          - bucket: "vcos-assets-ap-southeast-1"
+            region: "ap-southeast-1"
+        status: "enabled"
+        priority: 1
+
+  # LiveKit recording replication
+  livekit:
+    recording_replication:
+      enabled: true
+      regions:
+        - "us-east-1"
+        - "eu-west-1"
+        - "ap-southeast-1"
+      format: "mp4"
+      retention_days: 90
+
+# Monitoring & observability (global)
+observability:
+  # Global Prometheus federation
+  prometheus:
+    federation:
+      enabled: true
+      global_scrape_interval: "30s"
+      regions:
+        - "us-east-1"
+        - "eu-west-1"
+        - "ap-southeast-1"
+
+  # Global Grafana
+  grafana:
+    datasources:
+      - name: "Prometheus-US"
+        url: "http://prometheus-us-east-1:9090"
+      - name: "Prometheus-EU"
+        url: "http://prometheus-eu-west-1:9090"
+      - name: "Prometheus-AP"
+        url: "http://prometheus-ap-southeast-1:9090"
+    dashboards:
+      - "global-overview"
+      - "region-comparison"
+      - "latency-heatmap"
+      - "capacity-planning"
+
+  # Global alerting
+  alerting:
+    alertmanager:
+      ha:
+        enabled: true
+        replicas: 3
+      routes:
+        - receiver: "critical-alerts"
+          match:
+            severity: "critical"
+          continue: true
+        - receiver: "warning-alerts"
+          match:
+            severity: "warning"
+      receivers:
+        - name: "critical-alerts"
+          pagerduty:
+            service_key: "${PAGERDUTY_KEY}"
+          slack:
+            channel: "#alerts-critical"
+        - name: "warning-alerts"
+          slack:
+            channel: "#alerts-warning"
+          email:
+            to: "ops@vcos.io"
+
+# Disaster recovery
+disaster_recovery:
+  rpo_minutes: 5
+  rto_minutes: 15
+  backup:
+    schedule: "0 2 * * *"
+    retention_days: 90
+    regions:
+      - "us-east-1"
+      - "eu-west-1"
+      - "ap-southeast-1"
+  dr_regions:
+    primary: "us-east-1"
+    secondary: "eu-west-1"
+    tertiary: "ap-southeast-1"
+  failover_test:
+    schedule: "0 0 1 * *"  # Monthly
+    automated: true
+
+# Cost optimization
+cost_optimization:
+  compute_savings_plans:
+    enabled: true
+    coverage_target: 0.8
+  reserved_instances:
+    enabled: true
+    coverage_target: 0.7
+  spot_instances:
+    enabled: true
+    max_percentage: 0.3
+    workloads:
+      - "batch-processing"
+      - "ci-cd"
+      - "development"
+  s3_intelligent_tiering:
+    enabled: true
+  lifecycle_policies:
+    - bucket: "vcos-recordings"
+      transitions:
+        - days: 30
+          storage_class: "STANDARD_IA"
+        - days: 90
+          storage_class: "GLACIER"
+        - days: 365
+          storage_class: "DEEP_ARCHIVE"
+    - bucket: "vcos-assets"
+      transitions:
+        - days: 90
+          storage_class: "STANDARD_IA"
+        - days: 365
+          storage_class: "GLACIER"

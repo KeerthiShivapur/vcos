@@ -309,6 +309,28 @@ class KnowledgeCrud:
         await db.flush()
         return entity
 
+    async def count(
+        self,
+        db: AsyncSession,
+        *,
+        organization_id: str,
+        status: Optional[str] = None,
+        **extra_filters,
+    ) -> int:
+        """Count entities matching the given filters."""
+        from sqlalchemy import func, select
+        filters = [self.model.organization_id == organization_id]
+        if status:
+            filters.append(self.model.status == status)
+        for key, value in extra_filters.items():
+            if hasattr(self.model, key):
+                filters.append(getattr(self.model, key) == value)
+        result = await db.execute(
+            select(func.count(self.model.id)).where(*filters)
+        )
+        return result.scalar() or 0
+
+
     async def restore(
         self,
         db: AsyncSession,

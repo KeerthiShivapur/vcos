@@ -42,7 +42,9 @@ function RecordingsContent() {
       const rows = await listRecordingLibrary(statusFilter || undefined);
       setRecordings(rows);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load recordings");
+      setError(
+        err instanceof Error ? err.message : "Unable to load recordings",
+      );
     } finally {
       setLoading(false);
     }
@@ -59,11 +61,14 @@ function RecordingsContent() {
       toastSuccess("Recording deleted");
       await load();
     } catch (err) {
-      toastError(err instanceof Error ? err.message : "Unable to delete recording");
+      toastError(
+        err instanceof Error ? err.message : "Unable to delete recording",
+      );
     }
   }
 
-  if (error) return <ErrorState title="Could not load recordings" message={error} />;
+  if (error)
+    return <ErrorState title="Could not load recordings" message={error} />;
 
   return (
     <div className="space-y-6">
@@ -100,28 +105,46 @@ function RecordingsContent() {
       ) : (
         <div className="space-y-3">
           {recordings.map((recording) => (
-            <div key={recording.id} className="card flex flex-wrap items-center gap-4 p-4">
+            <div
+              key={recording.id}
+              className="card flex flex-wrap items-center gap-4 p-4"
+            >
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-soft">
                 <Video className="h-5 w-5 text-brand" />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <p className="truncate text-[14px] font-semibold text-ink">{recording.title}</p>
-                  <Badge tone={statusTone(recording.status)}>{recording.status}</Badge>
-                  {recording.captions_enabled && <Badge tone="brand">captions</Badge>}
+                  <p className="truncate text-[14px] font-semibold text-ink">
+                    {recording.title}
+                  </p>
+                  <Badge tone={statusTone(recording.status)}>
+                    {recording.status}
+                  </Badge>
+                  {recording.captions_enabled && (
+                    <Badge tone="brand">captions</Badge>
+                  )}
                 </div>
                 <p className="mt-0.5 text-[12px] text-faint">
                   {recording.meeting_title && (
                     <>
-                      <Link href={`/meetings/${recording.meeting_id}`} className="font-medium text-brand hover:underline">
+                      <Link
+                        href={`/meetings/${recording.meeting_id}`}
+                        className="font-medium text-brand hover:underline"
+                      >
                         {recording.meeting_title}
                       </Link>
                       {" · "}
                     </>
                   )}
-                  {recording.started_at ? formatDateTime(recording.started_at) : "—"}
-                  {recording.duration_seconds > 0 ? ` · ${Math.round(recording.duration_seconds / 60)}m` : ""}
-                  {recording.size_bytes > 0 ? ` · ${Math.max(1, Math.round(recording.size_bytes / 1048576))} MB` : ""}
+                  {recording.started_at
+                    ? formatDateTime(recording.started_at)
+                    : "—"}
+                  {recording.duration_seconds > 0
+                    ? ` · ${Math.round(recording.duration_seconds / 60)}m`
+                    : ""}
+                  {recording.size_bytes > 0
+                    ? ` · ${Math.max(1, Math.round(recording.size_bytes / 1048576))} MB`
+                    : ""}
                 </p>
               </div>
               {recording.file_url && (
@@ -135,7 +158,11 @@ function RecordingsContent() {
                 </a>
               )}
               {canManage && (
-                <Button size="sm" variant="ghost" onClick={() => void handleDelete(recording)}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => void handleDelete(recording)}
+                >
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
               )}

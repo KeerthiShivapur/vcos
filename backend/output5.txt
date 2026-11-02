@@ -1,0 +1,25 @@
+n: Institutional Intelligence Surfaces
+# ================================================================================
+
+class LearningLessonOut(BaseModel):
+    """Governed lesson exposure with epistemic status."""
+    id: str
+    kind: str
+    fingerprint: str
+    title: str
+    lesson: Optional[str]
+    status: str
+    lifecycle: str
+    confidence: float
+    topic_name: Optional[str]
+    evidence_count: int
+    contradiction_count: int
+    observed_at: Optional[datetime]
+    created_at: datetime
+    # supersedes_id: Optional[str]  # Not in model
+    url: str
+
+
+class LearningPatternOut(BaseModel):
+    """Governed pattern exposure with qualification state."""
+    i

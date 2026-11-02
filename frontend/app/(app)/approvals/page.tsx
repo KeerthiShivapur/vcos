@@ -2,7 +2,13 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { CheckCircle2, Clock, FileCheck2, ShieldAlert, XCircle } from "lucide-react";
+import {
+  CheckCircle2,
+  Clock,
+  FileCheck2,
+  ShieldAlert,
+  XCircle,
+} from "lucide-react";
 
 import {
   cancelApproval,
@@ -87,7 +93,10 @@ function ApprovalsContent() {
     setError(null);
     try {
       const [items, statsData, empList] = await Promise.all([
-        listApprovals({ status: status || undefined, approval_type: type || undefined }),
+        listApprovals({
+          status: status || undefined,
+          approval_type: type || undefined,
+        }),
         getApprovalStats(),
         listEmployees({ page_size: 200 }),
       ]);
@@ -108,11 +117,19 @@ function ApprovalsContent() {
 
   const statCards = useMemo(() => {
     return [
-      { label: "Total requests", value: stats.total ?? approvals.length, icon: FileCheck2 },
+      {
+        label: "Total requests",
+        value: stats.total ?? approvals.length,
+        icon: FileCheck2,
+      },
       { label: "Pending", value: stats.pending ?? pendingCount, icon: Clock },
       { label: "Approved", value: stats.approved ?? 0, icon: CheckCircle2 },
       { label: "Rejected", value: stats.rejected ?? 0, icon: XCircle },
-      { label: "Approval rate", value: `${Math.round((stats.approval_rate ?? 0) * 100)}%`, icon: ShieldAlert },
+      {
+        label: "Approval rate",
+        value: `${Math.round((stats.approval_rate ?? 0) * 100)}%`,
+        icon: ShieldAlert,
+      },
     ];
   }, [stats, approvals.length, pendingCount]);
 
@@ -132,10 +149,19 @@ function ApprovalsContent() {
       await createApproval(payload);
       toastSuccess("Approval requested");
       setRequestOpen(false);
-      setForm({ approval_type: "task", title: "", description: "", approver_id: "", priority: "medium", due_at: "" });
+      setForm({
+        approval_type: "task",
+        title: "",
+        description: "",
+        approver_id: "",
+        priority: "medium",
+        due_at: "",
+      });
       await load();
     } catch (err) {
-      toastError(err instanceof Error ? err.message : "Unable to request approval");
+      toastError(
+        err instanceof Error ? err.message : "Unable to request approval",
+      );
     } finally {
       setBusy(false);
     }
@@ -179,8 +205,16 @@ function ApprovalsContent() {
     cancelled: "neutral",
   };
 
-  if (loading && approvals.length === 0) return <Spinner label="Loading approvals…" />;
-  if (error) return <ErrorState title="Approvals unavailable" message={error} onRetry={load} />;
+  if (loading && approvals.length === 0)
+    return <Spinner label="Loading approvals…" />;
+  if (error)
+    return (
+      <ErrorState
+        title="Approvals unavailable"
+        message={error}
+        onRetry={load}
+      />
+    );
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-6">
@@ -217,7 +251,9 @@ function ApprovalsContent() {
               key={s || "all"}
               onClick={() => setStatus(s)}
               className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-                status === s ? "bg-accent text-white" : "text-faint hover:bg-canvas hover:text-ink"
+                status === s
+                  ? "bg-accent text-white"
+                  : "text-faint hover:bg-canvas hover:text-ink"
               }`}
             >
               {s ? titleCase(s) : "All"}
@@ -230,45 +266,82 @@ function ApprovalsContent() {
           onChange={(event) => setType(event.target.value)}
           placeholder="All types"
           className="w-44"
-          options={APPROVAL_TYPES.map((t) => ({ value: t, label: titleCase(t) }))}
+          options={APPROVAL_TYPES.map((t) => ({
+            value: t,
+            label: titleCase(t),
+          }))}
         />
       </div>
 
       {approvals.length === 0 ? (
         <EmptyState
           title="No approvals here"
-          description={canManage ? "Request a sign-off and it will appear in this queue." : "Nothing routed to you yet."}
+          description={
+            canManage
+              ? "Request a sign-off and it will appear in this queue."
+              : "Nothing routed to you yet."
+          }
         />
       ) : (
         <div className="space-y-2">
           {approvals.map((approval) => (
-            <Card key={approval.id} className="flex flex-wrap items-center justify-between gap-4 p-4">
+            <Card
+              key={approval.id}
+              className="flex flex-wrap items-center justify-between gap-4 p-4"
+            >
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium text-ink">{approval.title}</span>
-                  <Badge tone="neutral">{titleCase(approval.approval_type)}</Badge>
-                  <Badge tone={statusTone[approval.status] as "success" | "warning" | "danger" | "neutral"}>
+                  <Badge tone="neutral">
+                    {titleCase(approval.approval_type)}
+                  </Badge>
+                  <Badge
+                    tone={
+                      statusTone[approval.status] as
+                        "success" | "warning" | "danger" | "neutral"
+                    }
+                  >
                     {titleCase(approval.status)}
                   </Badge>
                   {approval.priority !== "medium" && (
-                    <Badge tone={approval.priority === "high" || approval.priority === "critical" ? "danger" : "warning"}>
+                    <Badge
+                      tone={
+                        approval.priority === "high" ||
+                        approval.priority === "critical"
+                          ? "danger"
+                          : "warning"
+                      }
+                    >
                       {titleCase(approval.priority)} priority
                     </Badge>
                   )}
                 </div>
-                {approval.description && <p className="mt-1 text-sm text-ink/70">{approval.description}</p>}
+                {approval.description && (
+                  <p className="mt-1 text-sm text-ink/70">
+                    {approval.description}
+                  </p>
+                )}
                 <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-faint">
                   <span>
-                    {approval.requester_name ?? "—"} → {approval.approver_name ?? "unassigned"}
+                    {approval.requester_name ?? "—"} →{" "}
+                    {approval.approver_name ?? "unassigned"}
                   </span>
-                  {approval.due_at && <span>Due {formatDate(approval.due_at)}</span>}
+                  {approval.due_at && (
+                    <span>Due {formatDate(approval.due_at)}</span>
+                  )}
                   {approval.decided_at && (
                     <span>
-                      {approval.status === "approved" ? "Approved" : approval.status === "rejected" ? "Rejected" : "Decided"}{" "}
+                      {approval.status === "approved"
+                        ? "Approved"
+                        : approval.status === "rejected"
+                          ? "Rejected"
+                          : "Decided"}{" "}
                       {formatDate(approval.decided_at)}
                     </span>
                   )}
-                  {approval.decision_note && <span className="italic">“{approval.decision_note}”</span>}
+                  {approval.decision_note && (
+                    <span className="italic">“{approval.decision_note}”</span>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -276,15 +349,27 @@ function ApprovalsContent() {
                   <>
                     {canManage && (
                       <>
-                        <Button size="sm" variant="secondary" onClick={() => setDeciding(approval)}>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => setDeciding(approval)}
+                        >
                           Approve
                         </Button>
-                        <Button size="sm" variant="danger" onClick={() => setDeciding(approval)}>
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          onClick={() => setDeciding(approval)}
+                        >
                           Reject
                         </Button>
                       </>
                     )}
-                    <Button size="sm" variant="secondary" onClick={() => setCancelling(approval)}>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setCancelling(approval)}
+                    >
                       Cancel
                     </Button>
                   </>
@@ -316,15 +401,22 @@ function ApprovalsContent() {
             aria-label="Approval type"
             label="Type"
             value={form.approval_type}
-            onChange={(event) => setForm({ ...form, approval_type: event.target.value })}
-            options={APPROVAL_TYPES.map((t) => ({ value: t, label: titleCase(t) }))}
+            onChange={(event) =>
+              setForm({ ...form, approval_type: event.target.value })
+            }
+            options={APPROVAL_TYPES.map((t) => ({
+              value: t,
+              label: titleCase(t),
+            }))}
           />
           <div>
             <Input
               label="Title"
               name="approval-title"
               value={form.title}
-              onChange={(event) => setForm({ ...form, title: event.target.value })}
+              onChange={(event) =>
+                setForm({ ...form, title: event.target.value })
+              }
               placeholder="What needs approval?"
             />
           </div>
@@ -333,7 +425,9 @@ function ApprovalsContent() {
             <Textarea
               aria-label="Context for the approver"
               value={form.description}
-              onChange={(event) => setForm({ ...form, description: event.target.value })}
+              onChange={(event) =>
+                setForm({ ...form, description: event.target.value })
+              }
               rows={3}
               placeholder="Context for the approver…"
             />
@@ -342,20 +436,38 @@ function ApprovalsContent() {
             aria-label="Approver"
             label="Approver"
             value={form.approver_id}
-            onChange={(event) => setForm({ ...form, approver_id: event.target.value })}
+            onChange={(event) =>
+              setForm({ ...form, approver_id: event.target.value })
+            }
             placeholder="Choose who decides"
-            options={employees.map((e) => ({ value: e.id, label: e.full_name }))}
+            options={employees.map((e) => ({
+              value: e.id,
+              label: e.full_name,
+            }))}
           />
           <div className="grid grid-cols-2 gap-3">
             <Select
               aria-label="Priority"
               label="Priority"
               value={form.priority}
-              onChange={(event) => setForm({ ...form, priority: event.target.value })}
-              options={["low", "medium", "high", "critical"].map((p) => ({ value: p, label: titleCase(p) }))}
+              onChange={(event) =>
+                setForm({ ...form, priority: event.target.value })
+              }
+              options={["low", "medium", "high", "critical"].map((p) => ({
+                value: p,
+                label: titleCase(p),
+              }))}
             />
             <div>
-              <Input label="Due by" name="approval-due" type="date" value={form.due_at} onChange={(event) => setForm({ ...form, due_at: event.target.value })} />
+              <Input
+                label="Due by"
+                name="approval-due"
+                type="date"
+                value={form.due_at}
+                onChange={(event) =>
+                  setForm({ ...form, due_at: event.target.value })
+                }
+              />
             </div>
           </div>
         </div>
@@ -371,10 +483,18 @@ function ApprovalsContent() {
             <Button variant="secondary" onClick={() => setDeciding(null)}>
               Close
             </Button>
-            <Button variant="secondary" onClick={() => handleDecide("approved")} disabled={busy}>
+            <Button
+              variant="secondary"
+              onClick={() => handleDecide("approved")}
+              disabled={busy}
+            >
               Approve
             </Button>
-            <Button variant="danger" onClick={() => handleDecide("rejected")} disabled={busy}>
+            <Button
+              variant="danger"
+              onClick={() => handleDecide("rejected")}
+              disabled={busy}
+            >
               Reject
             </Button>
           </>
@@ -409,7 +529,8 @@ function ApprovalsContent() {
         }
       >
         <p className="text-sm text-ink/70">
-          Cancel <span className="font-medium text-ink">{cancelling?.title}</span>?
+          Cancel{" "}
+          <span className="font-medium text-ink">{cancelling?.title}</span>?
         </p>
       </Modal>
     </div>

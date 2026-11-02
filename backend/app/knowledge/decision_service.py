@@ -422,5 +422,29 @@ class DecisionService(KnowledgeCrud):
             priority="high",
         )
 
+    async def count_pending_for_user(
+        self, db: AsyncSession, *, organization_id: str, employee_id: str,
+    ) -> int:
+        """Count decisions where the user is a participant and decision is pending."""
+        from sqlalchemy import select, func, or_
+        from app.models.knowledge import Decision, DecisionParticipant
+        
+        result = await db.execute(
+            select(func.count(Decision.id.distinct())).where(
+                Decision.organization_id == organization_id,
+                Decision.status.in_(("proposed", "made")),
+                or_(
+                    Decision.decision_maker_id == employee_id,
+                    Decision.id.in_(
+                        select(DecisionParticipant.decision_id).where(
+                            DecisionParticipant.organization_id == organization_id,
+                            DecisionParticipant.employee_id == employee_id,
+                        )
+                    ),
+                ),
+            )
+        )
+        return result.scalar() or 0
+
 
 decision_service = DecisionService()

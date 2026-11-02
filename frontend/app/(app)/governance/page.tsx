@@ -1,7 +1,16 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { KeyRound, Network, Plus, ShieldCheck, Stamp, Trash2, UserCog, XCircle } from "lucide-react";
+import {
+  KeyRound,
+  Network,
+  Plus,
+  ShieldCheck,
+  Stamp,
+  Trash2,
+  UserCog,
+  XCircle,
+} from "lucide-react";
 
 import {
   createApprovalPolicy,
@@ -45,7 +54,14 @@ import { Spinner } from "@/components/ui/Spinner";
 import { titleCase } from "@/lib/utils";
 import { toastError, toastSuccess } from "@/components/ui/Toaster";
 
-const SCOPE_TYPES = ["organization", "business_unit", "region", "department", "team", "project"];
+const SCOPE_TYPES = [
+  "organization",
+  "business_unit",
+  "region",
+  "department",
+  "team",
+  "project",
+];
 const DELEGATABLE_PERMISSIONS = [
   "projects:manage",
   "tasks:manage",
@@ -138,14 +154,15 @@ function GovernanceContent() {
     setLoading(true);
     setError(null);
     try {
-      const [scopeList, assignList, delegList, policyList, roleList, empList] = await Promise.all([
-        listGovernanceScopes(),
-        listGovernanceAssignments(),
-        listGovernanceDelegations(),
-        listApprovalPolicies(),
-        listRoles(),
-        listEmployees({ page_size: 200 }),
-      ]);
+      const [scopeList, assignList, delegList, policyList, roleList, empList] =
+        await Promise.all([
+          listGovernanceScopes(),
+          listGovernanceAssignments(),
+          listGovernanceDelegations(),
+          listApprovalPolicies(),
+          listRoles(),
+          listEmployees({ page_size: 200 }),
+        ]);
       if (seq !== loadSeq.current) return;
       setScopes(scopeList);
       setAssignments(assignList);
@@ -154,7 +171,9 @@ function GovernanceContent() {
       setRoles(roleList);
       setEmployees(empList);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load governance");
+      setError(
+        err instanceof Error ? err.message : "Unable to load governance",
+      );
     } finally {
       setLoading(false);
     }
@@ -168,14 +187,15 @@ function GovernanceContent() {
   async function refresh() {
     const seq = ++loadSeq.current;
     try {
-      const [scopeList, assignList, delegList, policyList, roleList, empList] = await Promise.all([
-        listGovernanceScopes(),
-        listGovernanceAssignments(),
-        listGovernanceDelegations(),
-        listApprovalPolicies(),
-        listRoles(),
-        listEmployees({ page_size: 200 }),
-      ]);
+      const [scopeList, assignList, delegList, policyList, roleList, empList] =
+        await Promise.all([
+          listGovernanceScopes(),
+          listGovernanceAssignments(),
+          listGovernanceDelegations(),
+          listApprovalPolicies(),
+          listRoles(),
+          listEmployees({ page_size: 200 }),
+        ]);
       if (seq !== loadSeq.current) return;
       setScopes(scopeList);
       setAssignments(assignList);
@@ -188,11 +208,20 @@ function GovernanceContent() {
     }
   }
 
-  const scopeById = useMemo(() => new Map(scopes.map((s) => [s.id, s])), [scopes]);
-  const employeeById = useMemo(() => new Map(employees.map((e) => [e.id, e])), [employees]);
+  const scopeById = useMemo(
+    () => new Map(scopes.map((s) => [s.id, s])),
+    [scopes],
+  );
+  const employeeById = useMemo(
+    () => new Map(employees.map((e) => [e.id, e])),
+    [employees],
+  );
   const employeeByUserId = useMemo(
-    () => new Map(employees.filter((e) => e.user_id).map((e) => [e.user_id as string, e])),
-    [employees]
+    () =>
+      new Map(
+        employees.filter((e) => e.user_id).map((e) => [e.user_id as string, e]),
+      ),
+    [employees],
   );
   const roleById = useMemo(() => new Map(roles.map((r) => [r.id, r])), [roles]);
 
@@ -212,7 +241,9 @@ function GovernanceContent() {
   function scopeLabel(id: string | null): string {
     if (!id) return "Organization-wide";
     const scope = scopeById.get(id);
-    return scope ? `${scope.name} (${titleCase(scope.scope_type)})` : "Unknown scope";
+    return scope
+      ? `${scope.name} (${titleCase(scope.scope_type)})`
+      : "Unknown scope";
   }
 
   function scopePath(id: string | null): string {
@@ -222,7 +253,9 @@ function GovernanceContent() {
     let guard = 0;
     while (current && guard < 32) {
       parts.unshift(current.name);
-      current = current.parent_id ? scopeById.get(current.parent_id) : undefined;
+      current = current.parent_id
+        ? scopeById.get(current.parent_id)
+        : undefined;
       guard += 1;
     }
     return parts.join(" / ");
@@ -262,7 +295,8 @@ function GovernanceContent() {
   }
 
   async function handleAssign() {
-    if (!assignForm.user_id || !assignForm.role_id) return toastError("Member and role are required");
+    if (!assignForm.user_id || !assignForm.role_id)
+      return toastError("Member and role are required");
     const targetUserId = memberWithAccount(assignForm.user_id);
     if (!targetUserId) return;
     setBusy(true);
@@ -290,7 +324,9 @@ function GovernanceContent() {
       toastSuccess("Assignment removed");
       await refresh();
     } catch (err) {
-      toastError(err instanceof Error ? err.message : "Unable to remove assignment");
+      toastError(
+        err instanceof Error ? err.message : "Unable to remove assignment",
+      );
     } finally {
       setBusy(false);
     }
@@ -310,15 +346,19 @@ function GovernanceContent() {
         scope_id: delegateForm.scope_id || undefined,
         reason: delegateForm.reason.trim() || undefined,
       };
-      if (delegateForm.starts_at) payload.starts_at = new Date(delegateForm.starts_at).toISOString();
-      if (delegateForm.expires_at) payload.expires_at = new Date(delegateForm.expires_at).toISOString();
+      if (delegateForm.starts_at)
+        payload.starts_at = new Date(delegateForm.starts_at).toISOString();
+      if (delegateForm.expires_at)
+        payload.expires_at = new Date(delegateForm.expires_at).toISOString();
       await createGovernanceDelegation(payload);
       toastSuccess("Authority delegated");
       setDelegateModal(false);
       setDelegateForm(emptyDelegateForm);
       await refresh();
     } catch (err) {
-      toastError(err instanceof Error ? err.message : "Unable to delegate authority");
+      toastError(
+        err instanceof Error ? err.message : "Unable to delegate authority",
+      );
     } finally {
       setBusy(false);
     }
@@ -331,7 +371,9 @@ function GovernanceContent() {
       toastSuccess("Delegation revoked");
       await refresh();
     } catch (err) {
-      toastError(err instanceof Error ? err.message : "Unable to revoke delegation");
+      toastError(
+        err instanceof Error ? err.message : "Unable to revoke delegation",
+      );
     } finally {
       setBusy(false);
     }
@@ -356,7 +398,9 @@ function GovernanceContent() {
       setPolicyForm(emptyPolicyForm);
       await refresh();
     } catch (err) {
-      toastError(err instanceof Error ? err.message : "Unable to create policy");
+      toastError(
+        err instanceof Error ? err.message : "Unable to create policy",
+      );
     } finally {
       setBusy(false);
     }
@@ -369,7 +413,9 @@ function GovernanceContent() {
       toastSuccess(policy.is_active ? "Policy paused" : "Policy active");
       await refresh();
     } catch (err) {
-      toastError(err instanceof Error ? err.message : "Unable to update policy");
+      toastError(
+        err instanceof Error ? err.message : "Unable to update policy",
+      );
     } finally {
       setBusy(false);
     }
@@ -381,23 +427,48 @@ function GovernanceContent() {
     if (!targetUserId) return;
     setBusy(true);
     try {
-      const result = await getEffectivePermissions(targetUserId, effectiveScopeId || undefined);
+      const result = await getEffectivePermissions(
+        targetUserId,
+        effectiveScopeId || undefined,
+      );
       setEffective(result);
     } catch (err) {
-      toastError(err instanceof Error ? err.message : "Unable to evaluate permissions");
+      toastError(
+        err instanceof Error ? err.message : "Unable to evaluate permissions",
+      );
     } finally {
       setBusy(false);
     }
   }
 
-  if (loading && scopes.length === 0) return <Spinner label="Loading governance…" />;
-  if (error) return <ErrorState title="Governance unavailable" message={error} onRetry={load} />;
+  if (loading && scopes.length === 0)
+    return <Spinner label="Loading governance…" />;
+  if (error)
+    return (
+      <ErrorState
+        title="Governance unavailable"
+        message={error}
+        onRetry={load}
+      />
+    );
 
   const statCards = [
     { label: "Scopes", value: scopes.length, icon: Network },
-    { label: "Scoped role assignments", value: assignments.length, icon: UserCog },
-    { label: "Active delegations", value: delegations.filter((d) => d.status === "active").length, icon: KeyRound },
-    { label: "Approval policies", value: policies.filter((p) => p.is_active).length, icon: Stamp },
+    {
+      label: "Scoped role assignments",
+      value: assignments.length,
+      icon: UserCog,
+    },
+    {
+      label: "Active delegations",
+      value: delegations.filter((d) => d.status === "active").length,
+      icon: KeyRound,
+    },
+    {
+      label: "Approval policies",
+      value: policies.filter((p) => p.is_active).length,
+      icon: Stamp,
+    },
   ];
 
   return (
@@ -434,7 +505,9 @@ function GovernanceContent() {
             key={t.key}
             onClick={() => setTab(t.key)}
             className={`-mb-px rounded-t-lg border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
-              tab === t.key ? "border-brand text-brand" : "border-transparent text-muted hover:text-ink"
+              tab === t.key
+                ? "border-brand text-brand"
+                : "border-transparent text-muted hover:text-ink"
             }`}
           >
             {t.label}
@@ -447,21 +520,35 @@ function GovernanceContent() {
           {scopes.length === 0 ? (
             <EmptyState
               title="No governance scopes yet"
-              description={canManage ? "Create your first scope to start scoping roles and authority." : "Nothing here yet."}
+              description={
+                canManage
+                  ? "Create your first scope to start scoping roles and authority."
+                  : "Nothing here yet."
+              }
             />
           ) : (
             scopes.map((scope) => (
-              <Card key={scope.id} className="flex flex-wrap items-center justify-between gap-4 p-4">
+              <Card
+                key={scope.id}
+                className="flex flex-wrap items-center justify-between gap-4 p-4"
+              >
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium text-ink">{scope.name}</span>
                     <Badge tone="neutral">{titleCase(scope.scope_type)}</Badge>
                     {scope.depth === 0 && <Badge tone="brand">Org root</Badge>}
                   </div>
-                  <p className="mt-1 text-xs text-faint">{scopePath(scope.id)}</p>
+                  <p className="mt-1 text-xs text-faint">
+                    {scopePath(scope.id)}
+                  </p>
                 </div>
                 {canManage && (
-                  <Button size="sm" variant="secondary" aria-label={`Delete ${scope.name}`} onClick={() => handleDeleteScope(scope.id)}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    aria-label={`Delete ${scope.name}`}
+                    onClick={() => handleDeleteScope(scope.id)}
+                  >
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                 )}
@@ -488,19 +575,34 @@ function GovernanceContent() {
           ) : (
             <div className="space-y-2">
               {assignments.map((a) => (
-                <Card key={a.id} className="flex flex-wrap items-center justify-between gap-4 p-4">
+                <Card
+                  key={a.id}
+                  className="flex flex-wrap items-center justify-between gap-4 p-4"
+                >
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium text-ink">{employeeByUserId.get(a.user_id)?.full_name ?? "Member"}</span>
-                      <Badge tone="brand">{roleById.get(a.role_id)?.code ?? "role"}</Badge>
+                      <span className="font-medium text-ink">
+                        {employeeByUserId.get(a.user_id)?.full_name ?? "Member"}
+                      </span>
+                      <Badge tone="brand">
+                        {roleById.get(a.role_id)?.code ?? "role"}
+                      </Badge>
                       <Badge tone="neutral">{scopeLabel(a.scope_id)}</Badge>
                     </div>
                     <p className="mt-1 text-xs text-faint">
-                      Effective at {a.scope_id ? "this scope and its descendants" : "every scope in the organization"}
+                      Effective at{" "}
+                      {a.scope_id
+                        ? "this scope and its descendants"
+                        : "every scope in the organization"}
                     </p>
                   </div>
                   {canManage && (
-                    <Button size="sm" variant="secondary" aria-label="Remove assignment" onClick={() => handleRemoveAssignment(a.id)}>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      aria-label="Remove assignment"
+                      onClick={() => handleRemoveAssignment(a.id)}
+                    >
                       <XCircle className="h-3.5 w-3.5" />
                     </Button>
                   )}
@@ -515,7 +617,10 @@ function GovernanceContent() {
         <div className="space-y-4">
           {canManage && (
             <div className="flex justify-end">
-              <Button variant="secondary" onClick={() => setDelegateModal(true)}>
+              <Button
+                variant="secondary"
+                onClick={() => setDelegateModal(true)}
+              >
                 <KeyRound className="h-4 w-4" /> Delegate authority
               </Button>
             </div>
@@ -528,20 +633,37 @@ function GovernanceContent() {
           ) : (
             <div className="space-y-2">
               {delegations.map((d) => (
-                <Card key={d.id} className="flex flex-wrap items-center justify-between gap-4 p-4">
+                <Card
+                  key={d.id}
+                  className="flex flex-wrap items-center justify-between gap-4 p-4"
+                >
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium text-ink">{employeeByUserId.get(d.granted_to_user)?.full_name ?? "Member"}</span>
+                      <span className="font-medium text-ink">
+                        {employeeByUserId.get(d.granted_to_user)?.full_name ??
+                          "Member"}
+                      </span>
                       <Badge tone="brand">{d.permission_code}</Badge>
-                      <Badge tone={d.status === "active" ? "success" : "neutral"}>{titleCase(d.status)}</Badge>
+                      <Badge
+                        tone={d.status === "active" ? "success" : "neutral"}
+                      >
+                        {titleCase(d.status)}
+                      </Badge>
                     </div>
                     <p className="mt-1 text-xs text-faint">
-                      {scopeLabel(d.resource_id)} · {d.expires_at ? `expires ${new Date(d.expires_at).toLocaleDateString()}` : "no expiry"}
+                      {scopeLabel(d.resource_id)} ·{" "}
+                      {d.expires_at
+                        ? `expires ${new Date(d.expires_at).toLocaleDateString()}`
+                        : "no expiry"}
                       {d.reason ? ` · ${d.reason}` : ""}
                     </p>
                   </div>
                   {canManage && d.status === "active" && (
-                    <Button size="sm" variant="secondary" onClick={() => handleRevoke(d.id)}>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => handleRevoke(d.id)}
+                    >
                       Revoke
                     </Button>
                   )}
@@ -569,20 +691,35 @@ function GovernanceContent() {
           ) : (
             <div className="space-y-2">
               {policies.map((p) => (
-                <Card key={p.id} className="flex flex-wrap items-center justify-between gap-4 p-4">
+                <Card
+                  key={p.id}
+                  className="flex flex-wrap items-center justify-between gap-4 p-4"
+                >
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-medium text-ink">{p.name}</span>
                       <Badge tone="neutral">{titleCase(p.approval_type)}</Badge>
-                      <Badge tone={p.is_active ? "success" : "neutral"}>{p.is_active ? "Active" : "Paused"}</Badge>
+                      <Badge tone={p.is_active ? "success" : "neutral"}>
+                        {p.is_active ? "Active" : "Paused"}
+                      </Badge>
                     </div>
                     <p className="mt-1 text-xs text-faint">
-                      Decider needs <span className="font-medium text-ink/70">{p.required_permission}</span> at {scopeLabel(p.scope_id)}
-                      {p.self_approval_allowed ? " · self-approval allowed" : " · self-approval denied"}
+                      Decider needs{" "}
+                      <span className="font-medium text-ink/70">
+                        {p.required_permission}
+                      </span>{" "}
+                      at {scopeLabel(p.scope_id)}
+                      {p.self_approval_allowed
+                        ? " · self-approval allowed"
+                        : " · self-approval denied"}
                     </p>
                   </div>
                   {canManage && (
-                    <Button size="sm" variant="secondary" onClick={() => handleTogglePolicy(p)}>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => handleTogglePolicy(p)}
+                    >
                       {p.is_active ? "Pause" : "Activate"}
                     </Button>
                   )}
@@ -602,7 +739,10 @@ function GovernanceContent() {
               value={effectiveUserId}
               onChange={(event) => setEffectiveUserId(event.target.value)}
               placeholder="Select a member"
-              options={employees.map((e) => ({ value: e.id, label: e.full_name }))}
+              options={employees.map((e) => ({
+                value: e.id,
+                label: e.full_name,
+              }))}
             />
             <Select
               aria-label="Scope context"
@@ -613,7 +753,10 @@ function GovernanceContent() {
               options={scopes.map((s) => ({ value: s.id, label: s.name }))}
             />
             <div className="flex items-end">
-              <Button onClick={handleEffective} disabled={busy || !effectiveUserId}>
+              <Button
+                onClick={handleEffective}
+                disabled={busy || !effectiveUserId}
+              >
                 {busy ? "Evaluating…" : "Evaluate"}
               </Button>
             </div>
@@ -621,9 +764,14 @@ function GovernanceContent() {
           {effective && (
             <div className="rounded-lg border border-line p-4">
               <p className="text-sm text-faint">
-                {employeeByUserId.get(effective.user_id)?.full_name ?? "Member"} at{" "}
-                <span className="font-medium text-ink/70">{effective.scope_id ? scopePath(effective.scope_id) : "organization-wide"}</span> —{" "}
-                {effective.permissions.length} permissions
+                {employeeByUserId.get(effective.user_id)?.full_name ?? "Member"}{" "}
+                at{" "}
+                <span className="font-medium text-ink/70">
+                  {effective.scope_id
+                    ? scopePath(effective.scope_id)
+                    : "organization-wide"}
+                </span>{" "}
+                — {effective.permissions.length} permissions
               </p>
               <div className="mt-3 flex max-h-56 flex-wrap gap-1.5 overflow-y-auto">
                 {effective.permissions.map((code) => (
@@ -655,20 +803,35 @@ function GovernanceContent() {
       >
         <div className="space-y-4">
           <div>
-            <Input label="Name" name="scope-name" value={scopeForm.name} onChange={(event) => setScopeForm({ ...scopeForm, name: event.target.value })} placeholder="e.g. EMEA Operations" />
+            <Input
+              label="Name"
+              name="scope-name"
+              value={scopeForm.name}
+              onChange={(event) =>
+                setScopeForm({ ...scopeForm, name: event.target.value })
+              }
+              placeholder="e.g. EMEA Operations"
+            />
           </div>
           <Select
             aria-label="Scope type"
             label="Type"
             value={scopeForm.scope_type}
-            onChange={(event) => setScopeForm({ ...scopeForm, scope_type: event.target.value })}
-            options={SCOPE_TYPES.map((t) => ({ value: t, label: titleCase(t) }))}
+            onChange={(event) =>
+              setScopeForm({ ...scopeForm, scope_type: event.target.value })
+            }
+            options={SCOPE_TYPES.map((t) => ({
+              value: t,
+              label: titleCase(t),
+            }))}
           />
           <Select
             aria-label="Parent scope"
             label="Parent scope"
             value={scopeForm.parent_id}
-            onChange={(event) => setScopeForm({ ...scopeForm, parent_id: event.target.value })}
+            onChange={(event) =>
+              setScopeForm({ ...scopeForm, parent_id: event.target.value })
+            }
             placeholder="None (organization root)"
             options={scopes
               .filter((s) => s.scope_type !== "project")
@@ -698,23 +861,35 @@ function GovernanceContent() {
             aria-label="Member"
             label="Member"
             value={assignForm.user_id}
-            onChange={(event) => setAssignForm({ ...assignForm, user_id: event.target.value })}
+            onChange={(event) =>
+              setAssignForm({ ...assignForm, user_id: event.target.value })
+            }
             placeholder="Select a member"
-            options={employees.map((e) => ({ value: e.id, label: e.full_name }))}
+            options={employees.map((e) => ({
+              value: e.id,
+              label: e.full_name,
+            }))}
           />
           <Select
             aria-label="Role"
             label="Role"
             value={assignForm.role_id}
-            onChange={(event) => setAssignForm({ ...assignForm, role_id: event.target.value })}
+            onChange={(event) =>
+              setAssignForm({ ...assignForm, role_id: event.target.value })
+            }
             placeholder="Select a role"
-            options={roles.map((r) => ({ value: r.id, label: `${r.code} — ${r.name}` }))}
+            options={roles.map((r) => ({
+              value: r.id,
+              label: `${r.code} — ${r.name}`,
+            }))}
           />
           <Select
             aria-label="Scope"
             label="Scope"
             value={assignForm.scope_id}
-            onChange={(event) => setAssignForm({ ...assignForm, scope_id: event.target.value })}
+            onChange={(event) =>
+              setAssignForm({ ...assignForm, scope_id: event.target.value })
+            }
             placeholder="Organization-wide"
             options={scopes.map((s) => ({ value: s.id, label: s.name }))}
           />
@@ -742,36 +917,84 @@ function GovernanceContent() {
             aria-label="Delegate"
             label="Delegate"
             value={delegateForm.granted_to_user}
-            onChange={(event) => setDelegateForm({ ...delegateForm, granted_to_user: event.target.value })}
+            onChange={(event) =>
+              setDelegateForm({
+                ...delegateForm,
+                granted_to_user: event.target.value,
+              })
+            }
             placeholder="Select a member"
-            options={employees.map((e) => ({ value: e.id, label: e.full_name }))}
+            options={employees.map((e) => ({
+              value: e.id,
+              label: e.full_name,
+            }))}
           />
           <Select
             aria-label="Permission"
             label="Permission"
             value={delegateForm.permission_code}
-            onChange={(event) => setDelegateForm({ ...delegateForm, permission_code: event.target.value })}
+            onChange={(event) =>
+              setDelegateForm({
+                ...delegateForm,
+                permission_code: event.target.value,
+              })
+            }
             placeholder="Select a permission"
-            options={DELEGATABLE_PERMISSIONS.map((p) => ({ value: p, label: p }))}
+            options={DELEGATABLE_PERMISSIONS.map((p) => ({
+              value: p,
+              label: p,
+            }))}
           />
           <Select
             aria-label="Delegation scope"
             label="Scope"
             value={delegateForm.scope_id}
-            onChange={(event) => setDelegateForm({ ...delegateForm, scope_id: event.target.value })}
+            onChange={(event) =>
+              setDelegateForm({ ...delegateForm, scope_id: event.target.value })
+            }
             placeholder="Organization-wide"
             options={scopes.map((s) => ({ value: s.id, label: s.name }))}
           />
           <div>
             <label className="label">Reason</label>
-            <Textarea aria-label="Delegation reason" value={delegateForm.reason} onChange={(event) => setDelegateForm({ ...delegateForm, reason: event.target.value })} rows={2} placeholder="Why is this authority being delegated?" />
+            <Textarea
+              aria-label="Delegation reason"
+              value={delegateForm.reason}
+              onChange={(event) =>
+                setDelegateForm({ ...delegateForm, reason: event.target.value })
+              }
+              rows={2}
+              placeholder="Why is this authority being delegated?"
+            />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Input label="Starts at" name="delegation-starts" type="datetime-local" value={delegateForm.starts_at} onChange={(event) => setDelegateForm({ ...delegateForm, starts_at: event.target.value })} />
+              <Input
+                label="Starts at"
+                name="delegation-starts"
+                type="datetime-local"
+                value={delegateForm.starts_at}
+                onChange={(event) =>
+                  setDelegateForm({
+                    ...delegateForm,
+                    starts_at: event.target.value,
+                  })
+                }
+              />
             </div>
             <div>
-              <Input label="Expires at" name="delegation-expires" type="datetime-local" value={delegateForm.expires_at} onChange={(event) => setDelegateForm({ ...delegateForm, expires_at: event.target.value })} />
+              <Input
+                label="Expires at"
+                name="delegation-expires"
+                type="datetime-local"
+                value={delegateForm.expires_at}
+                onChange={(event) =>
+                  setDelegateForm({
+                    ...delegateForm,
+                    expires_at: event.target.value,
+                  })
+                }
+              />
             </div>
           </div>
         </div>
@@ -795,33 +1018,80 @@ function GovernanceContent() {
       >
         <div className="space-y-4">
           <div>
-            <Input label="Name" name="policy-name" value={policyForm.name} onChange={(event) => setPolicyForm({ ...policyForm, name: event.target.value })} placeholder="e.g. Contract approval requires legal" />
+            <Input
+              label="Name"
+              name="policy-name"
+              value={policyForm.name}
+              onChange={(event) =>
+                setPolicyForm({ ...policyForm, name: event.target.value })
+              }
+              placeholder="e.g. Contract approval requires legal"
+            />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Input label="Approval type" name="policy-type" value={policyForm.approval_type} onChange={(event) => setPolicyForm({ ...policyForm, approval_type: event.target.value })} placeholder="other" />
+              <Input
+                label="Approval type"
+                name="policy-type"
+                value={policyForm.approval_type}
+                onChange={(event) =>
+                  setPolicyForm({
+                    ...policyForm,
+                    approval_type: event.target.value,
+                  })
+                }
+                placeholder="other"
+              />
             </div>
             <div>
-              <Input label="Required permission" name="policy-perm" value={policyForm.required_permission} onChange={(event) => setPolicyForm({ ...policyForm, required_permission: event.target.value })} placeholder="e.g. finance:manage" />
+              <Input
+                label="Required permission"
+                name="policy-perm"
+                value={policyForm.required_permission}
+                onChange={(event) =>
+                  setPolicyForm({
+                    ...policyForm,
+                    required_permission: event.target.value,
+                  })
+                }
+                placeholder="e.g. finance:manage"
+              />
             </div>
           </div>
           <Select
             aria-label="Policy scope"
             label="Scope"
             value={policyForm.scope_id}
-            onChange={(event) => setPolicyForm({ ...policyForm, scope_id: event.target.value })}
+            onChange={(event) =>
+              setPolicyForm({ ...policyForm, scope_id: event.target.value })
+            }
             placeholder="Organization-wide"
             options={scopes.map((s) => ({ value: s.id, label: s.name }))}
           />
           <div>
             <label className="label">Description</label>
-            <Textarea aria-label="Policy description" value={policyForm.description} onChange={(event) => setPolicyForm({ ...policyForm, description: event.target.value })} rows={2} />
+            <Textarea
+              aria-label="Policy description"
+              value={policyForm.description}
+              onChange={(event) =>
+                setPolicyForm({
+                  ...policyForm,
+                  description: event.target.value,
+                })
+              }
+              rows={2}
+            />
           </div>
           <label className="flex items-center gap-2 text-sm text-ink/80">
             <input
               type="checkbox"
               checked={policyForm.self_approval_allowed}
-              onChange={(event) => setPolicyForm({ ...policyForm, self_approval_allowed: event.target.checked })}
+              onChange={(event) =>
+                setPolicyForm({
+                  ...policyForm,
+                  self_approval_allowed: event.target.checked,
+                })
+              }
               className="h-4 w-4"
             />
             Allow self-approval by the requester

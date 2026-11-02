@@ -1,0 +1,496 @@
+name: VCOS Linux CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * *'  # Daily at 2 AM UTC for scheduled regression
+
+env:
+  PYTHON_VERSION: '3.12'
+  NODE_VERSION: '20'
+  POSTGRES_VERSION: '18'
+  DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/vcos_test
+  # PostgreSQL-backed test fixtures (tests/conftest.py) read TEST_DATABASE_URL;
+  # without it they fall back to the local dev credentials.
+  TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/vcos_test
+  REDIS_ENABLED: 'false'
+  RATE_LIMIT_ENABLED: 'false'
+  EMAIL_TRANSPORT: 'console'
+  AI_PROVIDER: 'none'
+  SECRET_KEY: 'ci-test-secret-key-not-for-production'
+  APP_ENV: 'test'
+  VCOS_TEST_MODE: '0'  # Production mode for security tests
+
+jobs:
+  # =============================================================================
+  # PR Checks - Fast validation for pull requests
+  # =============================================================================
+  pr-backend-tests:
+    name: Backend Tests (PR)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: vcos_test
+        ports: 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d vcos_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Verify PostgreSQL connection
+        run: |
+          cd backend
+          python -c "
+          import asyncio, asyncpg
+          async def test():
+              conn = await asyncpg.connect('postgresql://postgres:postgres@localhost:5432/vcos_test')
+              result = await conn.fetchval('SELECT version()')
+              print(f'PostgreSQL: {result}')
+              await conn.close()
+          asyncio.run(test())
+          "
+
+      # Revisions 001 -> e63b67b815b7 are additive migrations against a schema
+      # created by Base.metadata.create_all (some use unguarded ADD COLUMN and
+      # fail on a bare database). Canonical convergence is init_db() + stamp.
+      - name: Bootstrap schema and stamp migration head
+        run: |
+          cd backend
+          python -c "import asyncio; from app.db.database import init_db; asyncio.run(init_db())"
+          alembic stamp head
+
+      - name: Enable required PostgreSQL extensions
+        run: |
+          cd backend
+          python -c "
+          import asyncio, asyncpg
+          async def main():
+              conn = await asyncpg.connect('postgresql://postgres:postgres@localhost:5432/vcos_test')
+              await conn.execute('CREATE EXTENSION IF NOT EXISTS pg_trgm')
+              await conn.close()
+          asyncio.run(main())
+          "
+
+      - name: Verify migration state
+        run: |
+          cd backend
+          alembic current
+
+      - name: Run critical backend tests (fast)
+        run: |
+          cd backend
+          VCOS_TEST_MODE=0 python -m pytest \
+            tests/test_gate34_observability.py \
+            tests/acceptance/test_integration_adversarial.py \
+            tests/acceptance/test_tenant_isolation_adversarial.py \
+            -v --tb=short -x \
+            --ignore=tests/acceptance/test_complete_company_e2e.py \
+            --ignore=tests/acceptance/test_release_candidate_hardening_e2e.py
+
+      - name: Upload backend test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-results-pr
+          path: |
+            backend/.pytest_cache/
+          retention-days: 7
+
+  pr-frontend-tests:
+    name: Frontend Tests & Build (PR)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Run frontend lint
+        run: |
+          cd frontend
+          npm run lint
+
+      # The Playwright specs are full-stack E2E (real backend on :8999 + dev email
+      # transport); they run in the Full Regression job, which provides
+      # PostgreSQL and the backend runtime. The PR job validates lint + build.
+
+      - name: Build frontend for production
+        run: |
+          cd frontend
+          npm run build
+
+      - name: Upload frontend build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build-pr
+          path: |
+            frontend/.next/
+          retention-days: 7
+
+  # =============================================================================
+  # Full Regression - Scheduled/dedicated validation
+  # =============================================================================
+  full-regression:
+    name: Full Regression (Scheduled)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: vcos_test
+        ports: 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d vcos_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Verify PostgreSQL connection
+        run: |
+          cd backend
+          python -c "
+          import asyncio, asyncpg
+          async def test():
+              conn = await asyncpg.connect('postgresql://postgres:postgres@localhost:5432/vcos_test')
+              result = await conn.fetchval('SELECT version()')
+              print(f'PostgreSQL: {result}')
+              await conn.close()
+          asyncio.run(test())
+          "
+
+      # Same additive-migration caveat as the PR job: converge with init_db(),
+      # then stamp the migration head.
+      - name: Bootstrap schema and stamp migration head
+        run: |
+          cd backend
+          python -c "import asyncio; from app.db.database import init_db; asyncio.run(init_db())"
+          alembic stamp head
+
+      - name: Enable required PostgreSQL extensions
+        run: |
+          cd backend
+          python -c "
+          import asyncio, asyncpg
+          async def main():
+              conn = await asyncpg.connect('postgresql://postgres:postgres@localhost:5432/vcos_test')
+              await conn.execute('CREATE EXTENSION IF NOT EXISTS pg_trgm')
+              await conn.close()
+          asyncio.run(main())
+          "
+
+      - name: Verify migration state
+        run: |
+          cd backend
+          alembic current
+
+      - name: Run 35-G Canonical Mutation/Concurrency tests
+        run: |
+          cd backend
+          VCOS_TEST_MODE=0 python -m pytest \
+            tests/test_gate6b_canonical_mutation.py \
+            tests/test_gate35g2_canonical_concurrency_stress.py \
+            -v --tb=short
+
+      - name: Run 35-H Failure Under Load tests
+        run: |
+          cd backend
+          VCOS_TEST_MODE=0 python -m pytest \
+            tests/test_gate35h_failure_under_load.py \
+            -v --tb=short
+
+      - name: Run 35-I Longitudinal Reality tests
+        run: |
+          cd backend
+          VCOS_TEST_MODE=0 python -m pytest \
+            tests/acceptance/test_longitudinal_reality.py \
+            -v --tb=short
+
+      - name: Run Gate 31 Canonical Integrity/Reconciliation tests
+        # tests/test_gate31_canonical_reality_integrity.py consolidates the former
+        # test_canonical_integrity.py + test_reconciliation.py coverage
+        # (integrity detection + governed reconciliation).
+        run: |
+          cd backend
+          VCOS_TEST_MODE=0 python -m pytest \
+            tests/test_gate31_canonical_reality_integrity.py \
+            -v --tb=short
+
+      - name: Run Gate 32 Reliability/Recovery tests
+        run: |
+          cd backend
+          VCOS_TEST_MODE=0 python -m pytest \
+            tests/test_gate32_canonical_reliability.py \
+            tests/test_recovery_manifest.py \
+            tests/acceptance/test_integration_adversarial.py \
+            -v --tb=short
+
+      - name: Run Gate 34 Observability/Degradation tests
+        run: |
+          cd backend
+          VCOS_TEST_MODE=0 python -m pytest \
+            tests/test_gate34_observability.py \
+            -v --tb=short
+
+      - name: Run PostgreSQL integration tests
+        run: |
+          cd backend
+          VCOS_TEST_MODE=0 python -m pytest \
+            -m postgres \
+            -v --tb=short
+
+      - name: Run security & tenant isolation tests
+        run: |
+          cd backend
+          VCOS_TEST_MODE=0 python -m pytest \
+            tests/acceptance/test_integration_adversarial.py \
+            tests/acceptance/test_tenant_isolation_adversarial.py \
+            -v --tb=short
+
+      - name: Run resource lifecycle adversarial batch (3 consecutive)
+        run: |
+          cd backend
+          for i in 1 2 3; do
+            echo "=== ADVERSARIAL RUN $i ==="
+            VCOS_TEST_MODE=0 python -m pytest \
+              tests/acceptance/test_integration_adversarial.py \
+              -v --tb=short
+            if [ $? -ne 0 ]; then
+              echo "Run $i FAILED"
+              exit 1
+            fi
+            echo "=== RUN $i PASSED ==="
+          done
+
+      - name: Verify no connection leaks
+        run: |
+          cd backend
+          python -c "
+          import asyncio, asyncpg
+          async def check():
+              conn = await asyncpg.connect('postgresql://postgres:postgres@localhost:5432/vcos_test')
+              r = await conn.fetch('''
+                SELECT 
+                  count(*) as total,
+                  count(*) filter (where state = '\''idle'\'') as idle,
+                  count(*) filter (where state = '\''active'\'') as active,
+                  count(*) filter (where state = '\''idle in transaction'\'') as idle_in_tx
+                FROM pg_stat_activity WHERE datname = '\''vcos_test'\''
+              ''')
+              print(dict(r[0]))
+              await conn.close()
+          asyncio.run(check())
+          "
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Install Playwright browsers
+        run: |
+          cd frontend
+          npx playwright install --with-deps chromium
+
+      # Starts Next.js and the backend (dev/test transport) via the
+      # playwright.config.ts webServer entries, then runs all full-stack specs.
+      - name: Run frontend E2E (Playwright)
+        run: |
+          cd frontend
+          npm test
+
+      - name: Upload full regression test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-regression-results
+          path: |
+            backend/.pytest_cache/
+          retention-days: 14
+
+  # =============================================================================
+  # Migration Verification - Clean database schema validation
+  # =============================================================================
+  migration-verification:
+    name: Migration Verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: vcos_test_migration
+        ports: 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d vcos_test_migration"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      # Clean-database validation: converge with the app's canonical bootstrap
+      # (create_all + universal indexes + alter migrations), then stamp head.
+      # Per-revision upgrade from an empty database is not supported by this
+      # migration chain (see ci.yml PR job note).
+      - name: Bootstrap schema on clean database and stamp migration head
+        run: |
+          cd backend
+          export DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/vcos_test_migration
+          python -c "import asyncio; from app.db.database import init_db; asyncio.run(init_db())"
+          alembic stamp head
+
+      - name: Enable required PostgreSQL extensions
+        run: |
+          cd backend
+          python -c "
+          import asyncio, asyncpg
+          async def main():
+              conn = await asyncpg.connect('postgresql://postgres:postgres@localhost:5432/vcos_test_migration')
+              await conn.execute('CREATE EXTENSION IF NOT EXISTS pg_trgm')
+              await conn.close()
+          asyncio.run(main())
+          "
+
+      - name: Verify schema integrity
+        run: |
+          cd backend
+          export DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/vcos_test_migration
+          python -c "
+          import asyncio, asyncpg
+          async def verify():
+              conn = await asyncpg.connect('postgresql://postgres:postgres@localhost:5432/vcos_test_migration')
+              # Check all required tables exist
+              tables = await conn.fetch('''
+                SELECT table_name FROM information_schema.tables 
+                WHERE table_schema = '\''public'\'' AND table_type = '\''BASE TABLE'\''
+              ''')
+              print(f'Tables found: {len(tables)}')
+              for t in tables:
+                print(f'  - {t[\"table_name\"]}')
+              # Check key constraints
+              fks = await conn.fetch('''
+                SELECT count(*) FROM information_schema.table_constraints 
+                WHERE constraint_type = '\''FOREIGN KEY'\''
+              ''')
+              print(f'Foreign keys: {fks[0][\"count\"]}')
+              uks = await conn.fetch('''
+                SELECT count(*) FROM information_schema.table_constraints 
+                WHERE constraint_type = '\''UNIQUE'\''
+              ''')
+              print(f'Unique constraints: {uks[0][\"count\"]}')
+              indexes = await conn.fetch('''
+                SELECT count(*) FROM pg_indexes WHERE schemaname = '\''public'\''
+              ''')
+              print(f'Indexes: {indexes[0][\"count\"]}')
+              await conn.close()
+          asyncio.run(verify())
+          "
+
+      - name: Verify migration history
+        run: |
+          cd backend
+          export DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/vcos_test_migration
+          alembic history --verbose
+
+      - name: Verify current revision
+        run: |
+          cd backend
+          export DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/vcos_test_migration
+          alembic current --verbose

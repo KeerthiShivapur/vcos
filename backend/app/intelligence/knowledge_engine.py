@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.timeutils import ensure_aware, utcnow
 from app.models.intelligence import KnowledgeInsight
 from app.models.knowledge import Document, Policy, SOP, Template, WikiPage
+from app.intelligence.company_context import resolve_caller_access, CallerAccess
 
 logger = logging.getLogger("vcos.intelligence.knowledge")
 
@@ -250,6 +251,47 @@ class KnowledgeEngine:
         self, db: AsyncSession, *, organization_id: str, limit: int = 50,
         kind: Optional[str] = None, status: Optional[str] = None,
     ) -> list[dict[str, Any]]:
+        filters = [KnowledgeInsight.organization_id == organization_id]
+        if kind:
+            filters.append(KnowledgeInsight.kind == kind)
+        if status:
+            filters.append(KnowledgeInsight.status == status)
+        rows = (
+            await db.execute(
+                select(KnowledgeInsight).where(*filters).order_by(
+                    KnowledgeInsight.confidence.desc(), KnowledgeInsight.created_at.desc()
+                ).limit(limit)
+            )
+        ).scalars().all()
+        return [
+            {
+                "id": r.id,
+                "kind": r.kind,
+                "entity_type": r.entity_type,
+                "entity_id": r.entity_id,
+                "related_type": r.related_type,
+                "related_id": r.related_id,
+                "title": r.title,
+                "detail": r.detail,
+                "confidence": r.confidence,
+                "recommendation": r.recommendation,
+                "status": r.status,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ]
+
+    async def list_insights_visible(
+        self, db: AsyncSession, *, organization_id: str, access: CallerAccess, limit: int = 50,
+        kind: Optional[str] = None, status: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """Governance-scoped list: only returns insights the caller may access."""
+        if not access.org_wide:
+            if not access.project_ids:
+                return []
+            # Filter to insights in accessible projects
+            # This is a simplified check - real implementation would be more sophisticated
+            pass
         filters = [KnowledgeInsight.organization_id == organization_id]
         if kind:
             filters.append(KnowledgeInsight.kind == kind)

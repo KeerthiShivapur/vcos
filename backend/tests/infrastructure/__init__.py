@@ -1,0 +1,1 @@
+"""PostgreSQL test infrastructure for VCOS Gate 7."""

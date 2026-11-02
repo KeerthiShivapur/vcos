@@ -100,14 +100,25 @@ class LearningPathService:
         ).scalar_one_or_none()
 
     async def list_paths(
-        self, db: AsyncSession, *, organization_id: str, target_role: Optional[str] = None, status: str = "published"
+        self,
+        db: AsyncSession,
+        *,
+        organization_id: str,
+        target_role: Optional[str] = None,
+        status: str = "published",
+        search: Optional[str] = None,
+        limit: Optional[int] = None,
     ) -> list[LearningPath]:
         query = select(LearningPath).where(LearningPath.organization_id == organization_id)
         if status:
             query = query.where(LearningPath.status == status)
         if target_role:
             query = query.where(LearningPath.target_role == target_role)
+        if search:
+            query = query.where(LearningPath.title.ilike(f"%{search}%"))
         query = query.options(selectinload(LearningPath.steps))
+        if limit is not None:
+            query = query.limit(limit)
         return (await db.execute(query.order_by(LearningPath.sort_order, LearningPath.created_at))).scalars().all()
 
     # ------------------------------------------------------------------ enrollment

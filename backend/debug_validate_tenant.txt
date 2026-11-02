@@ -1,0 +1,12 @@
+_validate_tenant_isolation(db, context.organization_id)
+            context.validation_results["tenant_isolation"] = validation
+            
+            if validation.overall_status == ValidationStatus.FAILED:
+                return {"passed": False, "message": f"Tenant isolation validation failed: {validation.message}", "details": validation.to_dict(), "validation_status": ValidationStatus.FAILED.value, "validation_details": validation}
+            
+            return {"passed": True, "message": "Tenant isolation validated", "details": validation.to_dict(), "validation_status": validation.overall_status.value, "validation_details": validation}
+        except Exception as e:
+            return {"passed": False, "message": f"Tenant isolation validation failed: {str(e)}", "validation_status": ValidationStatus.FAILED.value}
+
+    async def _phase_temporal_validated(self, db: AsyncSession, context: RestoreContext, restore_op: RestoreOperation) -> Dict[str, Any]:
+        """Phase 8: Validate

@@ -11,7 +11,7 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.role import Permission, RolePermission, UserRole
+from app.models.role import Permission, RolePermission, UserRoleModel
 
 logger = logging.getLogger("vcos.models.permission_helpers")
 
@@ -21,11 +21,11 @@ async def users_with_permission(
 ) -> list[str]:
     """User ids of all active users holding a permission code (directly or via roles)."""
     rows = await db.execute(
-        select(UserRole.user_id)
-        .join(RolePermission, RolePermission.role_id == UserRole.role_id)
+        select(UserRoleModel.user_id)
+        .join(RolePermission, RolePermission.role_id == UserRoleModel.role_id)
         .join(Permission, Permission.id == RolePermission.permission_id)
         .where(
-            UserRole.organization_id == organization_id,
+            UserRoleModel.organization_id == organization_id,
             Permission.code == code,
         )
     )
@@ -39,10 +39,10 @@ async def user_permission_codes(
     rows = await db.execute(
         select(Permission.code)
         .join(RolePermission, RolePermission.permission_id == Permission.id)
-        .join(UserRole, UserRole.role_id == RolePermission.role_id)
+        .join(UserRoleModel, UserRoleModel.role_id == RolePermission.role_id)
         .where(
-            UserRole.organization_id == organization_id,
-            UserRole.user_id == user_id,
+            UserRoleModel.organization_id == organization_id,
+            UserRoleModel.user_id == user_id,
         )
     )
     return set(rows.scalars().all())

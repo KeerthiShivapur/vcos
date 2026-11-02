@@ -22,6 +22,7 @@ from app.knowledge.presenters import (
 from app.knowledge.recommendation_service import recommendation_service
 from app.knowledge.relation_service import relation_service
 from app.knowledge.search_service import knowledge_search_service
+from app.intelligence.company_brain import company_brain
 from app.models.knowledge import (
     DocumentFavorite,
     DocumentVersion,
@@ -111,6 +112,79 @@ async def knowledge_search(
         total=data["total"],
         took_ms=int((time.monotonic() - started) * 1000),
     )
+
+
+# Phase H — institutional learning for knowledge search
+@router.get("/search/with-learning")
+async def knowledge_search_with_learning(
+    q: str,
+    mode: str = "hybrid",
+    kind: Optional[str] = None,
+    status: Optional[str] = None,
+    project_id: Optional[str] = None,
+    author_id: Optional[str] = None,
+    tags: Optional[str] = None,
+    limit: int = 20,
+    offset: int = 0,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("knowledge:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Knowledge search augmented with institutional learning.
+
+    Returns standard search results plus relevant lessons and patterns
+    from the Company Brain's institutional memory.
+    """
+    started = time.monotonic()
+    data = await knowledge_search_service.search(
+        db, organization_id=org.id, query=q, mode=mode,
+        kind=kind if kind else None, status=status or None,
+        project_id=project_id or None, author_id=author_id or None,
+        tags=[t.strip() for t in tags.split(",")] if tags else None,
+        limit=min(limit, 100), offset=offset,
+    )
+    results = [
+        KnowledgeSearchResult(
+            id=r["id"],
+            kind=r["type"],
+            title=r["title"],
+            url=r["url"],
+            subtitle=r["summary"],
+            snippet=(r["summary"] or "")[:160],
+            score=r["score"],
+            matched_keywords=r.get("matched_keywords", []),
+            metadata={"status": r.get("status"), "author_id": r.get("author_id"), "project_id": r.get("project_id")},
+        )
+        for r in data["results"]
+    ]
+
+    # Get institutional learning for this query
+    brain_result = await company_brain.answer(
+        db, org.id, f"Search: {q}",
+        user=user,
+    )
+
+    learning = {"lessons": [], "patterns": []}
+    if brain_result:
+        learning = {
+            "lessons": [
+                {"id": l["id"], "title": l["title"], "lesson": l["lesson"], "lifecycle": l["lifecycle"], "confidence": l["confidence"]}
+                for l in brain_result.get("lessons", [])[:3]
+            ],
+            "patterns": [
+                {"id": p["id"], "title": p["title"], "family": p["family"], "count": p["occurrence_count"], "confidence": p["confidence"]}
+                for p in brain_result.get("patterns", [])[:3]
+            ],
+        }
+
+    return {
+        "query": q,
+        "mode": data["mode"],
+        "results": [r.model_dump() for r in results],
+        "total": data["total"],
+        "took_ms": int((time.monotonic() - started) * 1000),
+        "institutional_learning": learning,
+    }
 
 
 # --------------------------------------------------------------------- graph

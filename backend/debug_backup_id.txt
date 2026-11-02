@@ -1,0 +1,8 @@
+ib
+        import uuid
+        logger.info("Creating backup for org_id: {}".format(org.id))
+        backup_id = "bkp-{}".format(uuid.uuid4().hex[:12])
+        logger.info("Generated backup_id: {}".format(backup_id))
+        backup_metadata = BackupManifest(
+            id=backup_id,
+            orga

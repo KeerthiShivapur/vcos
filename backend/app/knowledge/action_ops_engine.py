@@ -40,8 +40,7 @@ from typing import Any, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.timeutils import ensure_aware
-from app.knowledge.canonical_service import now_utc
+from app.core.timeutils import ensure_aware, utcnow as now_utc
 from app.knowledge.intelligence_engine import _fingerprint
 from app.knowledge.synthesis_engine import _json_loads
 from app.models.company_actions import (
@@ -50,6 +49,14 @@ from app.models.company_actions import (
     CompanyActionOutcome,
 )
 from app.models.knowledge import KnowledgeIntelInsight, KnowledgeRecommendation
+from app.models.company_operating import CompanyDecision, CompanyScenarioRun
+
+# Slice 4H.5 — a decision may only anchor an action's lineage once it has
+# reached human approval (or a later state). Pre-approval/declined decisions
+# carry no institutional authority to act on.
+_LINEAGE_DECISION_STATES = frozenset(
+    {"approved", "executed", "outcome_recorded", "assessed"}
+)
 
 logger = logging.getLogger("vcos.knowledge.action_ops")
 
@@ -68,7 +75,7 @@ _ESCALATE_BLOCKED_DAYS = 3  # blocked longer than this escalates
 _AUTOCOMPLETE_STATES = frozenset({"completed", "done"})
 
 _ACTION_TYPES = frozenset({"task", "decision", "communication", "knowledge", "meeting", "project"})
-_SCOPES = frozenset({"org", "project", "department", "team", "goal"})
+_SCOPES = frozenset({"org", "company", "project", "department", "team", "goal"})
 _RISKS = frozenset({"low", "medium", "high"})
 _OUTCOME_TYPES = frozenset({"success", "partial", "failed", "not_applicable"})
 
@@ -403,10 +410,11 @@ class ActionOpsEngine:
                 note=f"artifact routing failed: {exc}",
             )
         if route_ok:
-            await self._apply(
-                db, action, "ready", actor_id=actor_id,
-                details={"target_type": action.target_type, "target_id": action.target_id},
-            )
+            if action.state != "ready":
+                await self._apply(
+                    db, action, "ready", actor_id=actor_id,
+                    details={"target_type": action.target_type, "target_id": action.target_id},
+                )
 
     # ------------------------------------------------------------------ propose
 
@@ -429,6 +437,9 @@ class ActionOpsEngine:
         source_insight_id: Optional[str] = None,
         source_event_id: Optional[str] = None,
         source_claim_ids: Optional[list[str]] = None,
+        source_company_decision_id: Optional[str] = None,
+        source_scenario_id: Optional[str] = None,
+        source_commitment_id: Optional[str] = None,
         assignee_id: Optional[str] = None,
         approver_id: Optional[str] = None,
         depends_on: Optional[list[str]] = None,
@@ -498,6 +509,62 @@ class ActionOpsEngine:
                 source_problem = insight.summary
             if not source_claim_ids:
                 source_claim_ids = _json_loads(insight.source_claims_json, [])
+        # Slice 4H.5 — decision lineage: the anchoring decision must exist in
+        # this organization and have reached human approval; an optional
+        # scenario reference must be a real rehearsal of this organization.
+        # Lineage is provenance only — it never alters policy, routing, or
+        # governance (L16/L19).
+        if source_company_decision_id:
+            decision = (
+                await db.execute(
+                    select(CompanyDecision).where(
+                        CompanyDecision.organization_id == organization_id,
+                        CompanyDecision.decision_id == source_company_decision_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if decision is None:
+                raise ValueError("source decision not found")
+            if decision.state not in _LINEAGE_DECISION_STATES:
+                raise ValueError(
+                    f"source decision state '{decision.state}' has not reached "
+                    "approval; only approved decisions may anchor action lineage"
+                )
+            if reason is None:
+                reason = f"decision {decision.kind}: {decision.title}"
+            if not source_problem:
+                source_problem = decision.title
+        if source_scenario_id:
+            scenario = (
+                await db.execute(
+                    select(CompanyScenarioRun).where(
+                        CompanyScenarioRun.organization_id == organization_id,
+                        CompanyScenarioRun.id == source_scenario_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if scenario is None:
+                raise ValueError("source scenario not found")
+
+        # Slice 4I.8 — commitment lineage: validate the source commitment exists
+        if source_commitment_id:
+            from app.models.execution_strategy import CompanyCommitment
+            commitment = (
+                await db.execute(
+                    select(CompanyCommitment).where(
+                        CompanyCommitment.organization_id == organization_id,
+                        CompanyCommitment.id == source_commitment_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if commitment is None:
+                raise ValueError("source commitment not found")
+            # Only authorized commitments can anchor actions
+            if commitment.state not in ("authorized", "active", "fulfilled"):
+                raise ValueError(
+                    f"source commitment state '{commitment.state}' is not executable; "
+                    "only authorized/active/fulfilled commitments may anchor action lineage"
+                )
 
         target_norm = _norm(target or title)
         problem_norm = _norm(source_problem or title, 160)
@@ -535,6 +602,12 @@ class ActionOpsEngine:
                 existing.source_recommendation_id = source_recommendation_id
             if source_insight_id:
                 existing.source_insight_id = source_insight_id
+            if source_company_decision_id:
+                existing.source_company_decision_id = source_company_decision_id
+            if source_scenario_id:
+                existing.source_scenario_id = source_scenario_id
+            if source_commitment_id:
+                existing.source_commitment_id = source_commitment_id
             existing.priority_score = max(existing.priority_score, self._priority_score(risk, due_at))
             await db.flush()
             return self._payload(existing, deduplicated=True)
@@ -559,6 +632,9 @@ class ActionOpsEngine:
             source_insight_id=source_insight_id,
             source_event_id=source_event_id,
             source_claim_ids_json=json.dumps(source_claim_ids or []),
+            source_company_decision_id=source_company_decision_id,
+            source_scenario_id=source_scenario_id,
+            source_commitment_id=source_commitment_id,
             policy=policy["route"],
             approval_required=policy["approval_required"],
             approver_id=approver_id,
@@ -1272,6 +1348,9 @@ class ActionOpsEngine:
             "source_insight_id": action.source_insight_id,
             "source_event_id": action.source_event_id,
             "source_claim_ids": _json_loads(action.source_claim_ids_json, []),
+            "source_company_decision_id": action.source_company_decision_id,
+            "source_scenario_id": action.source_scenario_id,
+            "source_commitment_id": action.source_commitment_id,
             "target_type": action.target_type,
             "target_id": action.target_id,
             "assignee_id": action.assignee_id,

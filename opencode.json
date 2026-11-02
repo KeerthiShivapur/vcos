@@ -1,0 +1,18 @@
+{
+  "$schema": "https://opencode.ai",
+  "model": "my-tokenrouter/deepseek/deepseek-v4-flash",
+  "provider": {
+    "my-tokenrouter": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "TokenRouter",
+      "options": {
+        "baseURL": "https://tokenrouter.com"
+      },
+      "models": {
+        "deepseek/deepseek-v4-flash": {
+          "name": "DeepSeek V4 Flash"
+        }
+      }
+    }
+  }
+}

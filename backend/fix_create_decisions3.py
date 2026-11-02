@@ -1,0 +1,22 @@
+with open('tests/acceptance/adapters.py', 'r') as f:
+    content = f.read()
+
+# Fix _create_decisions - use project.id instead of policy.id - use exact match
+old = '''                scope_id=self.context.organization_id,
+                event_name="test_decision",
+                source_event_id=f"{self.context.run_id}-dec-{policy.id}",
+                epistemic_status="confirmed",
+                provenance={"test": True},'''
+
+new = '''                scope_id=self.context.organization_id,
+                event_name="test_decision",
+                source_event_id=f"{self.context.run_id}-dec-{project.id}",
+                epistemic_status="confirmed",
+                provenance={"test": True},'''
+
+content = content.replace(old, new)
+
+with open('tests/acceptance/adapters.py', 'w') as f:
+    f.write(content)
+
+print('Fixed _create_decisions')

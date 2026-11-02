@@ -1,0 +1,19 @@
+ fingerprint_calculator = CanonicalFingerprint(db_session, org.id)
+        pre_disaster_fingerprint = await fingerprint_calculator.compute()
+        pre_disaster_details = await fingerprint_calculator.compute_detailed()
+        
+        logger.info(f"Pre-disaster canonical fingerprint: {pre_disaster_fingerprint}")
+        logger.info(f"Pre-disaster entity counts: {pre_disaster_details['counts']}")
+        
+        # =====================================================================
+        # PHASE 10: DISASTER SIMULATION
+        # =====================================================================
+        logger.info("=== PHASE 10: DISASTER SIMULATION ===")
+        
+        # Simulate database loss disaster
+        disaster = await disaster_recovery_service.detect_disaster(
+            db=db_session,
+            disaster_type=DisasterType.DB_CORRUPTION,
+            severity=DisasterSeverity.CRITICAL,
+            organization_id=org.id,
+            affected_systems=["postgresql-pri

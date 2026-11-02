@@ -21,7 +21,11 @@ export function Badge({
   className?: string;
   children: React.ReactNode;
 }) {
-  return <span className={classNames("badge", tones[tone], className)}>{children}</span>;
+  return (
+    <span className={classNames("badge", tones[tone], className)}>
+      {children}
+    </span>
+  );
 }
 
 export function statusTone(status: string): Tone {

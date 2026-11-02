@@ -101,6 +101,21 @@ _COMPANY_TRIGGERS = (
     "overall", "systemic", "insight", "attention", "status of", "going on",
 )
 
+# Phase G — institutional intelligence triggers
+_LEARNING_TRIGGERS = (
+    "learned", "lesson", "what did we learn", "institutional", "organizational learning",
+    "pattern", "recurring", "evidence", "provenance", "why do we believe",
+    "contradiction", "superseded", "temporal", "historical belief", "what did we believe",
+)
+
+# Phase 4I.4 — planning context triggers
+_PLANNING_CONTEXT_TRIGGERS = (
+    "what is the state", "what's the state", "whats the state", "company state",
+    "planning context", "strategic state", "execution state", "alignment state",
+    "what should we do", "should we continue", "what are the risks", "what are the gaps",
+    "company health", "organizational health", "strategic health", "execution health",
+)
+
 
 def _code_to_label(type_: str) -> str:
     return type_.replace("_", " ").title()
@@ -134,11 +149,15 @@ class CompanyBrain:
         history_flavored = delay_flavored or change_flavored or any(t in lowered for t in _HISTORY_TRIGGERS)
         knowledge_flavored = any(t in lowered for t in _KNOWLEDGE_TRIGGERS)
         company_flavored = any(t in lowered for t in _COMPANY_TRIGGERS)
+        learning_flavored = any(t in lowered for t in _LEARNING_TRIGGERS)
+        planning_context_flavored = any(t in lowered for t in _PLANNING_CONTEXT_TRIGGERS)
         return {
-            "patterns": project_flavored or delay_flavored or company_flavored,
-            "insights": project_flavored or delay_flavored or company_flavored,
-            "memory": history_flavored,
+            "patterns": project_flavored or delay_flavored or company_flavored or learning_flavored,
+            "insights": project_flavored or delay_flavored or company_flavored or learning_flavored,
+            "memory": history_flavored or learning_flavored,
             "knowledge": knowledge_flavored,
+            "learning": learning_flavored,
+            "planning_context": planning_context_flavored or company_flavored,
         }
 
     def _who_flavored(self, question: str) -> bool:
@@ -345,6 +364,121 @@ class CompanyBrain:
             ]
             sources.append("knowledge")
 
+        # Phase G — institutional learning
+        lessons: list[dict[str, Any]] = []
+        if route.get("learning"):
+            from app.intelligence.company_context import resolve_caller_access
+            from app.models.organizational_learning import OrganizationalLearning, LearningEvidence
+            from app.models.company_operating import CompanyDecisionContradiction
+            from app.models.intelligence import PatternDetection
+            from sqlalchemy import select, func, and_, or_
+
+            access = await resolve_caller_access(db, organization_id=organization_id, user=user)
+
+            conditions = [
+                OrganizationalLearning.organization_id == organization_id,
+                OrganizationalLearning.status == "active",
+            ]
+
+            # Scope governance for lessons: check via source pattern if available
+            # OrganizationalLearning doesn't have direct scope columns; scope is inherited from source pattern
+            if not access.org_wide:
+                # For scoped users, we need to check if the lesson's source pattern is accessible
+                # We'll do this by joining with PatternDetection for pattern-sourced lessons
+                # For non-pattern lessons, default to org scope (accessible to all)
+                # This is a simplified check - full scope inheritance would require more complex query
+                pass
+
+            stmt = (
+                select(
+                    OrganizationalLearning,
+                    func.count(LearningEvidence.id).label("evidence_count")
+                )
+                .outerjoin(LearningEvidence, LearningEvidence.learning_id == OrganizationalLearning.id)
+                .where(and_(*conditions))
+                .group_by(OrganizationalLearning.id)
+                .order_by(OrganizationalLearning.updated_at.desc())
+                .limit(section_limit)
+            )
+            result = await db.execute(stmt)
+            rows = result.all()
+
+            for learning, evidence_count in rows:
+                # For scoped users, check if lesson's source pattern is accessible
+                if not access.org_wide and learning.source_type == "pattern" and learning.source_id:
+                    pattern = await db.get(PatternDetection, learning.source_id)
+                    if pattern:
+                        if pattern.scope_type == "project" and pattern.auth_project_id:
+                            if pattern.auth_project_id not in access.project_ids:
+                                continue
+                        elif pattern.scope_type != "org":
+                            continue
+
+                # Get contradiction count
+                contra_stmt = select(func.count(CompanyDecisionContradiction.id)).where(
+                    CompanyDecisionContradiction.lesson_memory_id == learning.id
+                )
+                contra_result = await db.execute(contra_stmt)
+                contradiction_count = contra_result.scalar() or 0
+
+                lessons.append({
+                    "id": learning.id,
+                    "kind": learning.kind,
+                    "fingerprint": learning.fingerprint,
+                    "title": learning.title,
+                    "lesson": learning.lesson,
+                    "status": learning.status,
+                    "lifecycle": learning.lifecycle,
+                    "confidence": round(float(learning.confidence or 0.0), 3),
+                    "topic_name": learning.topic_name,
+                    "evidence_count": evidence_count,
+                    "contradiction_count": contradiction_count,
+                    "observed_at": learning.observed_at.isoformat() if learning.observed_at else None,
+                    "source_type": learning.source_type,
+                    "source_id": learning.source_id,
+                    "url": f"/brain/learning/lessons/{learning.id}",
+                })
+            sources.append("learning")
+
+        # Phase 4I.4 — Planning Context / State Synthesis
+        planning_context: Optional[dict[str, Any]] = None
+        if route.get("planning_context"):
+            from app.intelligence.company_planning_context_engine import company_planning_context_engine
+            
+            # Get or synthesize planning context
+            pc = await company_planning_context_engine.get_planning_context(
+                db, organization_id=organization_id
+            )
+            if not pc:
+                pc = await company_planning_context_engine.synthesize_planning_context(
+                    db, organization_id
+                )
+            
+            planning_context = {
+                "version": pc.version,
+                "computed_at": pc.computed_at.isoformat() if pc.computed_at else None,
+                "overall_health": pc.overall_health,
+                "overall_confidence": pc.overall_confidence,
+                "strategic_state": pc.strategic_state.get("state", {}) if pc.strategic_state else {},
+                "execution_state": pc.execution_state.get("state", {}) if pc.execution_state else {},
+                "outcome_state": pc.outcome_state.get("state", {}) if pc.outcome_state else {},
+                "alignment_state": pc.alignment_state.get("state", {}) if pc.alignment_state else {},
+                "learning_state": pc.learning_state.get("state", {}) if pc.learning_state else {},
+                "resource_state": pc.resource_state.get("state", {}) if pc.resource_state else {},
+                "risk_state": pc.risk_state.get("state", {}) if pc.risk_state else {},
+                "governance_state": pc.governance_state.get("state", {}) if pc.governance_state else {},
+                "active_contradictions": pc.active_contradictions,
+                "critical_gaps": pc.critical_gaps,
+                "total_gaps": pc.total_gaps,
+                "relevant_lessons": pc.relevant_lessons,
+                "high_confidence_lessons": pc.high_confidence_lessons,
+                "emerging_patterns": pc.emerging_patterns,
+                "elevated_risks": pc.elevated_risks,
+                "newly_emerging_risks": pc.newly_emerging_risks,
+                "provenance_available": True,
+            }
+            sources.append("planning_context")
+
         related_entities = self._related_from_context(context, limit=ANSWER_RELATED_LIMIT)
 
         # Slice 4D.7 — persona-aware scope: the caller's rule, not a label.
@@ -356,7 +490,7 @@ class CompanyBrain:
         # Evidence-backed unified timeline (governed, bounded).
         timeline = await self._timeline_for_answer(
             db, organization_id, user, primary,
-            patterns=patterns, insights=insights, memories=memories,
+            patterns=patterns, insights=insights, memories=memories, lessons=lessons,
         )
         recommended_next = self._recommended_next_questions(
             question, primary, route, claims, persona
@@ -381,7 +515,7 @@ class CompanyBrain:
         confidence = round(
             sum(claim_confidences) / len(claim_confidences), 3
         ) if claim_confidences else 0.5
-        summary = self._summarize(claims, insights, patterns, memories, knowledge)
+        summary = self._summarize(claims, insights, patterns, memories, knowledge, lessons, planning_context)
         evidence_count = sum(len(c.get("evidence", [])) for c in claims)
         elapsed_ms = round((time.perf_counter() - started) * 1000)
         logger.info(
@@ -403,6 +537,8 @@ class CompanyBrain:
             "memories": memories,
             "insights": insights,
             "knowledge": knowledge,
+            "lessons": lessons,
+            "planning_context": planning_context,
             "sources_consulted": sorted(sources),
             "scope": {"org_wide": persona.get("org_wide", False)},
             "generated_at": utcnow().isoformat(),
@@ -470,6 +606,8 @@ class CompanyBrain:
         patterns: list[dict[str, Any]],
         memories: list[dict[str, Any]],
         knowledge: list[dict[str, Any]],
+        lessons: list[dict[str, Any]] = None,
+        planning_context: Optional[dict[str, Any]] = None,
     ) -> str:
         """Deterministic one-line summary built only from retrieved evidence."""
         parts: list[str] = []
@@ -487,6 +625,16 @@ class CompanyBrain:
             parts.append(f"memory: {memory.get('title')}")
         for item in knowledge[:1]:
             parts.append(f"knowledge: {item.get('title')}")
+        if lessons:
+            for lesson in lessons[:1]:
+                parts.append(f"lesson: {lesson.get('title')} ({lesson.get('lifecycle')})")
+        if planning_context:
+            pc = planning_context
+            parts.append(
+                f"company state: {pc.get('overall_health')} (confidence {pc.get('overall_confidence'):.2f}), "
+                f"{pc.get('active_contradictions', 0)} contradictions, {pc.get('critical_gaps', 0)} critical gaps, "
+                f"{pc.get('elevated_risks', 0)} risks"
+            )
         return " · ".join(p for p in parts if p)[:500] or "No evidence within your access."
 
     # ------------------------------------------------------- 4D.7 persona & follow-up
@@ -557,6 +705,7 @@ class CompanyBrain:
         patterns: list[dict[str, Any]],
         insights: list[dict[str, Any]],
         memories: list[dict[str, Any]],
+        lessons: list[dict[str, Any]] = None,
     ) -> list[dict[str, Any]]:
         """Evidence-backed "what happened" for the answer (bounded, governed).
 
@@ -592,6 +741,16 @@ class CompanyBrain:
                 "occurred_at": item.get("last_observed_at"),
                 "confidence": item.get("confidence"),
             })
+        if lessons:
+            for item in lessons:
+                entries.append({
+                    "kind": "lesson",
+                    "id": item["id"],
+                    "title": item["title"],
+                    "url": f"/brain/learning/lessons/{item['id']}",
+                    "occurred_at": item.get("observed_at"),
+                    "confidence": item.get("confidence"),
+                })
         if primary is not None and primary["type"] == "project":
             from app.intelligence.company_context import resolve_accessible_ids
             from app.models.project import ProjectTimeline
@@ -644,6 +803,9 @@ class CompanyBrain:
             suggestions.append(f"Who knows most about {title}?")
             suggestions.append(f"Has this happened before with {title}?")
             suggestions.append(f"What changed with {title} this week?")
+            if route.get("learning"):
+                suggestions.append(f"What did we learn about {title}?")
+                suggestions.append(f"What evidence supports the lesson about {title}?")
         else:
             suggestions.append("What changed this week?")
             if persona.get("org_wide"):
@@ -652,6 +814,10 @@ class CompanyBrain:
                 suggestions.append("Has this happened before?")
             else:
                 suggestions.append("What needs attention in the company?")
+        if route.get("learning"):
+            suggestions.append("What patterns exist in the company?")
+            suggestions.append("What contradictions exist in our learning?")
+            suggestions.append("What did we believe historically?")
         if any(c.get("kind") == "insight" for c in claims):
             suggestions.append("What should I know about the company?")
         # Never suggest the question that was just asked.
@@ -678,6 +844,7 @@ class CompanyBrain:
         signals = [c for c in claims if c.get("kind") == "insight"]
         patterns = [c for c in claims if c.get("kind") == "pattern"]
         history = [c for c in claims if c.get("kind") in ("memory", "experience", "lesson", "outcome")]
+        institutional = [c for c in claims if c.get("kind") == "institutional"]
 
         chain: list[dict[str, Any]] = []
         for group, label in (
@@ -685,6 +852,7 @@ class CompanyBrain:
             (dependencies, "Dependency pressure"),
             (signals, "Systemic signal"),
             (patterns, "Recurring pattern"),
+            (institutional, "Institutional learning"),
             (history, "Historical precedent"),
         ):
             for claim in group:

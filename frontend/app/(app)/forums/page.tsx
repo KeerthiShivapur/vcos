@@ -47,7 +47,11 @@ function ForumsContent() {
     setError(null);
     try {
       const [list, cats] = await Promise.all([
-        listForumThreads({ category: category || undefined, search: search || undefined, limit: 200 }),
+        listForumThreads({
+          category: category || undefined,
+          search: search || undefined,
+          limit: 200,
+        }),
         listForumCategories(),
       ]);
       setThreads(list);
@@ -89,22 +93,37 @@ function ForumsContent() {
           value={category}
           onChange={(e) => setCategory(e.target.value)}
           placeholder="All categories"
-          options={categories.map((c) => ({ value: c, label: c.replace("_", " ") }))}
+          options={categories.map((c) => ({
+            value: c,
+            label: c.replace("_", " "),
+          }))}
           className="w-44"
         />
-        <Button variant="secondary" size="sm" onClick={load}>Search</Button>
+        <Button variant="secondary" size="sm" onClick={load}>
+          Search
+        </Button>
       </div>
 
       {error ? (
-        <ErrorState title="Could not load forums" message={error} onRetry={load} />
+        <ErrorState
+          title="Could not load forums"
+          message={error}
+          onRetry={load}
+        />
       ) : loading ? (
-        <div className="flex justify-center py-24"><Spinner label="Loading forums" /></div>
+        <div className="flex justify-center py-24">
+          <Spinner label="Loading forums" />
+        </div>
       ) : threads.length === 0 ? (
         <EmptyState
           icon={MessageSquare}
           title="No threads yet"
           description="Start a discussion to get the conversation going."
-          action={<Button size="sm" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" /> New thread</Button>}
+          action={
+            <Button size="sm" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-4 w-4" /> New thread
+            </Button>
+          }
         />
       ) : (
         <div className="space-y-2">
@@ -117,25 +136,45 @@ function ForumsContent() {
               <div className="flex items-start gap-4">
                 <div className="flex w-12 shrink-0 flex-col items-center rounded-md bg-brand-soft/50 py-2">
                   <ArrowBigUp className="h-4 w-4 text-brand" />
-                  <span className="text-sm font-bold text-brand">{thread.vote_count}</span>
+                  <span className="text-sm font-bold text-brand">
+                    {thread.vote_count}
+                  </span>
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="truncate text-[15px] font-semibold text-ink">{thread.title}</p>
-                    <Badge tone="neutral">{thread.category.replace("_", " ")}</Badge>
+                    <p className="truncate text-[15px] font-semibold text-ink">
+                      {thread.title}
+                    </p>
+                    <Badge tone="neutral">
+                      {thread.category.replace("_", " ")}
+                    </Badge>
                     {thread.is_pinned && <Badge tone="brand">Pinned</Badge>}
-                    {thread.is_resolved && <Badge tone="success">Resolved</Badge>}
+                    {thread.is_resolved && (
+                      <Badge tone="success">Resolved</Badge>
+                    )}
                   </div>
-                  {thread.content && <p className="mt-1 line-clamp-2 text-[13px] text-muted">{thread.content}</p>}
+                  {thread.content && (
+                    <p className="mt-1 line-clamp-2 text-[13px] text-muted">
+                      {thread.content}
+                    </p>
+                  )}
                   <div className="mt-2 flex flex-wrap items-center gap-3 text-[12px] text-faint">
                     <span>{thread.author_name}</span>
                     <span>· {timeAgo(thread.created_at)}</span>
-                    <span className="flex items-center gap-1"><MessageSquare className="h-3.5 w-3.5" /> {thread.reply_count}</span>
+                    <span className="flex items-center gap-1">
+                      <MessageSquare className="h-3.5 w-3.5" />{" "}
+                      {thread.reply_count}
+                    </span>
                     <span>{thread.view_count} views</span>
                     {thread.tags.length > 0 && (
                       <span className="flex gap-1">
                         {thread.tags.slice(0, 3).map((tag) => (
-                          <span key={tag} className="rounded bg-surface-muted px-1.5 py-0.5 text-[11px]">#{tag}</span>
+                          <span
+                            key={tag}
+                            className="rounded bg-surface-muted px-1.5 py-0.5 text-[11px]"
+                          >
+                            #{tag}
+                          </span>
                         ))}
                       </span>
                     )}
@@ -170,7 +209,12 @@ function CreateThreadModal({
   open: boolean;
   onClose: () => void;
   categories: string[];
-  onCreated: (payload: { category: string; title: string; content?: string; tags?: string[] }) => Promise<void>;
+  onCreated: (payload: {
+    category: string;
+    title: string;
+    content?: string;
+    tags?: string[];
+  }) => Promise<void>;
 }) {
   const [category, setCategory] = useState("");
   const [title, setTitle] = useState("");
@@ -193,7 +237,10 @@ function CreateThreadModal({
         category,
         title: title.trim(),
         content: content.trim() || undefined,
-        tags: tags.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean),
+        tags: tags
+          .split(",")
+          .map((t) => t.trim().toLowerCase())
+          .filter(Boolean),
       });
       setCategory("");
       setTitle("");
@@ -212,7 +259,9 @@ function CreateThreadModal({
       description="Start a discussion in the forums."
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
           <Button onClick={submit}>Create thread</Button>
         </>
       }
@@ -223,11 +272,30 @@ function CreateThreadModal({
           value={category}
           onChange={(e) => setCategory(e.target.value)}
           placeholder="Pick a category"
-          options={categories.map((c) => ({ value: c, label: c.replace("_", " ") }))}
+          options={categories.map((c) => ({
+            value: c,
+            label: c.replace("_", " "),
+          }))}
         />
-        <Input label="Title" placeholder="What's your question or topic?" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <Textarea label="Content" placeholder="Provide more detail…" value={content} onChange={(e) => setContent(e.target.value)} rows={5} />
-        <Input label="Tags (comma-separated)" placeholder="react, performance, hiring" value={tags} onChange={(e) => setTags(e.target.value)} />
+        <Input
+          label="Title"
+          placeholder="What's your question or topic?"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+        />
+        <Textarea
+          label="Content"
+          placeholder="Provide more detail…"
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          rows={5}
+        />
+        <Input
+          label="Tags (comma-separated)"
+          placeholder="react, performance, hiring"
+          value={tags}
+          onChange={(e) => setTags(e.target.value)}
+        />
         {error && <p className="text-[13px] text-danger">{error}</p>}
       </div>
     </Modal>

@@ -13,7 +13,12 @@ function ts(): string {
   return Date.now().toString().slice(-8);
 }
 
-async function apiRegister(ctx: APIRequestContext, name: string, slug: string, email: string) {
+async function apiRegister(
+  ctx: APIRequestContext,
+  name: string,
+  slug: string,
+  email: string,
+) {
   const r = await ctx.post(`${API}/auth/register`, {
     data: {
       organization_name: name,
@@ -31,13 +36,21 @@ async function apiRegister(ctx: APIRequestContext, name: string, slug: string, e
   expect(r.status(), await r.text()).toBe(201);
 }
 
-async function apiLogin(ctx: APIRequestContext, email: string, password: string) {
+async function apiLogin(
+  ctx: APIRequestContext,
+  email: string,
+  password: string,
+) {
   const r = await ctx.post(`${API}/auth/login`, { data: { email, password } });
   expect(r.status(), await r.text()).toBe(200);
   return (await r.json()) as { access_token: string };
 }
 
-async function dispatchAll(request: APIRequestContext, auth: Record<string, string>, limit = 500) {
+async function dispatchAll(
+  request: APIRequestContext,
+  auth: Record<string, string>,
+  limit = 500,
+) {
   for (let round = 0; round < 12; round++) {
     const r = await request.post(`${API}/intelligence/events/process`, {
       headers: auth,
@@ -51,7 +64,7 @@ async function dispatchAll(request: APIRequestContext, auth: Record<string, stri
 
 async function seedGoal(
   request: APIRequestContext,
-  auth: Record<string, string>
+  auth: Record<string, string>,
 ): Promise<string> {
   const r = await request.post(`${STRATEGY}/goals`, {
     headers: auth,
@@ -72,11 +85,15 @@ async function seedGoal(
 
 async function seedProject(
   request: APIRequestContext,
-  auth: Record<string, string>
+  auth: Record<string, string>,
 ): Promise<string> {
   const r = await request.post(`${PROJECTS}`, {
     headers: auth,
-    data: { name: "Flagship Platform", description: "4g7 anchor", status: "active" },
+    data: {
+      name: "Flagship Platform",
+      description: "4g7 anchor",
+      status: "active",
+    },
   });
   expect(r.status(), await r.text()).toBe(201);
   return ((await r.json()) as { id: string }).id;
@@ -86,7 +103,7 @@ async function seedDemand(
   request: APIRequestContext,
   auth: Record<string, string>,
   projectId: string,
-  units: number
+  units: number,
 ) {
   const start = new Date();
   const end = new Date(Date.now() + 30 * 86400000);
@@ -106,11 +123,16 @@ async function seedDemand(
 
 async function seedMetricOutcomesTarget(
   request: APIRequestContext,
-  auth: Record<string, string>
+  auth: Record<string, string>,
 ) {
   let r = await request.post(`${BUS}/metrics`, {
     headers: auth,
-    data: { key: "recurring_revenue", kind: "revenue", direction: "up_is_good", unit: "usd" },
+    data: {
+      key: "recurring_revenue",
+      kind: "revenue",
+      direction: "up_is_good",
+      unit: "usd",
+    },
   });
   expect(r.status(), await r.text()).toBe(200);
   await dispatchAll(request, auth);
@@ -134,7 +156,9 @@ async function seedMetricOutcomesTarget(
     data: {
       metric_key: "recurring_revenue",
       target_value: 200000,
-      end_date: new Date(Date.now() + 200 * 86400000).toISOString().slice(0, 10),
+      end_date: new Date(Date.now() + 200 * 86400000)
+        .toISOString()
+        .slice(0, 10),
       owner_label: "CFO",
     },
   });
@@ -145,7 +169,7 @@ async function seedMetricOutcomesTarget(
 async function seedCustomerCommitment(
   request: APIRequestContext,
   auth: Record<string, string>,
-  projectId: string
+  projectId: string,
 ): Promise<string> {
   let r = await request.post(`${CUSTOMERS}`, {
     headers: auth,
@@ -165,7 +189,9 @@ async function seedCustomerCommitment(
       customer_id: customerId,
       project_id: projectId,
       summary: "Ship the Q3 enterprise release",
-      expected_at: new Date(Date.now() + 45 * 86400000).toISOString().slice(0, 10),
+      expected_at: new Date(Date.now() + 45 * 86400000)
+        .toISOString()
+        .slice(0, 10),
       status: "pending",
     },
   });
@@ -225,7 +251,11 @@ test("slice 4g.7: the company tab composes state, health, attention, recommendat
     company_score: number;
     company_state: string;
     domains: Array<{ key: string; score: number; state: string }>;
-    primary_constraint: { domain?: string; label?: string; interventions?: string[] } | null;
+    primary_constraint: {
+      domain?: string;
+      label?: string;
+      interventions?: string[];
+    } | null;
     history: unknown[];
   };
   expect(health.advisory_only).toBe(true);
@@ -240,16 +270,26 @@ test("slice 4g.7: the company tab composes state, health, attention, recommendat
   ).json()) as {
     advisory_only: boolean;
     total: number;
-    recommendations: Array<{ key: string; source: string; title: string; confidence: string }>;
+    recommendations: Array<{
+      key: string;
+      source: string;
+      title: string;
+      confidence: string;
+    }>;
   };
   expect(recommendations.advisory_only).toBe(true);
   expect(recommendations.total).toBeGreaterThanOrEqual(1);
-  expect(recommendations.recommendations.some((r) => r.source === "capacity")).toBe(true);
+  expect(
+    recommendations.recommendations.some((r) => r.source === "capacity"),
+  ).toBe(true);
 
   const whatIfDelay = (await (
     await request.post(`${COMPANY}/what-if`, {
       headers: auth,
-      data: { scenario_type: "delay", payload: { project_id: projectId, days: 21 } },
+      data: {
+        scenario_type: "delay",
+        payload: { project_id: projectId, days: 21 },
+      },
     })
   ).json()) as {
     not_a_prediction: boolean;
@@ -259,7 +299,9 @@ test("slice 4g.7: the company tab composes state, health, attention, recommendat
   };
   expect(whatIfDelay.not_a_prediction).toBe(true);
   expect(whatIfDelay.scenario_type).toBe("delay");
-  expect(whatIfDelay.consequences.some((c) => c.label.includes("delayed 21 days"))).toBe(true);
+  expect(
+    whatIfDelay.consequences.some((c) => c.label.includes("delayed 21 days")),
+  ).toBe(true);
 
   const whatIfHire = (await (
     await request.post(`${COMPANY}/what-if`, {
@@ -270,7 +312,9 @@ test("slice 4g.7: the company tab composes state, health, attention, recommendat
       },
     })
   ).json()) as { consequences: Array<{ label: string }> };
-  expect(whatIfHire.consequences.some((c) => c.label.includes("hire 2 people"))).toBe(true);
+  expect(
+    whatIfHire.consequences.some((c) => c.label.includes("hire 2 people")),
+  ).toBe(true);
 
   const whatIfUnknown = (await (
     await request.post(`${COMPANY}/what-if`, {
@@ -320,21 +364,27 @@ test("slice 4g.7: the company tab composes state, health, attention, recommendat
     })
   ).json()) as { decision_id: string };
   await dispatchAll(request, auth);
-  let execR = await request.post(`${COMPANY}/decisions/${decision.decision_id}/execute`, {
-    headers: auth,
-    data: {},
-  });
+  let execR = await request.post(
+    `${COMPANY}/decisions/${decision.decision_id}/execute`,
+    {
+      headers: auth,
+      data: {},
+    },
+  );
   expect(execR.status(), await execR.text()).toBe(200);
   await dispatchAll(request, auth);
-  r = await request.post(`${COMPANY}/decisions/${decision.decision_id}/outcome`, {
-    headers: auth,
-    data: {
-      outcome_kind: "successful",
-      effectiveness: 0.9,
-      evidence: ["two engineers onboarded; constraint cleared"],
-      lesson: "hiring the capability bottleneck pays off first",
+  r = await request.post(
+    `${COMPANY}/decisions/${decision.decision_id}/outcome`,
+    {
+      headers: auth,
+      data: {
+        outcome_kind: "successful",
+        effectiveness: 0.9,
+        evidence: ["two engineers onboarded; constraint cleared"],
+        lesson: "hiring the capability bottleneck pays off first",
+      },
     },
-  });
+  );
   expect(r.status(), await r.text()).toBe(200);
   await dispatchAll(request, auth);
 
@@ -386,32 +436,64 @@ test("slice 4g.7: the company tab composes state, health, attention, recommendat
   await page.waitForURL("**/home", { timeout: 30_000 });
 
   await page.goto("/execution");
-  await expect(page.getByRole("heading", { name: "Execution Command Center" })).toBeVisible({
+  await expect(
+    page.getByRole("heading", { name: "Execution Command Center" }),
+  ).toBeVisible({
     timeout: 30_000,
   });
   await page.getByRole("button", { name: /^Company/ }).click();
 
-  await expect(page.getByText("Company score", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("Company score", { exact: true })).toBeVisible({
+    timeout: 30_000,
+  });
   await expect(page.getByText("Company state", { exact: true })).toBeVisible();
-  await expect(page.getByText("Domains at risk", { exact: true })).toBeVisible();
-  await expect(page.getByText("Attention items", { exact: true })).toBeVisible();
-  await expect(page.getByText("Recommendations", { exact: true }).first()).toBeVisible();
+  await expect(
+    page.getByText("Domains at risk", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Attention items", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Recommendations", { exact: true }).first(),
+  ).toBeVisible();
 
-  await expect(page.getByText(/Universal company state/).first()).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByText(/Company health/).first()).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByText("strategy", { exact: true }).first()).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText(/What changed/).first()).toBeVisible({ timeout: 20_000 });
-
-  await expect(page.getByText(/Attention ·/).first()).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText(/What-if/).first()).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText("delay", { exact: true }).first()).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText(/Run what-if/).first()).toBeVisible({ timeout: 20_000 });
-
-  await expect(page.getByText("platform_eng", { exact: true }).first()).toBeVisible({
+  await expect(page.getByText(/Universal company state/).first()).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(page.getByText(/Company health/).first()).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(page.getByText("strategy", { exact: true }).first()).toBeVisible(
+    { timeout: 20_000 },
+  );
+  await expect(page.getByText(/What changed/).first()).toBeVisible({
     timeout: 20_000,
   });
-  await expect(page.getByText(/Company memory/).first()).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText(/Advisory only/).first()).toBeVisible({ timeout: 20_000 });
+
+  await expect(page.getByText(/Attention ·/).first()).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(page.getByText(/What-if/).first()).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(page.getByText("delay", { exact: true }).first()).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(page.getByText(/Run what-if/).first()).toBeVisible({
+    timeout: 20_000,
+  });
+
+  await expect(
+    page.getByText("platform_eng", { exact: true }).first(),
+  ).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(page.getByText(/Company memory/).first()).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(page.getByText(/Advisory only/).first()).toBeVisible({
+    timeout: 20_000,
+  });
 
   await page.close();
   await ctx.close();

@@ -530,3 +530,7 @@ def parse_keywords(entity: Any) -> list[str]:
 
 def now_utc() -> datetime:
     return datetime.now(timezone.utc)
+
+
+# Module-level instance for convenience
+kb = None

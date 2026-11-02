@@ -46,7 +46,7 @@ class AuditService:
             resource_id=resource_id,
             ip_address=ip_address,
             user_agent=user_agent,
-            details_json=_json(details),
+            details=_json(details),
             severity=severity,
             outcome=outcome,
             created_at=_now(),

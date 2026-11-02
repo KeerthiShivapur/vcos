@@ -36,10 +36,17 @@ function WikiContent() {
     setLoading(true);
     setError(null);
     try {
-      const [treeData, pages] = await Promise.all([getWikiTree(), listWikiPages({ limit: 500 })]);
+      const [treeData, pages] = await Promise.all([
+        getWikiTree(),
+        listWikiPages({ limit: 500 }),
+      ]);
       setTree(treeData);
       const inTree = new Set<string>();
-      const walk = (nodes: WikiTreeNode[]) => nodes.forEach((n) => { inTree.add(n.id); walk(n.children ?? []); });
+      const walk = (nodes: WikiTreeNode[]) =>
+        nodes.forEach((n) => {
+          inTree.add(n.id);
+          walk(n.children ?? []);
+        });
       walk(treeData);
       setUnattached(pages.filter((p) => !inTree.has(p.id)));
     } catch (err) {
@@ -58,30 +65,50 @@ function WikiContent() {
       <PageHeader
         title="Wiki"
         description="The living handbook — organized as a tree of pages."
-        actions={canManage ? (
-          <Link href="/wiki/new"><Button size="sm"><Plus className="h-4 w-4" /> New page</Button></Link>
-        ) : undefined}
+        actions={
+          canManage ? (
+            <Link href="/wiki/new">
+              <Button size="sm">
+                <Plus className="h-4 w-4" /> New page
+              </Button>
+            </Link>
+          ) : undefined
+        }
       />
 
       {error ? (
         <ErrorState title="Could not load wiki" message={error} />
       ) : loading ? (
-        <div className="flex justify-center py-24"><Spinner label="Loading wiki" /></div>
+        <div className="flex justify-center py-24">
+          <Spinner label="Loading wiki" />
+        </div>
       ) : tree.length === 0 && unattached.length === 0 ? (
         <EmptyState
           icon={BookOpen}
           title="No wiki pages yet"
           description="Create your first page — you can nest pages under it later."
-          action={canManage ? <Link href="/wiki/new"><Button size="sm"><Plus className="h-4 w-4" /> New page</Button></Link> : undefined}
+          action={
+            canManage ? (
+              <Link href="/wiki/new">
+                <Button size="sm">
+                  <Plus className="h-4 w-4" /> New page
+                </Button>
+              </Link>
+            ) : undefined
+          }
         />
       ) : (
         <div className="grid gap-6 lg:grid-cols-2">
           <div className="card p-5">
-            <p className="mb-3 text-[12px] font-semibold uppercase tracking-wide text-faint">Page tree</p>
+            <p className="mb-3 text-[12px] font-semibold uppercase tracking-wide text-faint">
+              Page tree
+            </p>
             <TreeNodeList nodes={tree} depth={0} />
             {unattached.length > 0 && (
               <div className="mt-4 border-t border-line pt-3">
-                <p className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-faint">Unattached pages</p>
+                <p className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-faint">
+                  Unattached pages
+                </p>
                 {unattached.map((page) => (
                   <PageRow key={page.id} page={page} />
                 ))}
@@ -90,7 +117,9 @@ function WikiContent() {
           </div>
 
           <div className="card p-5">
-            <p className="mb-3 text-[12px] font-semibold uppercase tracking-wide text-faint">All pages</p>
+            <p className="mb-3 text-[12px] font-semibold uppercase tracking-wide text-faint">
+              All pages
+            </p>
             <div className="space-y-1.5">
               {[...walkPages(tree), ...unattached].map((page) => (
                 <PageRow key={page.id} page={page} />
@@ -107,7 +136,13 @@ function walkPages(nodes: WikiTreeNode[]): WikiTreeNode[] {
   return nodes.flatMap((node) => [node, ...walkPages(node.children ?? [])]);
 }
 
-function TreeNodeList({ nodes, depth }: { nodes: WikiTreeNode[]; depth: number }) {
+function TreeNodeList({
+  nodes,
+  depth,
+}: {
+  nodes: WikiTreeNode[];
+  depth: number;
+}) {
   if (nodes.length === 0) return null;
   return (
     <ul className="space-y-1">
@@ -118,19 +153,31 @@ function TreeNodeList({ nodes, depth }: { nodes: WikiTreeNode[]; depth: number }
             className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[13px] font-medium text-ink transition-colors hover:bg-surface"
             style={{ marginLeft: depth * 16 }}
           >
-            <ChevronRight className={`h-3.5 w-3.5 text-faint ${node.children?.length ? "" : "opacity-0"}`} />
+            <ChevronRight
+              className={`h-3.5 w-3.5 text-faint ${node.children?.length ? "" : "opacity-0"}`}
+            />
             <span className="truncate">{node.title}</span>
             <Badge tone={statusToneFor(node.status)}>{node.status}</Badge>
-            {node.child_count > 0 && <span className="ml-auto text-[11px] text-faint">{node.child_count}</span>}
+            {node.child_count > 0 && (
+              <span className="ml-auto text-[11px] text-faint">
+                {node.child_count}
+              </span>
+            )}
           </Link>
-          {node.children?.length > 0 && <TreeNodeList nodes={node.children} depth={depth + 1} />}
+          {node.children?.length > 0 && (
+            <TreeNodeList nodes={node.children} depth={depth + 1} />
+          )}
         </li>
       ))}
     </ul>
   );
 }
 
-function PageRow({ page }: { page: { id: string; title: string; status: string } }) {
+function PageRow({
+  page,
+}: {
+  page: { id: string; title: string; status: string };
+}) {
   return (
     <Link
       href={`/wiki/${page.id}`}

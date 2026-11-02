@@ -1,0 +1,50 @@
+{
+  "run_id": "test_run_123",
+  "state": "GENERATING",
+  "profile_name": "large_5k",
+  "employee_count": 5000,
+  "tenant_count": 1,
+  "environment_type": "external",
+  "dataset_identity": {
+    "vcos_revision": "abc123",
+    "schema_revision": "schema_v1",
+    "generator_revision": "gen_v1",
+    "scale_profile": "large_5k",
+    "employee_count": 5000,
+    "tenant_count": 1,
+    "seed": 42,
+    "density_strategy": "standard",
+    "environment_fingerprint": "fp_123"
+  },
+  "ownership": {
+    "run_id": "test_run_123",
+    "owns_database": false,
+    "owns_schema": false,
+    "owns_tables": false,
+    "database_name": null,
+    "schema_name": null,
+    "created_tables": [],
+    "temporary_resources": []
+  },
+  "checkpoints": [
+    {
+      "run_id": "test_run_123",
+      "phase": "ScaleRunPhase.GENERATION",
+      "entity_type": "employees",
+      "batch_number": 1,
+      "rows_created": 5000,
+      "rows_expected": 5000,
+      "started_at": "2026-09-26 08:00:43.654814",
+      "completed_at": "2026-09-26 08:00:43.654816",
+      "fingerprint": null,
+      "metadata": {}
+    }
+  ],
+  "current_phase": null,
+  "started_at": "2026-09-26T08:00:43.652755",
+  "updated_at": "2026-09-26T08:00:43.654844",
+  "completed_at": null,
+  "error": null,
+  "retry_count": 0,
+  "max_retries": 3
+}

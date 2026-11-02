@@ -428,8 +428,11 @@ async def main() -> int:
               and q2["intent"] == "company_operating"
               and q2["total"] >= 1
               and q3["intent"] == "company_operating"
-              and q3["primary_constraint"]["domain"] in ("capacity", "strategy"),
-              f"intents={q1.get('intent')},{q2.get('intent')},{q3.get('intent')}")
+              and q3["primary_constraint"]
+              and q3["primary_constraint"]["domain"] in (
+                  "capacity", "strategy", "financial"),
+              f"intents={q1.get('intent')},{q2.get('intent')},{q3.get('intent')} "
+              f"constraint={(q3.get('primary_constraint') or {}).get('domain')}")
 
         # -------- 10. governance: scoped callers never reach the org-wide view
         scope = (await c.post(f"{API}/governance/scopes",

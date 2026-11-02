@@ -1,0 +1,3002 @@
+class CompanyCommitment(Base, TimestampMixin):
+    """
+    Canonical Company Commitment — a governed, traceable commitment that bridges
+    Decision Intelligence (4I.6) to Execution (4I.8/4G.1).
+    
+    Key principles:
+    - Governance-first: scope resolved before any action
+    - Decision ≠ Authorization ≠ Commitment ≠ Execution (explicit boundaries)
+    - Reuses: CompanyDecision, CompanyAuthorization, CompanyAction, CompanyGoal,
+      CompanyObjective, CompanyInitiative, Project, Task, CompanyState, GovernanceScope,
+      ApprovalPolicy, StrategicExecutionEngine, organizational learning, patterns, lessons
+    - Deterministic: same canonical inputs -> same commitment fingerprint
+    - Temporal: state transitions recorded in StrategicHistory
+    - Contradiction-preserving: evidence, patterns, lessons tracked with contradiction_ids
+    - Exact-once: fingerprint-based deduplication
+    
+    State machine:
+    proposed -> pending_authorization -> authorized -> fulfilled
+    proposed -> pending_authorization -> rejected (if conditional)
+    authorized -> superseded (by new commitment)
+    any -> expired
+    
+    Does NOT duplicate:
+    - CompanyDecision: decision = the reasoning; commitment = the governed execution permit
+    - CompanyAuthorization: authorization = governance permit; commitment = execution mandate
+    - CompanyAction: action = atomic execution unit; commitment = strategic mandate
+    """
+
+    __tablename__ = "company_commitments"
+    __table_args__ = (
+        Index("ix_cc_org_state", "organization_id", "state"),
+        Index("ix_cc_org_type", "organization_id", "commitment_type"),
+        Index("ix_cc_org_scope", "organization_id", "scope_type", "scope_id"),
+        Index("ix_cc_org_intent", "organization_id", "intent_id"),
+        Index("ix_cc_org_objective", "organization_id", "objective_id"),
+        Index("ix_cc_org_initiative", "organization_id", "initiative_id"),
+        Index("ix_cc_org_project", "organization_id", "project_id"),
+        Index("ix_cc_org_decision", "organization_id", "decision_id"),
+        Index("ix_cc_org_auth", "organization_id", "authorization_id"),
+        Index("ix_cc_org_fingerprint", "organization_id", "fingerprint"),
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_cc_exact_once",
+        ),
+        CheckConstraint(
+            "state IN ('proposed', 'pending_authorization', 'authorized', 'fulfilled', 'superseded', 'expired')",
+            name="ck_cc_state_valid",
+        ),
+        CheckConstraint(
+            "commitment_type IN ('conditional', 'unconditional')",
+            name="ck_cc_type_valid",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+
+    # Commitment identity
+    commitment_type: Mapped[str] = mapped_column(String(20), nullable=False, index=True)  # conditional | unconditional
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    rationale: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Scope - what this commitment covers
+    scope_type: Mapped[str] = mapped_column(String(20), default="objective", nullable=False, index=True)  # objective | initiative | project | department | team | role | person
+    scope_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+
+    # Links to canonical graph
+    intent_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    objective_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    initiative_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    project_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    decision_id: Mapped[Optional[str]] = mapped_column(String(64), index=True)
+    authorization_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+
+    # Governance
+    approval_required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    
+    # Financial / Resource
+    budget_allocated: Mapped[Optional[float]] = mapped_column(Float)
+    budget_currency: Mapped[Optional[str]] = mapped_column(String(3), default="USD")
+    resource_requirements: Mapped[Optional[dict]] = mapped_column(JSON)
+    resource_constraints: Mapped[Optional[dict]] = mapped_column(JSON)
+
+    # Temporal
+    start_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    target_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    # Conditions
+    conditions: Mapped[list] = mapped_column(JSON, default=list)
+
+    # Risk
+    risk_assessment: Mapped[Optional[str]] = mapped_column(Text)
+    risk_mitigations: Mapped[list] = mapped_column(JSON, default=list)
+
+    # Evidence & Provenance
+    evidence_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    supporting_pattern_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    supporting_lesson_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradicting_evidence_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradicting_pattern_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradicting_lesson_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradiction_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+
+    # Decision Intelligence linkage
+    decision_intelligence_context_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    decision_alternative_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # Action linkage
+    action_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+
+    # State machine
+    state: Mapped[str] = mapped_column(String(24), default="proposed", nullable=False, index=True)
+    authorized_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    authorized_by: Mapped[Optional[str]] = mapped_column(String(64))
+    fulfilled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    fulfilled_by: Mapped[Optional[str]] = mapped_column(String(64))
+
+    # Supersession chain - CRITICAL for temporal truth
+    supersedes_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    superseded_by_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+
+    # Source tracking
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    source_decision_id: Mapped[Optional[str]] = mapped_column(String(64))
+    source_scenario_id: Mapped[Optional[str]] = mapped_column(String(64))
+
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_cc_exact_once",
+        ),
+        CheckConstraint(
+            "state IN ('proposed', 'pending_authorization', 'authorized', 'active', 'fulfilled', 'superseded', 'expired')",
+            name="ck_cc_state_valid",
+        ),
+        CheckConstraint(
+            "commitment_type IN ('conditional', 'unconditional')",
+            name="ck_cc_type_valid",
+        ),
+    )
+
+
+class CompanyAuthorization(Base, TimestampMixin):
+    """
+    Canonical Company Authorization — a governed permit that bridges Decision
+    Intelligence to Commitment/Execution.
+    
+    Key principles:
+    - Governance-first: policy evaluated before authorization granted
+    - Decision ≠ Authorization ≠ Commitment ≠ Execution (explicit boundaries)
+    - Pure provenance: does not change lifecycle, policy, routing, or governance semantics
+    - Policy-bound: references ApprovalPolicy and GovernanceScope
+    - Temporal: valid_from/valid_until with supersession chain
+    - Contradiction-preserving: evidence, patterns, lessons tracked
+    - Exact-once: fingerprint-based deduplication
+    
+    State machine:
+    requested -> approved / conditional / rejected
+    approved -> superseded (by new authorization)
+    
+    Does NOT duplicate:
+    - CompanyDecision: decision = the reasoning; authorization = the governance permit
+    - CompanyCommitment: authorization = permit; commitment = execution mandate
+    - ApprovalPolicy: policy = rules; authorization = permit instance
+    """
+
+    __tablename__ = "company_authorizations"
+    __table_args__ = (
+        Index("ix_ca_org_state", "organization_id", "state"),
+        Index("ix_ca_org_type", "organization_id", "authorization_type"),
+        Index("ix_ca_org_scope", "organization_id", "scope_type", "scope_id"),
+        Index("ix_ca_org_decision", "organization_id", "decision_id"),
+        Index("ix_ca_org_commitment", "organization_id", "commitment_id"),
+        Index("ix_ca_org_policy", "organization_id", "policy_id"),
+        Index("ix_ca_org_fingerprint", "organization_id", "fingerprint"),
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_ca_exact_once",
+        ),
+        CheckConstraint(
+            "state IN ('requested', 'approved', 'conditional', 'rejected', 'superseded')",
+            name="ck_ca_state_valid",
+        ),
+        CheckConstraint(
+            "authorization_type IN ('full', 'partial', 'conditional')",
+            name="ck_ca_type_valid",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+
+    # Authorization identity
+    authorization_type: Mapped[str] = mapped_column(String(20), default="full", nullable=False)  # full | partial | conditional
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    rationale: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Scope
+    scope_type: Mapped[str] = mapped_column(String(20), default="company", nullable=False)  # company | department | team | project | initiative | objective | role | person
+    scope_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+
+    # Links to canonical graph
+    decision_intelligence_context_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    decision_id: Mapped[Optional[str]] = mapped_column(String(64), index=True)
+    commitment_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    policy_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+
+    # Conditions & Constraints
+    conditions: Mapped[list] = mapped_column(JSON, default=list)
+    constraints: Mapped[Optional[dict]] = mapped_column(JSON)
+
+    # Financial
+    budget_ceiling: Mapped[Optional[float]] = mapped_column(Float)
+    budget_currency: Mapped[Optional[str]] = mapped_column(String(3), default="USD")
+
+    # Temporal validity
+    valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    valid_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    # State machine
+    state: Mapped[str] = mapped_column(String(24), default="requested", nullable=False, index=True)
+    requested_by: Mapped[Optional[str]] = mapped_column(String(64))
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    approved_by: Mapped[Optional[str]] = mapped_column(String(64))
+    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    rejected_by: Mapped[Optional[str]] = mapped_column(String(64))
+    rejected_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    # Evidence & Provenance
+    evidence_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    supporting_pattern_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    supporting_lesson_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradicting_evidence_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradicting_pattern_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradicting_lesson_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradiction_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+
+    # Decision Intelligence linkage
+    decision_alternative_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    decision_evidence_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    decision_precedent_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+
+    # Risk
+    risk_assessment: Mapped[Optional[dict]] = mapped_column(JSON)
+
+    # Learning
+    lesson_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    pattern_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+
+    # Source tracking
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    source_decision_id: Mapped[Optional[str]] = mapped_column(String(64))
+    source_scenario_id: Mapped[Optional[str]] = mapped_column(String(64))
+
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_ca_exact_once",
+        ),
+        CheckConstraint(
+            "state IN ('requested', 'approved', 'conditional', 'rejected', 'superseded')",
+            name="ck_ca_state_valid",
+        ),
+        CheckConstraint(
+            "authorization_type IN ('full', 'partial', 'conditional')",
+            name="ck_ca_type_valid",
+        ),
+    )
+
+
+# =============================================================================
+# 4I.2 Canonical vocabularies — Objectives & Outcomes
+# =============================================================================
+
+OBJECTIVE_STATES = (
+    "active",
+    "paused",
+    "achieved",
+    "failed",
+    "superseded",
+)
+
+OUTCOME_STATES = (
+    "projected", "actual", "superseded",
+)
+
+ASSESSMENT_STATES = (
+    "outperformed", "met", "partially_met", "underperformed",
+    "missed", "inconclusive", "superseded",
+)
+
+MEASUREMENT_QUALITY = (
+    "primary",
+    "secondary",
+    "derived",
+    "estimated",
+)
+
+SUPERSESSION_REASON = (
+    "replanned",
+    "corrected",
+    "merged",
+    "split",
+    "cancelled",
+)
+
+ASSESSMENT_CONFIDENCE = (
+    "low",
+    "medium",
+    "high",
+    "very_high",
+)
+
+
+# =============================================================================
+# 4I.2 Objectives & Outcomes Models
+# =============================================================================
+
+class ObjectiveOutcome(Base, TimestampMixin):
+    """
+    Canonical Objective Outcome — a recorded expected vs actual observation
+    for a CompanyObjective. Links the objective's strategic assumption to
+    measured reality.
+    
+    Exact-once on (org, objective, source_event) - replay never double counts.
+    Used by learning engine to estimate organizational optimism bias per metric kind.
+    """
+
+    __tablename__ = "objective_outcomes"
+    __table_args__ = (
+        Index("ix_oo_org_obj", "organization_id", "objective_id"),
+        Index("ix_oo_org_state", "organization_id", "outcome_state"),
+        UniqueConstraint(
+            "organization_id", "objective_id", "source_event_id",
+            name="uq_oo_exact_once",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    objective_id: Mapped[str] = mapped_column(
+        ForeignKey("company_objectives.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    
+    # Outcome identity
+    metric_kind: Mapped[str] = mapped_column(String(80), nullable=False)
+    unit: Mapped[str] = mapped_column(String(40), nullable=False)
+    expected_value: Mapped[Optional[float]] = mapped_column(Float)
+    actual_value: Mapped[Optional[float]] = mapped_column(Float)
+    variance_pct: Mapped[Optional[float]] = mapped_column(Float)
+    
+    # State
+    outcome_state: Mapped[str] = mapped_column(String(20), default="planned", nullable=False, index=True)  # OUTCOME_STATES
+    assessment: Mapped[Optional[str]] = mapped_column(String(30))  # ASSESSMENT_VERDICTS
+    assessment_confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    
+    # Provenance
+    source_event_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    
+    # Supersession chain
+    supersedes_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    superseded_by_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    supersession_reason: Mapped[Optional[str]] = mapped_column(String(20))  # SUPERSESSION_REASON
+    
+    # Evidence & Provenance
+    evidence_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    supporting_pattern_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    supporting_lesson_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradicting_evidence_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradicting_pattern_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradicting_lesson_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradiction_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_oo_fp_exact_once",
+        ),
+        CheckConstraint(
+            "outcome_state IN ('planned', 'actual', 'verified', 'disputed', 'superseded')",
+            name="ck_oo_state_valid",
+        ),
+    )
+
+
+class ObjectiveOutcomeAssessment(Base, TimestampMixin):
+    """
+    Canonical Objective Outcome Assessment — an evidence-backed assessment
+    of an objective outcome vs expectation.
+    
+    Separates observed/measured/evidence_backed from inferred/predicted.
+    Preserves contradictions.
+    """
+
+    __tablename__ = "objective_outcome_assessments"
+    __table_args__ = (
+        Index("ix_ooa_org_obj", "organization_id", "objective_id"),
+        Index("ix_ooa_org_state", "organization_id", "assessment_state"),
+        UniqueConstraint(
+            "organization_id", "objective_id", "assessment_key",
+            name="uq_ooa_exact_once",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    objective_id: Mapped[str] = mapped_column(
+        ForeignKey("company_objectives.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    outcome_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # Assessment identity
+    assessment_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    assessment: Mapped[str] = mapped_column(String(30), nullable=False)  # ASSESSMENT_VERDICTS
+    confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    reasoning: Mapped[Optional[str]] = mapped_column(Text)
+    variance_pct: Mapped[Optional[float]] = mapped_column(Float)
+    
+    # Epistemic status
+    epistemic_status: Mapped[str] = mapped_column(String(20), default="evidence_backed", nullable=False)  # observed|measured|evidence_backed|inferred|predicted|proposed|contested
+    
+    # Evidence & Provenance
+    evidence_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    supporting_pattern_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    supporting_lesson_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradicting_evidence_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradicting_pattern_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradicting_lesson_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradiction_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradiction_summary: Mapped[Optional[str]] = mapped_column(Text)
+    
+    # State
+    assessment_state: Mapped[str] = mapped_column(String(20), default="pending", nullable=False, index=True)  # ASSESSMENT_STATES
+    assessed_by: Mapped[Optional[str]] = mapped_column(String(64))
+    assessed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    
+    # Provenance
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    source_assessment_id: Mapped[Optional[str]] = mapped_column(String(32))
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_ooa_fp_exact_once",
+        ),
+        CheckConstraint(
+            "assessment_state IN ('pending', 'in_progress', 'completed', 'superseded')",
+            name="ck_ooa_state_valid",
+        ),
+    )
+
+
+class ObjectiveContradiction(Base, TimestampMixin):
+    """
+    Canonical Objective Contradiction — preserves contradictory evidence/claims
+    about an objective's outcome or assessment. Never silently resolved.
+    """
+
+    __tablename__ = "objective_contradictions"
+    __table_args__ = (
+        Index("ix_oc_org_obj", "organization_id", "objective_id"),
+        Index("ix_oc_org_status", "organization_id", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    objective_id: Mapped[str] = mapped_column(
+        ForeignKey("company_objectives.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    
+    # Contradiction identity
+    contradiction_type: Mapped[str] = mapped_column(String(30), nullable=False)  # outcome_vs_expected | assessment_vs_assessment | evidence_vs_evidence
+    severity: Mapped[str] = mapped_column(String(16), default="medium", nullable=False)  # low | medium | high | critical
+    
+    # Both sides preserved
+    side_a_claim: Mapped[str] = mapped_column(Text)
+    side_a_evidence: Mapped[list[str]] = mapped_column(JSON, default=list)
+    side_a_confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    side_b_claim: Mapped[str] = mapped_column(Text)
+    side_b_evidence: Mapped[list[str]] = mapped_column(JSON, default=list)
+    side_b_confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    
+    # Root cause & impact
+    root_cause: Mapped[Optional[str]] = mapped_column(Text)
+    impact_assessment: Mapped[Optional[str]] = mapped_column(Text)
+    recommended_resolution: Mapped[Optional[str]] = mapped_column(Text)
+    
+    # State
+    status: Mapped[str] = mapped_column(String(16), default="open", nullable=False, index=True)  # open | acknowledged | resolved | superseded
+    
+    # Provenance
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    detected_by: Mapped[Optional[str]] = mapped_column(String(64))
+    detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    resolved_by: Mapped[Optional[str]] = mapped_column(String(64))
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_oc_fp_exact_once",
+        ),
+        CheckConstraint(
+            "status IN ('open', 'acknowledged', 'resolved', 'superseded')",
+            name="ck_oc_status_valid",
+        ),
+    )
+
+
+class ObjectivePrediction(Base, TimestampMixin):
+    """
+    Canonical Objective Prediction — a forward-looking estimate of objective
+    achievement based on current trajectory, patterns, and evidence.
+    
+    Predictions remain SOFT evidence and never automatically become fact.
+    """
+
+    __tablename__ = "objective_predictions"
+    __table_args__ = (
+        Index("ix_op_org_obj", "organization_id", "objective_id"),
+        Index("ix_op_org_metric", "organization_id", "metric_kind"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    objective_id: Mapped[str] = mapped_column(
+        ForeignKey("company_objectives.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    
+    # Prediction identity
+    metric_kind: Mapped[str] = mapped_column(String(80), nullable=False)
+    unit: Mapped[str] = mapped_column(String(40), nullable=False)
+    predicted_value: Mapped[float] = mapped_column(Float, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    
+    # Methodology
+    prediction_method: Mapped[str] = mapped_column(String(30), default="trajectory", nullable=False)  # trajectory | pattern_based | lesson_based | simulation | expert
+    horizon_days: Mapped[int] = mapped_column(Integer, default=30)
+    
+    # Basis
+    basis_evidence_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    basis_pattern_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    basis_lesson_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # Validity
+    valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    valid_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    actual_outcome_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)  # linked when actual recorded
+    
+    # Provenance
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    predicted_by: Mapped[Optional[str]] = mapped_column(String(64))
+    predicted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_op_fp_exact_once",
+        ),
+    )
+
+
+class ObjectiveSimulation(Base, TimestampMixin):
+    """
+    Canonical Objective Simulation — a what-if scenario exploring objective
+    achievement under different assumptions.
+    
+    Simulations are PROPOSED scenarios, not predictions or commitments.
+    """
+
+    __tablename__ = "objective_simulations"
+    __table_args__ = (
+        Index("ix_os_org_obj", "organization_id", "objective_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    objective_id: Mapped[str] = mapped_column(
+        ForeignKey("company_objectives.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    
+    # Simulation identity
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    assumptions: Mapped[dict] = mapped_column(JSON, default=dict)  # {param: value}
+    results: Mapped[dict] = mapped_column(JSON, default=dict)  # {metric: predicted_value}
+    
+    # State
+    status: Mapped[str] = mapped_column(String(20), default="draft", nullable=False)  # draft | running | completed | archived
+    
+    # Provenance
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    created_by: Mapped[Optional[str]] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_os_fp_exact_once",
+        ),
+    )
+
+
+class ObjectivePlanState(Base, TimestampMixin):
+    """
+    Canonical Objective Plan State — captures the objective's state within a
+    specific planning context version. Enables temporal queries: what was the
+    objective's expected outcome in planning context v3?
+    """
+
+    __tablename__ = "objective_plan_states"
+    __table_args__ = (
+        Index("ix_ops_org_obj", "organization_id", "objective_id"),
+        Index("ix_ops_org_context", "organization_id", "planning_context_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    objective_id: Mapped[str] = mapped_column(
+        ForeignKey("company_objectives.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    planning_context_id: Mapped[str] = mapped_column(
+        ForeignKey("company_planning_contexts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    
+    # State snapshot
+    expected_outcome: Mapped[Optional[dict]] = mapped_column(JSON)  # {metric_kind, target_value, unit, pathway}
+    outcome_confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    required_capabilities: Mapped[Optional[list]] = mapped_column(JSON)
+    resource_allocation: Mapped[Optional[dict]] = mapped_column(JSON)
+    
+    # Assessment at this plan version
+    assessment: Mapped[Optional[str]] = mapped_column(String(30))  # ASSESSMENT_VERDICTS
+    assessment_confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    
+    # Provenance
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_ops_fp_exact_once",
+        ),
+    )
+
+
+# =============================================================================
+# 4I.9 Canonical vocabularies
+# =============================================================================
+
+RESPONSIBILITY_TYPES = (
+    "accountable",        # Ultimately owns the result
+    "responsible",        # Performs or coordinates the work
+    "consulted",          # Must participate
+    "informed",           # Must receive the result
+    "delegated",          # Delegated from another responsibility
+    "shared",             # Shared among multiple parties
+    "temporary",          # Time-bounded responsibility
+    "emergency",          # Emergency responsibility
+)
+
+RESPONSIBILITY_SCOPES = (
+    "commitment",         # Responsibility for a commitment
+    "objective",          # Responsibility for an objective
+    "initiative",         # Responsibility for an initiative
+    "project",            # Project-specific responsibility
+    "department",         # Departmental responsibility
+    "team",               # Team responsibility
+    "role",               # Role-based responsibility
+    "person",             # Personal responsibility
+)
+
+ACCOUNTABILITY_TYPES = (
+    "direct",             # Direct accountability
+    "delegated",          # Delegated accountability
+    "shared",             # Shared accountability
+    "oversight",          # Oversight accountability
+)
+
+
+# =============================================================================
+# 4I.10 Canonical vocabularies
+# =============================================================================
+
+VERIFICATION_STATES = (
+    "pending",              # Verification pending
+    "in_progress",          # Verification in progress
+    "completed",            # Verification completed
+    "blocked",              # Verification blocked by missing evidence
+    "superseded",           # Superseded by newer verification
+)
+
+ASSESSMENT_VERDICTS = (
+    "outperformed",         # Actual exceeded expected
+    "met",                  # Actual met expected
+    "partially_met",        # Actual partially met expected
+    "underperformed",       # Actual below expected
+    "missed",               # Actual significantly below expected
+    "inconclusive",         # Insufficient evidence
+    "superseded",           # Superseded by newer assessment
+)
+
+EVIDENCE_TYPES = (
+    "metric",               # Quantitative metric observation
+    "financial",            # Financial record
+    "operational",          # Operational record
+    "customer_feedback",    # Customer feedback
+    "survey",               # Survey result
+    "audit",                # Audit finding
+    "document",             # Documentary evidence
+    "testimony",            # Witness testimony
+    "log",                  # System log
+    "other",                # Other evidence type
+)
+
+VERIFICATION_TRIGGERS = (
+    "outcome_recorded",     # Outcome was recorded
+    "evidence_submitted",   # New evidence submitted
+    "commitment_fulfilled", # Commitment marked fulfilled
+    "periodic_review",      # Scheduled periodic review
+    "manual_request",       # Manual verification request
+    "anomaly_detected",     # Anomaly detected by monitoring
+)
+
+EVIDENCE_QUALITY = (
+    "primary",              # Direct primary source
+    "secondary",            # Secondary/derived source
+    "hearsay",              # Hearsay/indirect
+    "inferred",             # Inferred/derived
+)
+
+VERIFICATION_TYPES = (
+    "plan_vs_reality",      # Plan vs reality comparison
+    "commitment_fulfillment", # Commitment fulfillment verification
+    "objective_achievement",  # Objective achievement verification
+)
+
+ASSESSMENT_VERDICTS = (
+    "outperformed",         # Actual exceeded expected
+    "met",                  # Actual met expected
+    "partially_met",        # Actual partially met expected
+    "underperformed",       # Actual below expected
+    "missed",               # Actual significantly below expected
+    "inconclusive",         # Insufficient evidence
+    "superseded",           # Superseded by newer assessment
+)
+
+EVIDENCE_TYPES = (
+    "metric",               # Quantitative metric observation
+    "financial",            # Financial record
+    "operational",          # Operational record
+    "customer_feedback",    # Customer feedback
+    "survey",               # Survey result
+    "audit",                # Audit finding
+    "document",             # Documentary evidence
+    "testimony",            # Witness testimony
+    "log",                  # System log
+    "other",                # Other evidence type
+)
+
+VERIFICATION_TRIGGERS = (
+    "outcome_recorded",     # Outcome was recorded
+    "evidence_submitted",   # New evidence submitted
+    "commitment_fulfilled", # Commitment marked fulfilled
+    "periodic_review",      # Scheduled periodic review
+    "manual_request",       # Manual verification request
+    "anomaly_detected",     # Anomaly detected by monitoring
+)
+
+EVIDENCE_QUALITY = (
+    "primary",              # Direct primary source
+    "secondary",            # Secondary/derived source
+    "hearsay",              # Hearsay/indirect
+    "inferred",             # Inferred/derived
+)
+
+
+# =============================================================================
+# 4I.3 Strategic Alignment Models
+# =============================================================================
+
+class StrategicAlignment(Base, TimestampMixin):
+    """
+    Canonical Strategic Alignment — the explicit traceable link between any two
+    strategic entities (intent→goal, goal→objective, objective→initiative, 
+    initiative→project, etc.) with RACI-like semantics.
+    
+    Exact-once on (org, source_type, source_id, target_type, target_id, source_event).
+    Supersession chain preserves temporal truth.
+    """
+
+    __tablename__ = "strategic_alignments"
+    __table_args__ = (
+        Index("ix_sa_org_source", "organization_id", "source_type", "source_id"),
+        Index("ix_sa_org_target", "organization_id", "target_type", "target_id"),
+        Index("ix_sa_org_state", "organization_id", "alignment_state"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    
+    # Source entity
+    source_type: Mapped[str] = mapped_column(String(20), nullable=False)  # intent | goal | objective | initiative | project
+    source_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    
+    # Target entity
+    target_type: Mapped[str] = mapped_column(String(20), nullable=False)  # goal | objective | initiative | project
+    target_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    
+    # Alignment semantics
+    alignment_type: Mapped[str] = mapped_column(String(20), nullable=False)  # ALIGNMENT_TYPES: supports | conflicts | depends_on | enables | duplicates
+    alignment_state: Mapped[str] = mapped_column(String(20), default="active", nullable=False, index=True)  # ALIGNMENT_STATES
+    strength: Mapped[str] = mapped_column(String(16), default="moderate", nullable=False)  # ALIGNMENT_STRENGTH
+    contribution_level: Mapped[str] = mapped_column(String(20), default="supporting", nullable=False)  # CONTRIBUTION_LEVELS
+    
+    # Rationale & Evidence
+    rationale: Mapped[Optional[str]] = mapped_column(Text)
+    evidence_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    supporting_pattern_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    supporting_lesson_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradicting_evidence_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradicting_pattern_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradicting_lesson_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradiction_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # State
+    state: Mapped[str] = mapped_column(String(16), default="active", nullable=False, index=True)  # active | proposed | superseded
+    proposed_by: Mapped[Optional[str]] = mapped_column(String(64))
+    proposed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    confirmed_by: Mapped[Optional[str]] = mapped_column(String(64))
+    confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    
+    # Supersession chain
+    supersedes_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    superseded_by_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # Provenance
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_sa_fp_exact_once",
+        ),
+        CheckConstraint(
+            "alignment_type IN ('supports', 'conflicts', 'depends_on', 'enables', 'duplicates')",
+            name="ck_sa_type_valid",
+        ),
+        CheckConstraint(
+            "alignment_state IN ('active', 'resolved', 'escalated', 'superseded')",
+            name="ck_sa_state_valid",
+        ),
+        CheckConstraint(
+            "strength IN ('strong', 'moderate', 'weak', 'primary')",
+            name="ck_sa_strength_valid",
+        ),
+        CheckConstraint(
+            "contribution_level IN ('primary', 'secondary', 'supporting', 'enabling')",
+            name="ck_sa_contrib_valid",
+        ),
+    )
+
+    @property
+    def superseded_by_alignment_id(self) -> Optional[str]:
+        """Alias for superseded_by_id for test compatibility."""
+        return self.superseded_by_id
+
+    @superseded_by_alignment_id.setter
+    def superseded_by_alignment_id(self, value: Optional[str]) -> None:
+        self.superseded_by_id = value
+
+
+class AlignmentGap(Base, TimestampMixin):
+    """
+    Canonical Alignment Gap — a detected missing element in the strategic
+    alignment graph (e.g., goal without objectives, initiative without project).
+    
+    Gaps are explicit, tracked, and drive attention/replanning.
+    """
+
+    __tablename__ = "alignment_gaps"
+    __table_args__ = (
+        Index("ix_ag_org_type", "organization_id", "gap_type"),
+        Index("ix_ag_org_severity", "organization_id", "severity"),
+        Index("ix_ag_org_state", "organization_id", "state"),
+        Index("ix_ag_org_context", "organization_id", "context_element_type", "context_element_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    
+    # Gap identity
+    gap_type: Mapped[str] = mapped_column(String(30), nullable=False)  # ALIGNMENT_GAP_TYPES
+    severity: Mapped[str] = mapped_column(String(16), default="medium", nullable=False)  # ALIGNMENT_GAP_SEVERITY
+    
+    # What's missing
+    missing_element_type: Mapped[str] = mapped_column(String(20), nullable=False)  # objective | initiative | project | commitment | responsibility | evidence
+    missing_element_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)  # if partially exists
+    
+    # Context element that has the gap
+    context_element_type: Mapped[str] = mapped_column(String(20), nullable=False)  # goal | objective | initiative | project | company
+    context_element_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    
+    # Description
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    impact_assessment: Mapped[Optional[str]] = mapped_column(Text)
+    recommended_action: Mapped[Optional[str]] = mapped_column(Text)
+    
+    # Evidence
+    evidence_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradicting_evidence_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # State
+    state: Mapped[str] = mapped_column(String(16), default="open", nullable=False, index=True)  # open | acknowledged | resolving | resolved | superseded
+    detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    detected_by: Mapped[Optional[str]] = mapped_column(String(64))
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    resolved_by: Mapped[Optional[str]] = mapped_column(String(64))
+    
+    # Supersession
+    supersedes_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    superseded_by_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # Provenance
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_ag_fp_exact_once",
+        ),
+        CheckConstraint(
+            "gap_type IN ('resource', 'capability', 'timeline', 'dependency', 'authority', 'evidence', 'goal_without_objective', 'initiative_without_project')",
+            name="ck_ag_type_valid",
+        ),
+        CheckConstraint(
+            "severity IN ('critical', 'high', 'medium', 'low')",
+            name="ck_ag_severity_valid",
+        ),
+        CheckConstraint(
+            "state IN ('open', 'acknowledged', 'resolving', 'resolved', 'superseded')",
+            name="ck_ag_state_valid",
+        ),
+    )
+
+
+class StrategicConflict(Base, TimestampMixin):
+    """
+    Canonical Strategic Conflict — explicit preservation of contradictory claims
+    between strategic entities. Never silently resolved.
+    
+    Both sides fully preserved with evidence, confidence, and provenance.
+    """
+
+    __tablename__ = "strategic_conflicts"
+    __table_args__ = (
+        Index("ix_sc_org_entities", "organization_id", "entity_a_type", "entity_a_id"),
+        Index("ix_sc_org_status", "organization_id", "status"),
+        Index("ix_sc_org_severity", "organization_id", "severity"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    
+    # Conflicting entities
+    entity_a_type: Mapped[str] = mapped_column(String(20), nullable=False)  # objective | initiative | project | goal
+    entity_a_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    entity_b_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    entity_b_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    
+    # Conflict semantics
+    conflict_type: Mapped[str] = mapped_column(String(30), nullable=False)  # resource_contention | priority_inversion | dependency_cycle | scope_overlap | assumption_violation
+    severity: Mapped[str] = mapped_column(String(16), default="medium", nullable=False)  # low | medium | high | critical
+    
+    # Side A (preserved)
+    side_a_claim: Mapped[str] = mapped_column(Text)
+    side_a_evidence: Mapped[list[str]] = mapped_column(JSON, default=list)
+    side_a_confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    
+    # Side B (preserved)
+    side_b_claim: Mapped[str] = mapped_column(Text)
+    side_b_evidence: Mapped[list[str]] = mapped_column(JSON, default=list)
+    side_b_confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    
+    # Resolution
+    root_cause: Mapped[Optional[str]] = mapped_column(Text)
+    impact_assessment: Mapped[Optional[str]] = mapped_column(Text)
+    recommended_resolution: Mapped[Optional[str]] = mapped_column(Text)
+    
+    # State
+    status: Mapped[str] = mapped_column(String(16), default="open", nullable=False, index=True)  # open | acknowledged | resolving | resolved | superseded
+    
+    # Provenance
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    detected_by: Mapped[Optional[str]] = mapped_column(String(64))
+    detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    resolved_by: Mapped[Optional[str]] = mapped_column(String(64))
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    
+    # Supersession
+    supersedes_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    superseded_by_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_sc_fp_exact_once",
+        ),
+        CheckConstraint(
+            "severity IN ('low', 'medium', 'high', 'critical')",
+            name="ck_sc_severity_valid",
+        ),
+        CheckConstraint(
+            "status IN ('open', 'acknowledged', 'resolving', 'resolved', 'superseded')",
+            name="ck_sc_status_valid",
+        ),
+    )
+
+    def __init__(self, **kwargs):
+        """Support dict-based side_a/side_b for convenience."""
+        side_a = kwargs.pop("side_a", None)
+        side_b = kwargs.pop("side_b", None)
+        # Also support separate keyword arguments for evidence and confidence
+        side_a_evidence = kwargs.pop("side_a_evidence", None)
+        side_b_evidence = kwargs.pop("side_b_evidence", None)
+        side_a_confidence = kwargs.pop("side_a_confidence", None)
+        side_b_confidence = kwargs.pop("side_b_confidence", None)
+        super().__init__(**kwargs)
+        if side_a is not None:
+            self.side_a_claim = side_a.get("claim", "")
+            self.side_a_evidence = side_a.get("evidence", side_a_evidence or [])
+            self.side_a_confidence = side_a.get("confidence", side_a_confidence or 0.5)
+        if side_b is not None:
+            self.side_b_claim = side_b.get("claim", "")
+            self.side_b_evidence = side_b.get("evidence", side_b_evidence or [])
+            self.side_b_confidence = side_b.get("confidence", side_b_confidence or 0.5)
+
+    @property
+    def side_a(self) -> dict:
+        """Return side_a as a dict for convenient access."""
+        return {
+            "claim": self.side_a_claim,
+            "evidence": self.side_a_evidence,
+            "confidence": self.side_a_confidence,
+        }
+
+    @property
+    def side_b(self) -> dict:
+        """Return side_b as a dict for convenient access."""
+        return {
+            "claim": self.side_b_claim,
+            "evidence": self.side_b_evidence,
+            "confidence": self.side_b_confidence,
+        }
+
+
+class StrategicDependency(Base, TimestampMixin):
+    """
+    Canonical Strategic Dependency — explicit dependency between strategic
+    entities with blocking semantics.
+    
+    Exact-once on (org, dependent_type, dependent_id, dependency_type, dependency_id).
+    """
+
+    __tablename__ = "strategic_dependencies"
+    __table_args__ = (
+        Index("ix_sd_org_dep", "organization_id", "dependent_type", "dependent_id"),
+        Index("ix_sd_org_dep_on", "organization_id", "dependency_type", "dependency_id"),
+        Index("ix_sd_org_blocking", "organization_id", "is_blocking"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    
+    # Dependent entity (the one that depends)
+    dependent_type: Mapped[str] = mapped_column(String(20), nullable=False)  # objective | initiative | project | goal
+    dependent_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    
+    # Dependency entity (the one being depended on)
+    dependency_type: Mapped[str] = mapped_column(String(20), nullable=False)  # objective | initiative | project | goal | commitment | resource
+    dependency_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    
+    # Dependency semantics
+    dependency_kind: Mapped[str] = mapped_column(String(20), default="depends_on", nullable=False)  # depends_on | blocks | enables | requires
+    is_blocking: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_hard_dependency: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    
+    # Description
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    
+    # Evidence
+    evidence_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # State
+    state: Mapped[str] = mapped_column(String(16), default="active", nullable=False, index=True)  # active | resolved | superseded
+    
+    # Provenance
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    created_by: Mapped[Optional[str]] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    
+    # Supersession
+    supersedes_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    superseded_by_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_sd_fp_exact_once",
+        ),
+    )
+
+
+class StrategicAlignmentState(Base, TimestampMixin):
+    """
+    Canonical Strategic Alignment State — captures the alignment graph state
+    at a specific planning context version. Enables temporal queries.
+    """
+
+    __tablename__ = "strategic_alignment_states"
+    __table_args__ = (
+        Index("ix_sas_org_context", "organization_id", "planning_context_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    planning_context_id: Mapped[str] = mapped_column(
+        ForeignKey("company_planning_contexts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    
+    # State snapshot
+    alignment_graph: Mapped[dict] = mapped_column(JSON, default=dict)  # serialized alignment graph
+    active_alignments: Mapped[int] = mapped_column(Integer, default=0)
+    active_conflicts: Mapped[int] = mapped_column(Integer, default=0)
+    active_gaps: Mapped[int] = mapped_column(Integer, default=0)
+    critical_gaps: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # Provenance
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_sas_fp_exact_once",
+        ),
+    )
+
+
+class AlignmentGapDetection(Base, TimestampMixin):
+    """
+    Canonical Alignment Gap Detection — a recorded detection run that found
+    gaps in the alignment graph. Links to the gaps detected.
+    """
+
+    __tablename__ = "alignment_gap_detections"
+    __table_args__ = (
+        Index("ix_agd_org_context", "organization_id", "scope_type", "scope_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    
+    # Detection scope
+    scope_type: Mapped[str] = mapped_column(String(20), default="company", nullable=False)  # company | department | team | project
+    scope_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # Results
+    gaps_found: Mapped[int] = mapped_column(Integer, default=0)
+    critical_gaps: Mapped[int] = mapped_column(Integer, default=0)
+    gap_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # Detection metadata
+    detection_method: Mapped[str] = mapped_column(String(30), default="automated", nullable=False)  # automated | manual | hybrid
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # Provenance
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    detected_by: Mapped[Optional[str]] = mapped_column(String(64))
+    detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_agd_fp_exact_once",
+        ),
+    )
+
+
+# =============================================================================
+# 4I.4 Company Planning Context Models
+# =============================================================================
+
+class CompanyPlanningContext(Base, TimestampMixin):
+    """
+    Canonical Company Planning Context — the synthesized, evidence-backed
+    assessment of the company's strategic state at a point in time.
+    
+    Versioned, supersession-chained, with full provenance for every conclusion.
+    """
+
+    __tablename__ = "company_planning_contexts"
+    __table_args__ = (
+        Index("ix_cpc_org_scope", "organization_id", "scope", "scope_id"),
+        Index("ix_cpc_org_version", "organization_id", "version"),
+        Index("ix_cpc_org_computed", "organization_id", "computed_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    
+    # Scope
+    scope: Mapped[str] = mapped_column(String(20), default="company", nullable=False)  # company | department | team | project
+    scope_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # Versioning
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    previous_version_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # 8 canonical state sections (JSON for flexibility, structured by convention)
+    strategic_state: Mapped[dict] = mapped_column(JSON, default=dict)
+    execution_state: Mapped[dict] = mapped_column(JSON, default=dict)
+    outcome_state: Mapped[dict] = mapped_column(JSON, default=dict)
+    alignment_state: Mapped[dict] = mapped_column(JSON, default=dict)
+    learning_state: Mapped[dict] = mapped_column(JSON, default=dict)
+    resource_state: Mapped[dict] = mapped_column(JSON, default=dict)
+    risk_state: Mapped[dict] = mapped_column(JSON, default=dict)
+    governance_state: Mapped[dict] = mapped_column(JSON, default=dict)
+    
+    # Overall assessment
+    overall_health: Mapped[str] = mapped_column(String(16), default="unknown", nullable=False)  # healthy | at_risk | critical | unknown
+    overall_confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    
+    # Contradictions & Gaps
+    active_contradictions: Mapped[int] = mapped_column(Integer, default=0)
+    critical_gaps: Mapped[int] = mapped_column(Integer, default=0)
+    total_gaps: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # Learning signals
+    relevant_lessons: Mapped[int] = mapped_column(Integer, default=0)
+    high_confidence_lessons: Mapped[int] = mapped_column(Integer, default=0)
+    emerging_patterns: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # Risk signals
+    elevated_risks: Mapped[int] = mapped_column(Integer, default=0)
+    newly_emerging_risks: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # Computation metadata
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    computation_duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    trigger: Mapped[str] = mapped_column(String(40), default="manual_request", nullable=False)  # STATE_TRANSITION_TRIGGERS
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    input_fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+# Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+__table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_cpc_fp_exact_once",
+        ),
+        UniqueConstraint(
+            "organization_id", "input_fingerprint",
+            name="uq_cpc_input_fp_exact_once",
+        ),
+    )
+
+
+class CompanyStateTransition(Base, TimestampMixin):
+    """
+    Canonical Company State Transition — records the delta between two
+    planning context versions with full provenance.
+    
+    Enables temporal queries: what changed between v3 and v4?
+    """
+
+    __tablename__ = "company_state_transitions"
+    __table_args__ = (
+        Index("ix_cst_org_scope", "organization_id", "scope", "scope_id"),
+        Index("ix_cst_org_from", "organization_id", "from_version"),
+        Index("ix_cst_org_to", "organization_id", "to_version"),
+        Index("ix_cst_org_transitioned", "organization_id", "transitioned_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    
+    # Scope
+    scope: Mapped[str] = mapped_column(String(20), default="company", nullable=False)
+    scope_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # Version tracking
+    from_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    to_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    from_context_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    to_context_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    
+    # Trigger
+    trigger: Mapped[str] = mapped_column(String(40), nullable=False)  # STATE_TRANSITION_TRIGGERS
+    trigger_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    trigger_reason: Mapped[Optional[str]] = mapped_column(Text)
+    
+    # Transition classification
+    transition_kind: Mapped[str] = mapped_column(String(20), nullable=False)  # STATE_TRANSITION_KINDS
+    
+    # Delta (structured)
+    delta: Mapped[dict] = mapped_column(JSON, default=dict)
+    changed_sections: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # Contradiction changes
+    new_contradictions: Mapped[list[str]] = mapped_column(JSON, default=list)
+    resolved_contradictions: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # Gap changes
+    new_gaps: Mapped[list[str]] = mapped_column(JSON, default=list)
+    resolved_gaps: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # Learning influence
+    influencing_lessons: Mapped[list[str]] = mapped_column(JSON, default=list)
+    influencing_patterns: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # State
+    state: Mapped[str] = mapped_column(String(20), default="committed", nullable=False)  # committed | rolled_back
+    committed_by: Mapped[str] = mapped_column(String(64), default="system")
+    committed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    
+    # Provenance
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    computed_by: Mapped[str] = mapped_column(String(64), default="company_planning_context_engine")
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    transitioned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_cst_fp_exact_once",
+        ),
+        CheckConstraint(
+            "transition_kind IN ('adapt', 'replan', 'escalate', 'defer', 'supersede', 'merge', 'split', 'strategic_state_change', 'execution_state_change', 'outcome_state_change', 'alignment_state_change', 'learning_state_change', 'resource_state_change', 'risk_state_change', 'governance_state_change', 'composite_state_change')",
+            name="ck_cst_kind_valid",
+        ),
+    )
+
+
+class PlanningContextProvenance(Base, TimestampMixin):
+    """
+    Canonical Planning Context Provenance — the evidence chain for every
+    conclusion in a planning context section.
+    
+    Preserves epistemic status: observed | measured | evidence_backed | inferred | predicted | proposed | contested
+    """
+
+    __tablename__ = "planning_context_provenances"
+    __table_args__ = (
+        Index("ix_pcp_org_context", "organization_id", "context_id"),
+        Index("ix_pcp_org_section", "organization_id", "section"),
+        Index("ix_pcp_org_generated", "organization_id", "generated_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    context_id: Mapped[str] = mapped_column(
+        ForeignKey("company_planning_contexts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    
+    # Conclusion identity
+    section: Mapped[str] = mapped_column(String(30), nullable=False)  # PLANNING_CONTEXT_SECTIONS
+    conclusion_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    conclusion_value: Mapped[Optional[str]] = mapped_column(Text)
+    
+    # Epistemic status
+    epistemic_status: Mapped[str] = mapped_column(String(20), default="evidence_backed", nullable=False)  # PLANNING_CONTEXT_EPISTEMIC_STATUS
+    confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    
+    # Evidence & Provenance
+    evidence_fingerprints: Mapped[str] = mapped_column(Text, default="[]")
+    pattern_ids: Mapped[str] = mapped_column(Text, default="[]")
+    lesson_fingerprints: Mapped[str] = mapped_column(Text, default="[]")
+    contradicting_evidence_fingerprints: Mapped[str] = mapped_column(Text, default="[]")
+    contradicting_pattern_ids: Mapped[str] = mapped_column(Text, default="[]")
+    contradicting_lesson_fingerprints: Mapped[str] = mapped_column(Text, default="[]")
+    contradiction_ids: Mapped[str] = mapped_column(Text, default="[]")
+    _source_entities: Mapped[str] = mapped_column("source_entities", Text, default="[]")
+
+    @hybrid_property
+    def source_entities(self) -> list:
+        """Parse the JSON string _source_entities to a list."""
+        import json
+        try:
+            return json.loads(self._source_entities)
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+    @source_entities.setter
+    def source_entities(self, value: list) -> None:
+        import json
+        self._source_entities = json.dumps(value)
+
+    def __init__(self, **kwargs):
+        """Handle source_entities as a list for convenience."""
+        source_entities = kwargs.pop("source_entities", None)
+        super().__init__(**kwargs)
+        if source_entities is not None:
+            self.source_entities = source_entities
+
+    # Source entity links (optional, for traceability)
+    intent_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    goal_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    objective_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    initiative_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    project_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # Scope
+    scope: Mapped[str] = mapped_column(String(20), default="company", nullable=False)
+    scope_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # Generation metadata
+    generated_by: Mapped[str] = mapped_column(String(64), default="company_planning_context_engine")
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_pcp_fp_exact_once",
+        ),
+    )
+
+
+# =============================================================================
+# 4I.5 Adaptive Planning Models
+# =============================================================================
+
+class AdaptivePlanningContext(Base, TimestampMixin):
+    """
+    Canonical Adaptive Planning Context — the synthesized adaptive layer on top
+    of a CompanyPlanningContext, capturing attention signals, replanning proposals,
+    and decision contexts.
+    
+    Versioned, supersession-chained, linked to parent planning context.
+    """
+
+    __tablename__ = "adaptive_planning_contexts"
+    __table_args__ = (
+        Index("ix_apc_org_scope", "organization_id", "scope", "scope_id"),
+        Index("ix_apc_org_planning", "organization_id", "planning_context_id"),
+        Index("ix_apc_org_version", "organization_id", "version"),
+        Index("ix_apc_org_computed", "organization_id", "computed_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    
+    # Scope
+    scope: Mapped[str] = mapped_column(String(20), default="company", nullable=False)
+    scope_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # Parent planning context link
+    planning_context_id: Mapped[str] = mapped_column(
+        ForeignKey("company_planning_contexts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    planning_context_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    planning_context_fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Versioning
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    previous_version_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # Aggregated signals (JSON arrays of lightweight summaries)
+    attention_signals: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    replanning_proposals: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    decision_contexts: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    
+    # Overall health
+    overall_adaptive_health: Mapped[str] = mapped_column(String(16), default="unknown", nullable=False)  # healthy | at_risk | critical | unknown
+    attention_count: Mapped[int] = mapped_column(Integer, default=0)
+    critical_attention_count: Mapped[int] = mapped_column(Integer, default=0)
+    pending_proposals_count: Mapped[int] = mapped_column(Integer, default=0)
+    pending_decisions_count: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # Computation metadata
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    computation_duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    trigger: Mapped[str] = mapped_column(String(40), default="manual_request", nullable=False)  # STATE_TRANSITION_TRIGGERS
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    input_fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_apc_fp_exact_once",
+        ),
+    )
+
+
+class AttentionSignal(Base, TimestampMixin):
+    """
+    Canonical Attention Signal — a specific signal requiring organizational attention,
+    derived from a planning context conclusion.
+    
+    Links back to the source conclusion with full evidence provenance.
+    """
+
+    __tablename__ = "attention_signals"
+    __table_args__ = (
+        Index("ix_as_org_planning", "organization_id", "planning_context_id"),
+        Index("ix_as_org_adaptive", "organization_id", "adaptive_context_id"),
+        Index("ix_as_org_type", "organization_id", "signal_type"),
+        Index("ix_as_org_severity", "organization_id", "severity"),
+        Index("ix_as_org_status", "organization_id", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    
+    # Scope
+    scope: Mapped[str] = mapped_column(String(20), default="company", nullable=False)
+    scope_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # Parent links
+    planning_context_id: Mapped[str] = mapped_column(
+        ForeignKey("company_planning_contexts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    adaptive_context_id: Mapped[str] = mapped_column(
+        ForeignKey("adaptive_planning_contexts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    
+    # Signal identity
+    signal_type: Mapped[str] = mapped_column(String(30), nullable=False)  # ATTENTION_SIGNAL_TYPES
+    severity: Mapped[str] = mapped_column(String(16), nullable=False)  # ATTENTION_SEVERITY
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    
+    # Source traceability
+    source_context_section: Mapped[str] = mapped_column(String(30), nullable=False)  # PLANNING_CONTEXT_SECTIONS
+    source_conclusion_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    source_conclusion_value: Mapped[Optional[str]] = mapped_column(Text)
+    
+    # Assessment
+    confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    epistemic_status: Mapped[str] = mapped_column(String(20), default="evidence_backed", nullable=False)  # PLANNING_CONTEXT_EPISTEMIC_STATUS
+    
+    # Affected entities
+    affected_entities: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    
+    # Evidence & Provenance
+    evidence_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    pattern_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    lesson_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradiction_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # Optional source entity links
+    intent_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    goal_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    objective_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    initiative_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    project_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    plan_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # State
+    status: Mapped[str] = mapped_column(String(20), default="active", nullable=False, index=True)  # active | acknowledged | resolved | superseded
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    acknowledged_by: Mapped[Optional[str]] = mapped_column(String(64))
+    acknowledged_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    resolved_by: Mapped[Optional[str]] = mapped_column(String(64))
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    
+    # Supersession
+    supersedes_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    superseded_by_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # Provenance
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_as_fp_exact_once",
+        ),
+        CheckConstraint(
+            "severity IN ('low', 'medium', 'high', 'critical', 'warning', 'info')",
+            name="ck_as_severity_valid",
+        ),
+        CheckConstraint(
+            "status IN ('active', 'acknowledged', 'resolved', 'superseded')",
+            name="ck_as_status_valid",
+        ),
+    )
+
+
+class ReplanningProposal(Base, TimestampMixin):
+    """
+    Canonical Replanning Proposal — a concrete proposal to change the plan,
+    triggered by attention signals.
+    
+    Links to trigger signals, affected entities, and proposed changes.
+    """
+
+    __tablename__ = "replanning_proposals"
+    __table_args__ = (
+        Index("ix_rp_org_planning", "organization_id", "planning_context_id"),
+        Index("ix_rp_org_adaptive", "organization_id", "adaptive_context_id"),
+        Index("ix_rp_org_type", "organization_id", "proposal_type"),
+        Index("ix_rp_org_status", "organization_id", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    
+    # Scope
+    scope: Mapped[str] = mapped_column(String(20), default="company", nullable=False)
+    scope_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # Parent links
+    planning_context_id: Mapped[str] = mapped_column(
+        ForeignKey("company_planning_contexts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    adaptive_context_id: Mapped[str] = mapped_column(
+        ForeignKey("adaptive_planning_contexts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    
+    # Proposal identity
+    proposal_type: Mapped[str] = mapped_column(String(30), nullable=False)  # REPLANNING_PROPOSAL_TYPES
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    
+    # Trigger traceability
+    trigger_attention_signal_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # Affected entities
+    affected_intent_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    affected_plan_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    affected_objective_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    affected_initiative_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # Proposed changes
+    proposed_changes: Mapped[dict] = mapped_column(JSON, default=dict)
+    impact_assessment: Mapped[dict] = mapped_column(JSON, default=dict)
+    
+    # State
+    status: Mapped[str] = mapped_column(String(20), default="proposed", nullable=False, index=True)  # REPLANNING_PROPOSAL_STATUS
+    proposed_by: Mapped[str] = mapped_column(String(64), default="adaptive_planning_engine")
+    proposed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    reviewed_by: Mapped[Optional[str]] = mapped_column(String(64))
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    approved_by: Mapped[Optional[str]] = mapped_column(String(64))
+    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    
+    # Evidence & Provenance
+    evidence_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    supporting_pattern_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    supporting_lesson_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradiction_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # Supersession
+    supersedes_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    superseded_by_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # Provenance
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_rp_fp_exact_once",
+        ),
+        CheckConstraint(
+            "status IN ('proposed', 'under_review', 'approved', 'rejected', 'superseded')",
+            name="ck_rp_status_valid",
+        ),
+    )
+
+
+class DecisionContext(Base, TimestampMixin):
+    """
+    Canonical Decision Context — a decision that needs to be made in the context
+    of adaptive planning, linked to replanning proposals and attention signals.
+    """
+
+    __tablename__ = "decision_contexts"
+    __table_args__ = (
+        Index("ix_dc_org_planning", "organization_id", "planning_context_id"),
+        Index("ix_dc_org_adaptive", "organization_id", "adaptive_context_id"),
+        Index("ix_dc_org_type", "organization_id", "decision_type"),
+        Index("ix_dc_org_status", "organization_id", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    
+    # Scope
+    scope: Mapped[str] = mapped_column(String(20), default="company", nullable=False)
+    scope_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # Parent links
+    planning_context_id: Mapped[str] = mapped_column(
+        ForeignKey("company_planning_contexts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    adaptive_context_id: Mapped[str] = mapped_column(
+        ForeignKey("adaptive_planning_contexts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    replanning_proposal_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    attention_signal_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # Decision identity
+    decision_type: Mapped[str] = mapped_column(String(30), nullable=False)  # DECISION_CONTEXT_TYPES
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    context: Mapped[dict] = mapped_column(JSON, default=dict)
+    options: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    
+    # Recommendation
+    recommendation: Mapped[Optional[str]] = mapped_column(Text)
+    recommendation_confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    recommendation_reasoning: Mapped[Optional[str]] = mapped_column(Text)
+    
+    # State
+    status: Mapped[str] = mapped_column(String(20), default="draft", nullable=False, index=True)  # DECISION_CONTEXT_STATUS
+    requires_approval: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    
+    # Provenance
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_dc_fp_exact_once",
+        ),
+        CheckConstraint(
+            "status IN ('draft', 'under_review', 'approved', 'rejected', 'superseded')",
+            name="ck_dc_status_valid",
+        ),
+    )
+
+
+class AdaptivePlanningTransition(Base, TimestampMixin):
+    """
+    Canonical Adaptive Planning Transition — records the delta between two
+    adaptive planning context versions with full provenance.
+    """
+
+    __tablename__ = "adaptive_planning_transitions"
+    __table_args__ = (
+        Index("ix_apt_org_scope", "organization_id", "scope", "scope_id"),
+        Index("ix_apt_org_from", "organization_id", "from_version"),
+        Index("ix_apt_org_to", "organization_id", "to_version"),
+        Index("ix_apt_org_transitioned", "organization_id", "transitioned_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    
+    # Scope
+    scope: Mapped[str] = mapped_column(String(20), default="company", nullable=False)
+    scope_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # Version tracking
+    from_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    to_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    from_context_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    to_context_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    
+    # Trigger
+    trigger: Mapped[str] = mapped_column(String(40), nullable=False)  # STATE_TRANSITION_TRIGGERS
+    trigger_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    trigger_reason: Mapped[Optional[str]] = mapped_column(Text)
+    
+    # Delta
+    delta: Mapped[dict] = mapped_column(JSON, default=dict)
+    changed_sections: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # Signal changes
+    new_attention_signals: Mapped[list[str]] = mapped_column(JSON, default=list)
+    resolved_attention_signals: Mapped[list[str]] = mapped_column(JSON, default=list)
+    escalated_attention_signals: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # Proposal changes
+    new_proposals: Mapped[list[str]] = mapped_column(JSON, default=list)
+    updated_proposals: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # Decision changes
+    new_decisions: Mapped[list[str]] = mapped_column(JSON, default=list)
+    updated_decisions: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # Provenance
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    computed_by: Mapped[str] = mapped_column(String(64), default="adaptive_planning_engine")
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    transitioned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_apt_fp_exact_once",
+        ),
+    )
+
+
+# =============================================================================
+# 4I.6 Decision Intelligence Models
+# =============================================================================
+
+class DecisionIntelligenceContext(Base, TimestampMixin):
+    """
+    Canonical Decision Intelligence Context — the synthesized decision-support
+    assessment at a point in time, integrating all canonical state sections.
+    
+    Versioned, supersession-chained, linked to planning and adaptive contexts.
+    """
+
+    __tablename__ = "decision_intelligence_contexts"
+    __table_args__ = (
+        Index("ix_dic_org_scope", "organization_id", "scope", "scope_id"),
+        Index("ix_dic_org_planning", "organization_id", "planning_context_id"),
+        Index("ix_dic_org_adaptive", "organization_id", "adaptive_context_id"),
+        Index("ix_dic_org_version", "organization_id", "version"),
+        Index("ix_dic_org_computed", "organization_id", "computed_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    
+    # Scope
+    scope: Mapped[str] = mapped_column(String(20), default="company", nullable=False)
+    scope_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # Parent links
+    planning_context_id: Mapped[str] = mapped_column(
+        ForeignKey("company_planning_contexts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    planning_context_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    planning_context_fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    adaptive_context_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("adaptive_planning_contexts.id", ondelete="SET NULL"), index=True
+    )
+    
+    # Versioning
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    previous_version_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # Decision identity
+    decision_type: Mapped[str] = mapped_column(String(30), nullable=False)  # DECISION_INTELLIGENCE_TYPES
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    
+    # Trigger
+    trigger: Mapped[str] = mapped_column(String(40), nullable=False)  # STATE_TRANSITION_TRIGGERS
+    trigger_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    trigger_reason: Mapped[Optional[str]] = mapped_column(Text)
+    
+    # 8 canonical context sections (JSON for flexibility)
+    strategic_context: Mapped[dict] = mapped_column(JSON, default=dict)
+    objective_context: Mapped[dict] = mapped_column(JSON, default=dict)
+    alignment_context: Mapped[dict] = mapped_column(JSON, default=dict)
+    outcome_context: Mapped[dict] = mapped_column(JSON, default=dict)
+    execution_context: Mapped[dict] = mapped_column(JSON, default=dict)
+    resource_context: Mapped[dict] = mapped_column(JSON, default=dict)
+    risk_context: Mapped[dict] = mapped_column(JSON, default=dict)
+    learning_context: Mapped[dict] = mapped_column(JSON, default=dict)
+    governance_context: Mapped[dict] = mapped_column(JSON, default=dict)
+    
+    # Overall assessment
+    overall_confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    active_contradictions: Mapped[int] = mapped_column(Integer, default=0)
+    critical_gaps: Mapped[int] = mapped_column(Integer, default=0)
+    elevated_risks: Mapped[int] = mapped_column(Integer, default=0)
+    high_confidence_lessons: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # Computation metadata
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    computation_duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    input_fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_dic_fp_exact_once",
+        ),
+        CheckConstraint(
+            "decision_type IN ('strategic', 'operational', 'tactical', 'emergency', 'replanning_approval', 'attention_response', 'resource_allocation', 'priority_arbitration', 'conflict_resolution', 'scope_authorization', 'risk_mitigation', 'intent_supersession', 'plan_retirement', 'dependency_reroute', 'attention_response', 'governance_pending', 'decision_intelligence_transition', 'organizational_change', 'capacity_planning', 'risk_acceptance', 'manual_synthesis', 'contradiction_resolution', 'strategic_choice')",
+            name="ck_dic_type_valid",
+        ),
+    )
+
+
+class DecisionAlternative(Base, TimestampMixin):
+    """
+    Canonical Decision Alternative — an option within a decision intelligence context.
+    
+    Alternatives are evaluated, compared, and one is selected (or none).
+    """
+
+    __tablename__ = "decision_alternatives"
+    __table_args__ = (
+        Index("ix_da_org_context", "organization_id", "decision_context_id"),
+        Index("ix_da_org_state", "organization_id", "state"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    decision_context_id: Mapped[str] = mapped_column(
+        ForeignKey("decision_intelligence_contexts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    
+    # Alternative identity
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    alternative_key: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    
+    # Evaluation
+    evaluation: Mapped[dict] = mapped_column(JSON, default=dict)  # {criterion: score}
+    pros: Mapped[list[str]] = mapped_column(JSON, default=list)
+    cons: Mapped[list[str]] = mapped_column(JSON, default=list)
+    risks: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    
+    # State
+    state: Mapped[str] = mapped_column(String(20), default="proposed", nullable=False, index=True)  # DECISION_ALTERNATIVE_STATES
+    confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    reasoning: Mapped[Optional[str]] = mapped_column(Text)
+    
+    # Evidence & Provenance
+    evidence_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    supporting_pattern_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    supporting_lesson_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradiction_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # Provenance
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    proposed_by: Mapped[Optional[str]] = mapped_column(String(64))
+    proposed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    evaluated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    selected_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_da_fp_exact_once",
+        ),
+        CheckConstraint(
+            "state IN ('proposed', 'analyzing', 'recommended', 'selected', 'rejected')",
+            name="ck_da_state_valid",
+        ),
+    )
+
+
+class DecisionConsequence(Base, TimestampMixin):
+    """
+    Canonical Decision Consequence — an anticipated or observed consequence
+    of selecting a decision alternative.
+    """
+
+    __tablename__ = "decision_consequences"
+    __table_args__ = (
+        Index("ix_dc_org_alternative", "organization_id", "alternative_id"),
+        Index("ix_dc_org_type", "organization_id", "consequence_type"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    alternative_id: Mapped[str] = mapped_column(
+        ForeignKey("decision_alternatives.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    
+    # Consequence identity
+    consequence_type: Mapped[str] = mapped_column(String(20), nullable=False)  # CONSEQUENCE_TYPES
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    
+    # Assessment
+    likelihood: Mapped[float] = mapped_column(Float, default=0.5)
+    impact_magnitude: Mapped[str] = mapped_column(String(16), default="medium", nullable=False)  # low | medium | high | critical
+    time_horizon_days: Mapped[Optional[int]] = mapped_column(Integer)
+    
+    # Evidence
+    evidence_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # Provenance
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    assessed_by: Mapped[Optional[str]] = mapped_column(String(64))
+    assessed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_dc_fp_exact_once",
+        ),
+        CheckConstraint(
+            "consequence_type IN ('financial', 'operational', 'strategic', 'reputational', 'regulatory')",
+            name="ck_dc_type_valid",
+        ),
+    )
+
+
+class DecisionPrecedentLink(Base, TimestampMixin):
+    """
+    Canonical Decision Precedent Link — links a decision to historical precedents
+    with relevance assessment.
+    """
+
+    __tablename__ = "decision_precedent_links"
+    __table_args__ = (
+        Index("ix_dpl_org_context", "organization_id", "decision_context_id"),
+        Index("ix_dpl_org_precedent", "organization_id", "precedent_decision_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    decision_context_id: Mapped[str] = mapped_column(
+        ForeignKey("decision_intelligence_contexts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    precedent_decision_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    
+    # Relevance
+    relevance_level: Mapped[str] = mapped_column(String(20), default="contextual", nullable=False)  # PRECEDENT_RELEVANCE_LEVELS
+    relevance_reasoning: Mapped[Optional[str]] = mapped_column(Text)
+    
+    # Outcome of precedent
+    precedent_outcome: Mapped[Optional[str]] = mapped_column(String(30))  # ASSESSMENT_VERDICTS
+    precedent_confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    
+    # Provenance
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    linked_by: Mapped[Optional[str]] = mapped_column(String(64))
+    linked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_dpl_fp_exact_once",
+        ),
+    )
+
+
+class DecisionEvidence(Base, TimestampMixin):
+    """
+    Canonical Decision Evidence — evidence item supporting a decision context,
+    alternative, or consequence.
+    """
+
+    __tablename__ = "decision_evidence"
+    __table_args__ = (
+        Index("ix_de_org_context", "organization_id", "decision_context_id"),
+        Index("ix_de_org_quality", "organization_id", "quality_level"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    decision_context_id: Mapped[str] = mapped_column(
+        ForeignKey("decision_intelligence_contexts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    alternative_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    consequence_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # Evidence identity
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    
+    # Quality & Type
+    quality_level: Mapped[str] = mapped_column(String(20), default="secondary", nullable=False)  # EVIDENCE_QUALITY_LEVELS
+    evidence_type: Mapped[str] = mapped_column(String(30), default="document", nullable=False)  # EVIDENCE_TYPES
+    
+    # Content
+    content: Mapped[dict] = mapped_column(JSON, default=dict)
+    source: Mapped[Optional[str]] = mapped_column(String(200))
+    
+    # Provenance
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    captured_by: Mapped[Optional[str]] = mapped_column(String(64))
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_de_fp_exact_once",
+        ),
+    )
+
+
+class DecisionRiskAssessment(Base, TimestampMixin):
+    """
+    Canonical Decision Risk Assessment — risk assessment for a decision context
+    or alternative.
+    """
+
+    __tablename__ = "decision_risk_assessments"
+    __table_args__ = (
+        Index("ix_dra_org_context", "organization_id", "decision_context_id"),
+        Index("ix_dra_org_level", "organization_id", "risk_level"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    decision_context_id: Mapped[str] = mapped_column(
+        ForeignKey("decision_intelligence_contexts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    alternative_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # Risk identity
+    risk_category: Mapped[str] = mapped_column(String(30), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    
+    # Assessment
+    likelihood: Mapped[float] = mapped_column(Float, default=0.5)
+    impact: Mapped[str] = mapped_column(String(16), default="medium", nullable=False)  # RISK_ASSESSMENT_LEVELS
+    risk_level: Mapped[str] = mapped_column(String(16), default="medium", nullable=False)  # RISK_ASSESSMENT_LEVELS
+    
+    # Mitigation
+    mitigation_strategy: Mapped[Optional[str]] = mapped_column(Text)
+    residual_risk: Mapped[str] = mapped_column(String(16), default="low", nullable=False)  # RISK_ASSESSMENT_LEVELS
+    
+    # Evidence
+    evidence_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # Provenance
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    assessed_by: Mapped[Optional[str]] = mapped_column(String(64))
+    assessed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_dra_fp_exact_once",
+        ),
+        CheckConstraint(
+            "risk_level IN ('low', 'medium', 'high', 'critical')",
+            name="ck_dra_level_valid",
+        ),
+        CheckConstraint(
+            "residual_risk IN ('low', 'medium', 'high', 'critical')",
+            name="ck_dra_residual_valid",
+        ),
+    )
+
+
+class DecisionIntelligenceTransition(Base, TimestampMixin):
+    """
+    Canonical Decision Intelligence Transition — records the delta between two
+    decision intelligence context versions with full provenance.
+    """
+
+    __tablename__ = "decision_intelligence_transitions"
+    __table_args__ = (
+        Index("ix_dit_org_scope", "organization_id", "scope", "scope_id"),
+        Index("ix_dit_org_from", "organization_id", "from_version"),
+        Index("ix_dit_org_to", "organization_id", "to_version"),
+        Index("ix_dit_org_transitioned", "organization_id", "transitioned_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    
+    # Scope
+    scope: Mapped[str] = mapped_column(String(20), default="company", nullable=False)
+    scope_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # Version tracking
+    from_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    to_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    from_context_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    to_context_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    
+    # Trigger
+    trigger: Mapped[str] = mapped_column(String(40), nullable=False)  # STATE_TRANSITION_TRIGGERS
+    trigger_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    trigger_reason: Mapped[Optional[str]] = mapped_column(Text)
+    
+    # Delta
+    delta: Mapped[dict] = mapped_column(JSON, default=dict)
+    changed_sections: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # Contradiction changes
+    new_contradictions: Mapped[list[str]] = mapped_column(JSON, default=list)
+    resolved_contradictions: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # Gap changes
+    new_gaps: Mapped[list[str]] = mapped_column(JSON, default=list)
+    resolved_gaps: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # Learning influence
+    influencing_lessons: Mapped[list[str]] = mapped_column(JSON, default=list)
+    influencing_patterns: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # State
+    state: Mapped[str] = mapped_column(String(20), default="committed", nullable=False)  # committed | rolled_back
+    committed_by: Mapped[str] = mapped_column(String(64), default="system")
+    committed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    
+    # Provenance
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    computed_by: Mapped[str] = mapped_column(String(64), default="decision_intelligence_engine")
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    transitioned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_dit_fp_exact_once",
+        ),
+    )
+
+
+# =============================================================================
+# 4I.9 Organizational Responsibility & Accountability Models
+# =============================================================================
+
+class OrganizationalResponsibility(Base, TimestampMixin):
+    """
+    Canonical Organizational Responsibility — the explicit link between people/teams/roles
+    and the objectives/commitments they are responsible/accountable for.
+    
+    This is NOT a duplicate of Employee.department_id or Employee.team_id.
+    It represents EXPLICIT RESPONSIBILITY/ACCOUNTABILITY for specific outcomes.
+    
+    Key principles:
+    - Responsibility ≠ Permission: Permission = endpoint access; Responsibility = outcome ownership
+    - Responsibility ≠ Role Membership: Role = permission set; Responsibility = outcome ownership
+    - Responsibility ≠ Authorization: Authorization = governance permit; Responsibility = outcome ownership
+    - Explicit RACI: accountable, responsible, consulted, informed
+    - Temporal: valid_from/valid_to with supersession chain
+    - Scoped: person | role | team | department
+    - Provenance: traces back to Commitment → Authorization → Decision
+    
+    Does NOT duplicate Employee.department_id or Employee.team_id.
+    Employee.department_id = organizational placement
+    OrganizationalResponsibility = explicit outcome ownership
+    """
+    
+    __tablename__ = "organizational_responsibilities"
+    __table_args__ = (
+        Index("ix_or_org_person", "organization_id", "person_id"),
+        Index("ix_or_org_role", "organization_id", "role_id"),
+        Index("ix_or_org_team", "organization_id", "team_id"),
+        Index("ix_or_org_dept", "organization_id", "department_id"),
+        Index("ix_or_org_obj", "organization_id", "objective_id"),
+        Index("ix_or_org_commitment", "organization_id", "commitment_id"),
+        Index("ix_or_org_resp_type", "organization_id", "responsibility_type"),
+        Index("ix_or_org_scope", "organization_id", "scope_type", "scope_id"),
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_or_exact_once",
+        ),
+        CheckConstraint(
+            "raci_accountable OR raci_responsible OR raci_consulted OR raci_informed",
+            name="ck_or_raci_at_least_one",
+        ),
+    )
+    
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    
+    # Responsibility identity
+    responsibility_type: Mapped[str] = mapped_column(String(30), nullable=False, index=True)  # RESPONSIBILITY_TYPES
+    scope_type: Mapped[str] = mapped_column(String(20), default="objective", nullable=False)  # RESPONSIBILITY_SCOPES
+    scope_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # RACI - at least one must be true
+    raci_accountable: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    raci_responsible: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    raci_consulted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    raci_informed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    
+    # Scope - who holds this responsibility
+    person_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    role_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    team_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    department_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # Link to the canonical graph
+    objective_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    initiative_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    project_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    commitment_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    authorization_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # Temporal validity
+    valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    valid_to: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    
+    # Supersession chain - CRITICAL for temporal truth
+    supersedes_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    superseded_by_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # Delegation
+    delegated_from_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    delegation_depth: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # State
+    state: Mapped[str] = mapped_column(String(24), default="active", nullable=False, index=True)
+    
+    # Provenance
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    created_by: Mapped[Optional[str]] = mapped_column(String(64))
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_or_exact_once",
+        ),
+        CheckConstraint(
+            "raci_accountable OR raci_responsible OR raci_consulted OR raci_informed",
+            name="ck_or_raci_at_least_one",
+        ),
+    )
+
+
+class AccountabilityLink(Base, TimestampMixin):
+    """
+    Canonical Accountability Link — the explicit trace from Commitment through
+    Authorization to Responsibility to Person/Team/Department.
+    
+    This is the canonical bridge that makes the full traceability possible:
+    
+    Commitment
+      ↓ (authorized by)
+    Authorization
+      ↓ (entails responsibility for)
+    OrganizationalResponsibility
+      ↓ (held by)
+    Person / Team / Department
+    
+    This link is created when a commitment is authorized and responsibilities
+    are assigned. It enables queries like:
+    - "Who is accountable for this commitment?"
+    - "Which commitments is this person accountable for?"
+    - "What is the full accountability chain for this commitment?"
+    
+    Does NOT duplicate CompanyAuthorization or OrganizationalResponsibility.
+    It represents the EXPLICIT LINK between them.
+    """
+    
+    __tablename__ = "accountability_links"
+    __table_args__ = (
+        Index("ix_al_org_commitment", "organization_id", "commitment_id"),
+        Index("ix_al_org_auth", "organization_id", "authorization_id"),
+        Index("ix_al_org_responsibility", "organization_id", "responsibility_id"),
+        UniqueConstraint(
+            "organization_id", "commitment_id", "authorization_id", "responsibility_id",
+            name="uq_al_exact_once",
+        ),
+    )
+    
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    
+    # The canonical chain
+    commitment_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    authorization_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    responsibility_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    
+    # Accountability type
+    accountability_type: Mapped[str] = mapped_column(String(30), nullable=False)  # ACCOUNTABILITY_TYPES
+    
+    # Delegation chain
+    delegated_from_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    delegation_depth: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # Temporal
+    valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    valid_to: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    
+    # Provenance
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    created_by: Mapped[Optional[str]] = mapped_column(String(64))
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_al_exact_once",
+        ),
+    )
+
+
+# =============================================================================
+# 4I.10 Closed-Loop Adaptation & Verification Models
+# =============================================================================
+
+class VerificationContext(Base, TimestampMixin):
+    """
+    Canonical Verification Context — the canonical representation of a verification
+    cycle comparing expected vs actual outcomes with evidence-backed assessment.
+    
+    This is the canonical verification primitive that closes the loop from
+    execution to learning. It represents a single verification cycle that
+    compares expected vs actual outcomes with full evidence provenance.
+    
+    Key principles:
+    - Evidence-driven: assessment must be backed by evidence
+    - Provenance: full traceability to source events
+    - Temporal: historical state preserved (no history rewriting)
+    - Governance-first: access controlled by scope
+    - Epistemic separation: observed/measured/evidence_backed/inferred/predicted/proposed/contested
+    - Contradiction preservation: both sides visible
+    - Exact-once: fingerprint-based deduplication
+    
+    State machine:
+    pending → in_progress → completed / blocked / superseded
+    
+    Does NOT duplicate:
+    - ObjectiveOutcomeAssessment (objective-level)
+    - CompanyActionOutcome (action-level)
+    - VerificationContext = reconciliation of all above + evidence-backed organizational assessment
+    """
+    
+    __tablename__ = "verification_contexts"
+    __table_args__ = (
+        Index("ix_vc_org_state", "organization_id", "state"),
+        Index("ix_vc_org_type", "organization_id", "verification_type"),
+        Index("ix_vc_org_scope", "organization_id", "scope_type", "scope_id"),
+        Index("ix_vc_org_commitment", "organization_id", "commitment_id"),
+        Index("ix_vc_org_objective", "organization_id", "objective_id"),
+        Index("ix_vc_org_computed", "organization_id", "computed_at"),
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_vc_exact_once",
+        ),
+    )
+    
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    
+    # Verification identity
+    verification_type: Mapped[str] = mapped_column(String(30), nullable=False, index=True)  # plan_vs_reality | commitment_fulfillment | objective_achievement | commitment_fulfillment
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    
+    # Scope - what this verification covers
+    scope_type: Mapped[str] = mapped_column(String(20), default="company", nullable=False)  # company | department | team | project | initiative | objective | commitment
+    scope_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # Links to canonical graph
+    commitment_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    authorization_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    objective_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    initiative_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    project_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # Responsibility linkage
+    responsibility_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # State machine
+    state: Mapped[str] = mapped_column(String(24), default="pending", nullable=False, index=True)  # VERIFICATION_STATES
+    verification_type: Mapped[str] = mapped_column(String(30), default="plan_vs_reality", nullable=False)
+    
+    # Expected vs Actual (core reconciliation)
+    # Expected state (what was planned/authorized/committed)
+    expected_outcome: Mapped[Optional[dict]] = mapped_column(JSON)  # {metric, target, unit, pathway, assumptions, confidence}
+    expected_confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    
+    # Actual state (what actually happened)
+    actual_outcome: Mapped[Optional[dict]] = mapped_column(JSON)  # {metric, actual, unit, measurement_quality, source}
+    actual_confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    
+    # Variance analysis
+    variance_pct: Mapped[Optional[float]] = mapped_column(Float)
+    variance_direction: Mapped[Optional[str]] = mapped_column(String(20))  # positive | negative | neutral
+    
+    # Assessment
+    assessment: Mapped[Optional[str]] = mapped_column(String(30))  # ASSESSMENT_VERDICTS
+    assessment_confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    assessment_reasoning: Mapped[Optional[str]] = mapped_column(Text)
+    
+    # Evidence & Provenance
+    evidence_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    supporting_pattern_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    supporting_lesson_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradicting_evidence_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradicting_pattern_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradicting_lesson_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradiction_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # Evidence quality breakdown
+    evidence_quality: Mapped[dict] = mapped_column(JSON, default=dict)  # {primary: n, secondary: n, ...}
+    evidence_details: Mapped[list[dict]] = mapped_column(JSON, default=list)  # [{type, source, quality, fingerprint, captured_at}]
+    
+    # Contradictions
+    active_contradictions: Mapped[int] = mapped_column(Integer, default=0)
+    contradiction_summary: Mapped[Optional[str]] = mapped_column(Text)
+    
+    # Temporal
+    valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    valid_to: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    supersedes_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    superseded_by_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    
+    # Computation metadata
+    computation_duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    trigger: Mapped[str] = mapped_column(String(40), default="manual_request")  # VERIFICATION_TRIGGERS
+    
+    # Governance
+    requested_by: Mapped[Optional[str]] = mapped_column(String(64))
+    reviewed_by: Mapped[Optional[str]] = mapped_column(String(64))
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    approved_by: Mapped[Optional[str]] = mapped_column(String(64))
+    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_vc_exact_once",
+        ),
+        CheckConstraint(
+            "state IN ('pending', 'in_progress', 'completed', 'blocked', 'superseded')",
+            name="ck_vc_state_valid",
+        ),
+    )
+
+
+class VerificationEvidence(Base, TimestampMixin):
+    """
+    Canonical Verification Evidence — immutable evidence item supporting a verification.
+    
+    Each evidence item is immutable and keyed by (verification_id, evidence_type, evidence_id)
+    so replay never duplicates. Evidence is NEVER modified after creation.
+    """
+    
+    __tablename__ = "verification_evidence"
+    __table_args__ = (
+        Index("ix_ve_verification", "verification_id"),
+        Index("ix_ve_type", "evidence_type"),
+        Index("ix_ve_captured", "captured_at"),
+        UniqueConstraint(
+            "verification_id", "evidence_type", "evidence_id",
+            name="uq_ve_exact_once",
+        ),
+    )
+    
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    verification_id: Mapped[str] = mapped_column(
+        ForeignKey("verification_contexts.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    
+    # Evidence identity
+    evidence_type: Mapped[str] = mapped_column(String(30), nullable=False)  # EVIDENCE_TYPES
+    evidence_id: Mapped[str] = mapped_column(String(64), nullable=False)  # external/source ID
+    
+    # Evidence content
+    evidence_type_detail: Mapped[str] = mapped_column(String(60))  # metric | financial | operational | customer_feedback | survey | audit | document | testimony | log | other
+    summary: Mapped[str] = mapped_column(String(500), nullable=False)
+    detail: Mapped[Optional[str]] = mapped_column(Text)
+    
+    # Evidence quality & provenance
+    quality: Mapped[str] = mapped_column(String(20), default="secondary")  # EVIDENCE_QUALITY
+    source: Mapped[Optional[str]] = mapped_column(String(200))  # source system/document/person
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)  # when evidence was captured
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    
+    # Which side this evidence supports (for contradiction handling)
+    supports_verdict: Mapped[Optional[str]] = mapped_column(String(30))  # ASSESSMENT_VERDICTS
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    
+    __table_args__ = (
+        UniqueConstraint(
+            "verification_id", "evidence_type", "evidence_id",
+            name="uq_ve_exact_once",
+        ),
+    )
+
+
+class AssessmentRecord(Base, TimestampMixin):
+    """
+    Canonical Assessment Record — the evidence-backed assessment of outcome vs expectation.
+    
+    This extends ObjectiveOutcomeAssessment with verification-level context,
+    providing the assessment layer that sits between outcome observation and learning.
+    
+    Key principles:
+    - Evidence-backed: assessment must reference supporting evidence
+    - Provenance: full traceability to source events
+    - Contradiction-aware: preserves contradicting evidence
+    - Epistemic: distinguishes observed/measured/evidence_backed/inferred/predicted/proposed/contested
+    """
+    
+    __tablename__ = "assessment_records"
+    __table_args__ = (
+        Index("ix_ar_org_verification", "organization_id", "verification_id"),
+        Index("ix_ar_org_objective", "organization_id", "objective_id"),
+        Index("ix_ar_org_state", "organization_id", "assessment"),
+        UniqueConstraint(
+            "organization_id", "verification_id", "assessment_key",
+            name="uq_ar_exact_once",
+        ),
+    )
+    
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    verification_id: Mapped[str] = mapped_column(
+        ForeignKey("verification_contexts.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    objective_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    
+    # Assessment identity
+    assessment_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    assessment: Mapped[str] = mapped_column(String(30), nullable=False)  # ASSESSMENT_VERDICTS
+    confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    reasoning: Mapped[Optional[str]] = mapped_column(Text)
+    variance_pct: Mapped[Optional[float]] = mapped_column(Float)
+    
+    # Evidence & Provenance
+    evidence_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    supporting_pattern_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    supporting_lesson_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradicting_evidence_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradicting_pattern_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # Contradictions
+    contradiction_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradiction_summary: Mapped[Optional[str]] = mapped_column(Text)
+    
+    # Governance
+    assessed_by: Mapped[Optional[str]] = mapped_column(String(64))
+    assessed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    review_required: Mapped[bool] = mapped_column(Boolean, default=False)
+    reviewer_person_id: Mapped[Optional[str]] = mapped_column(String(64))
+    
+    # Provenance
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    source_assessment_id: Mapped[Optional[str]] = mapped_column(String(32))
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "verification_id", "assessment_key",
+            name="uq_ar_exact_once",
+        ),
+    )
+
+
+class PatternVerificationLink(Base, TimestampMixin):
+    """
+    Canonical Pattern-Verification Link — links verification outcomes to detected patterns.
+    
+    When a verification produces an outcome that matches a detected pattern,
+    this link is created to enable pattern-based learning.
+    """
+    
+    __tablename__ = "pattern_verification_links"
+    __table_args__ = (
+        Index("ix_pvl_org_pattern", "organization_id", "pattern_id"),
+        Index("ix_pvl_org_verification", "organization_id", "verification_id"),
+        UniqueConstraint(
+            "organization_id", "verification_id", "pattern_id",
+            name="uq_pvl_exact_once",
+        ),
+    )
+    
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    verification_id: Mapped[str] = mapped_column(
+        ForeignKey("verification_contexts.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    pattern_id: Mapped[str] = mapped_column(
+        ForeignKey("pattern_detections.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    
+    # Link semantics
+    match_confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    match_type: Mapped[str] = mapped_column(String(30))  # exact | partial | inferred | contradicted
+    match_details: Mapped[Optional[dict]] = mapped_column(JSON)
+    
+    # Provenance
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    matched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "verification_id", "pattern_id",
+            name="uq_pvl_exact_once",
+        ),
+    )
+
+
+class LessonVerificationLink(Base, TimestampMixin):
+    """
+    Canonical Lesson-Verification Link — links verified outcomes to institutional lessons.
+    
+    When a verification produces a lesson (or confirms/contradicts an existing lesson),
+    this link is created. It preserves the temporal relationship between
+    verification and lesson.
+    """
+    
+    __tablename__ = "lesson_verification_links"
+    __table_args__ = (
+        Index("ix_lvl_org_lesson", "organization_id", "lesson_id"),
+        Index("ix_lvl_org_verification", "organization_id", "verification_id"),
+        UniqueConstraint(
+            "organization_id", "verification_id", "lesson_id",
+            name="uq_lvl_exact_once",
+        ),
+    )
+    
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    verification_id: Mapped[str] = mapped_column(
+        ForeignKey("verification_contexts.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    lesson_id: Mapped[str] = mapped_column(
+        ForeignKey("organizational_learning.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    
+    # Link semantics
+    link_type: Mapped[str] = mapped_column(String(30))  # supports | contradicts | confirms | extends | supersedes
+    confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    reasoning: Mapped[Optional[str]] = mapped_column(Text)
+    
+    # Provenance
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    linked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "verification_id", "lesson_id",
+            name="uq_lvl_exact_once",
+        ),
+    )

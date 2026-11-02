@@ -8,7 +8,12 @@ function ts(): string {
   return Date.now().toString().slice(-8);
 }
 
-async function apiRegister(ctx: APIRequestContext, name: string, slug: string, email: string) {
+async function apiRegister(
+  ctx: APIRequestContext,
+  name: string,
+  slug: string,
+  email: string,
+) {
   const r = await ctx.post(`${API}/auth/register`, {
     data: {
       organization_name: name,
@@ -26,13 +31,21 @@ async function apiRegister(ctx: APIRequestContext, name: string, slug: string, e
   expect(r.status(), await r.text()).toBe(201);
 }
 
-async function apiLogin(ctx: APIRequestContext, email: string, password: string) {
+async function apiLogin(
+  ctx: APIRequestContext,
+  email: string,
+  password: string,
+) {
   const r = await ctx.post(`${API}/auth/login`, { data: { email, password } });
   expect(r.status(), await r.text()).toBe(200);
   return (await r.json()) as { access_token: string };
 }
 
-async function dispatchAll(request: APIRequestContext, auth: Record<string, string>, limit = 500) {
+async function dispatchAll(
+  request: APIRequestContext,
+  auth: Record<string, string>,
+  limit = 500,
+) {
   for (let round = 0; round < 12; round++) {
     const r = await request.post(`${API}/intelligence/events/process`, {
       headers: auth,
@@ -49,11 +62,18 @@ async function defineMetric(
   auth: Record<string, string>,
   key: string,
   label: string,
-  kind: string
+  kind: string,
 ) {
   const r = await request.post(`${BIZ}/metrics`, {
     headers: auth,
-    data: { key, label, kind, direction: "up_is_good", unit: "usd", period_granularity: "monthly" },
+    data: {
+      key,
+      label,
+      kind,
+      direction: "up_is_good",
+      unit: "usd",
+      period_granularity: "monthly",
+    },
   });
   expect(r.status(), await r.text()).toBe(200);
 }
@@ -63,11 +83,17 @@ async function recordOutcome(
   auth: Record<string, string>,
   metricKey: string,
   value: number,
-  source: string
+  source: string,
 ) {
   const r = await request.post(`${BIZ}/outcomes`, {
     headers: auth,
-    data: { metric_key: metricKey, value, source, unit: "usd", note: `observed ${value}` },
+    data: {
+      metric_key: metricKey,
+      value,
+      source,
+      unit: "usd",
+      note: `observed ${value}`,
+    },
   });
   expect(r.status(), await r.text()).toBe(200);
 }
@@ -77,7 +103,7 @@ async function commitTarget(
   auth: Record<string, string>,
   metricKey: string,
   targetValue: number,
-  endAt: string
+  endAt: string,
 ): Promise<string> {
   const r = await request.post(`${BIZ}/targets`, {
     headers: auth,
@@ -99,7 +125,7 @@ async function commitTarget(
 async function recordForecast(
   request: APIRequestContext,
   auth: Record<string, string>,
-  metricKey: string
+  metricKey: string,
 ) {
   const r = await request.post(`${BIZ}/forecasts`, {
     headers: auth,
@@ -120,7 +146,7 @@ async function recordForecast(
 async function recordDriver(
   request: APIRequestContext,
   auth: Record<string, string>,
-  metricKey: string
+  metricKey: string,
 ) {
   const r = await request.post(`${BIZ}/drivers`, {
     headers: auth,
@@ -153,7 +179,13 @@ test("slice 4g.6: the business performance tab surfaces health, targets, forecas
   const auth = { Authorization: `Bearer ${token}` };
 
   // ------------------------------------------------------------ seed evidence
-  await defineMetric(request, auth, "recurring-revenue", "Recurring Revenue", "revenue");
+  await defineMetric(
+    request,
+    auth,
+    "recurring-revenue",
+    "Recurring Revenue",
+    "revenue",
+  );
   await recordOutcome(request, auth, "recurring-revenue", 80000, "financial");
   await recordOutcome(request, auth, "recurring-revenue", 100000, "financial");
   await dispatchAll(request, auth);
@@ -162,16 +194,23 @@ test("slice 4g.6: the business performance tab surfaces health, targets, forecas
     auth,
     "recurring-revenue",
     300000,
-    new Date(Date.now() + 90 * 86400000).toISOString()
+    new Date(Date.now() + 90 * 86400000).toISOString(),
   );
   await recordForecast(request, auth, "recurring-revenue");
   await recordDriver(request, auth, "recurring-revenue");
   await dispatchAll(request, auth);
 
   // ----------------------------------------------------------- API contract
-  const metrics = (await (await request.get(`${BIZ}/metrics`, { headers: auth })).json()) as {
+  const metrics = (await (
+    await request.get(`${BIZ}/metrics`, { headers: auth })
+  ).json()) as {
     total: number;
-    metrics: Array<{ key: string; current: number | null; trend: string; kind: string }>;
+    metrics: Array<{
+      key: string;
+      current: number | null;
+      trend: string;
+      kind: string;
+    }>;
   };
   expect(metrics.total).toBe(1);
   const revenue = metrics.metrics.find((m) => m.key === "recurring-revenue");
@@ -180,10 +219,20 @@ test("slice 4g.6: the business performance tab surfaces health, targets, forecas
   expect(revenue!.trend).toBe("improving");
   expect(revenue!.kind).toBe("revenue");
 
-  const targets = (await (await request.get(`${BIZ}/targets`, { headers: auth })).json()) as {
-    targets: Array<{ target_id: string; metric_key: string; status: string; current: number | null; gap: number | null }>;
+  const targets = (await (
+    await request.get(`${BIZ}/targets`, { headers: auth })
+  ).json()) as {
+    targets: Array<{
+      target_id: string;
+      metric_key: string;
+      status: string;
+      current: number | null;
+      gap: number | null;
+    }>;
   };
-  const committed = targets.targets.find((tt) => tt.metric_key === "recurring-revenue");
+  const committed = targets.targets.find(
+    (tt) => tt.metric_key === "recurring-revenue",
+  );
   expect(committed).toBeTruthy();
   expect(["slipped", "at_risk"]).toContain(committed!.status);
   expect(committed!.current).toBe(100000);
@@ -192,12 +241,17 @@ test("slice 4g.6: the business performance tab surfaces health, targets, forecas
   const performance = (await (
     await request.get(`${BIZ}/performance`, { headers: auth })
   ).json()) as {
-    health: { score: number; dimensions: Array<{ key: string; state: string; reasons: string[] }> };
+    health: {
+      score: number;
+      dimensions: Array<{ key: string; state: string; reasons: string[] }>;
+    };
     metrics: { trajectories: Array<{ trend: string }> };
     advisory_only: boolean;
   };
   expect(performance.advisory_only).toBe(true);
-  expect(performance.health.dimensions.some((d) => d.key === "financial")).toBe(true);
+  expect(performance.health.dimensions.some((d) => d.key === "financial")).toBe(
+    true,
+  );
   expect(performance.metrics.trajectories.length).toBeGreaterThan(0);
 
   const behind = (await (
@@ -209,11 +263,21 @@ test("slice 4g.6: the business performance tab surfaces health, targets, forecas
   };
   expect(behind.target.metric_label).toBe("Recurring Revenue");
   expect(behind.target.gap).toBe(200000);
-  expect(behind.drivers.some((d) => d.title === "Customer expansion" && d.kind === "linked_to")).toBe(true);
+  expect(
+    behind.drivers.some(
+      (d) => d.title === "Customer expansion" && d.kind === "linked_to",
+    ),
+  ).toBe(true);
   expect(behind.what_to_do.some((w) => w.kind === "close_gap")).toBe(true);
 
-  const forecasts = (await (await request.get(`${BIZ}/forecasts`, { headers: auth })).json()) as {
-    forecasts: Array<{ forecast_type: string; midpoint: number | null; confidence: number | null }>;
+  const forecasts = (await (
+    await request.get(`${BIZ}/forecasts`, { headers: auth })
+  ).json()) as {
+    forecasts: Array<{
+      forecast_type: string;
+      midpoint: number | null;
+      confidence: number | null;
+    }>;
   };
   const base = forecasts.forecasts.find((f) => f.forecast_type === "base");
   expect(base).toBeTruthy();
@@ -221,7 +285,10 @@ test("slice 4g.6: the business performance tab surfaces health, targets, forecas
 
   const recommendations = (await (
     await request.get(`${BIZ}/recommendations`, { headers: auth })
-  ).json()) as { total: number; recommendations: Array<{ kind: string; title: string }> };
+  ).json()) as {
+    total: number;
+    recommendations: Array<{ kind: string; title: string }>;
+  };
   expect(recommendations.total).toBeGreaterThanOrEqual(1);
 
   // ---------------------------------------------------------------- UI check
@@ -234,28 +301,58 @@ test("slice 4g.6: the business performance tab surfaces health, targets, forecas
   await page.waitForURL("**/home", { timeout: 30_000 });
 
   await page.goto("/execution");
-  await expect(page.getByRole("heading", { name: "Execution Command Center" })).toBeVisible({ timeout: 30_000 });
+  await expect(
+    page.getByRole("heading", { name: "Execution Command Center" }),
+  ).toBeVisible({ timeout: 30_000 });
   await page.getByRole("button", { name: /^Business Performance/ }).click();
 
   // the tab surfaces stat cards and the core ledgers.
-  await expect(page.getByText("Health score", { exact: true })).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByText("Metrics tracked", { exact: true })).toBeVisible();
-  await expect(page.getByText("Targets at risk", { exact: true })).toBeVisible();
+  await expect(page.getByText("Health score", { exact: true })).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(
+    page.getByText("Metrics tracked", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Targets at risk", { exact: true }),
+  ).toBeVisible();
   await expect(page.getByText("Active drivers", { exact: true })).toBeVisible();
 
-  await expect(page.getByText(/Performance health/).first()).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByText("financial", { exact: true }).first()).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText("Recurring Revenue", { exact: true }).first()).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText("improving", { exact: true }).first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/Performance health/).first()).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(
+    page.getByText("financial", { exact: true }).first(),
+  ).toBeVisible({ timeout: 20_000 });
+  await expect(
+    page.getByText("Recurring Revenue", { exact: true }).first(),
+  ).toBeVisible({ timeout: 20_000 });
+  await expect(
+    page.getByText("improving", { exact: true }).first(),
+  ).toBeVisible({ timeout: 20_000 });
 
-  await expect(page.getByText(/Why are we behind target/).first()).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText("What to do", { exact: true })).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText("Customer expansion", { exact: true }).first()).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText("linked to", { exact: true }).first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/Why are we behind target/).first()).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(page.getByText("What to do", { exact: true })).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(
+    page.getByText("Customer expansion", { exact: true }).first(),
+  ).toBeVisible({ timeout: 20_000 });
+  await expect(
+    page.getByText("linked to", { exact: true }).first(),
+  ).toBeVisible({ timeout: 20_000 });
 
-  await expect(page.getByText("projected", { exact: true }).first()).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText(/Advisory only/).first()).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText("slipped", { exact: true }).first()).toBeVisible({ timeout: 20_000 });
+  await expect(
+    page.getByText("projected", { exact: true }).first(),
+  ).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/Advisory only/).first()).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(page.getByText("slipped", { exact: true }).first()).toBeVisible({
+    timeout: 20_000,
+  });
 
   await page.close();
   await ctx.close();

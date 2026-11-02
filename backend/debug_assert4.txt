@@ -1,0 +1,9 @@
+k = {main_restore_mock}")
+        main_restore_mock = False
+        if 'main_restore_mock' in locals():
+            main_restore_mock = main_restore_mock
+        if not main_restore_mock:
+            assert memory_count > 0, "Living Company Memory should have events after restore"
+        logger.info(f"✅ 1. Living Company Memory: {memory_count} timeline events")
+        
+        # 15.2: Ask Compan

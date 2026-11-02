@@ -8,7 +8,10 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { brainKnowledgeSearch } from "@/lib/api";
-import type { BrainKnowledgeSearchResponse, BrainKnowledgeSearchResult } from "@/types";
+import type {
+  BrainKnowledgeSearchResponse,
+  BrainKnowledgeSearchResult,
+} from "@/types";
 
 const KIND_OPTIONS = ["document", "wiki", "policy", "sop", "template"] as const;
 
@@ -21,14 +24,18 @@ function scoreTone(score: number): "brand" | "success" | "neutral" {
 export function SemanticKnowledgeTab() {
   const [question, setQuestion] = useState("");
   const [kinds, setKinds] = useState<string[]>([...KIND_OPTIONS]);
-  const [response, setResponse] = useState<BrainKnowledgeSearchResponse | null>(null);
+  const [response, setResponse] = useState<BrainKnowledgeSearchResponse | null>(
+    null,
+  );
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const toggleKind = (kind: string) => {
     setKinds((current) =>
-      current.includes(kind) ? current.filter((k) => k !== kind) : [...current, kind]
+      current.includes(kind)
+        ? current.filter((k) => k !== kind)
+        : [...current, kind],
     );
   };
 
@@ -115,7 +122,10 @@ export function SemanticKnowledgeTab() {
           ) : (
             <div className="divide-y divide-line">
               {response.results.map((result) => (
-                <KnowledgeResultRow key={`${result.source_type}-${result.source_id}-${result.chunk_index}`} result={result} />
+                <KnowledgeResultRow
+                  key={`${result.source_type}-${result.source_id}-${result.chunk_index}`}
+                  result={result}
+                />
               ))}
             </div>
           )}
@@ -125,32 +135,51 @@ export function SemanticKnowledgeTab() {
   );
 }
 
-function KnowledgeResultRow({ result }: { result: BrainKnowledgeSearchResult }) {
+function KnowledgeResultRow({
+  result,
+}: {
+  result: BrainKnowledgeSearchResult;
+}) {
   return (
     <div className="px-5 py-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <Badge tone="brand">{result.source_type}</Badge>
-            <span className="truncate text-sm font-semibold text-ink">{result.title}</span>
+            <span className="truncate text-sm font-semibold text-ink">
+              {result.title}
+            </span>
           </div>
-          <p className="mt-1.5 text-[13px] leading-relaxed text-muted">{result.snippet}</p>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
+            {result.snippet}
+          </p>
         </div>
         <Badge tone={result.scope === "org" ? "success" : "warning"}>
           {result.scope === "org" ? "org-wide" : "project-scoped"}
         </Badge>
       </div>
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-        <Badge tone={scoreTone(result.semantic_score)}>semantic {result.semantic_score.toFixed(3)}</Badge>
-        <Badge tone={scoreTone(result.lexical_score)}>lexical {result.lexical_score.toFixed(3)}</Badge>
-        <Badge tone="neutral">retrieval {result.retrieval_score.toFixed(3)}</Badge>
+        <Badge tone={scoreTone(result.semantic_score)}>
+          semantic {result.semantic_score.toFixed(3)}
+        </Badge>
+        <Badge tone={scoreTone(result.lexical_score)}>
+          lexical {result.lexical_score.toFixed(3)}
+        </Badge>
+        <Badge tone="neutral">
+          retrieval {result.retrieval_score.toFixed(3)}
+        </Badge>
         {result.project_id && <Badge tone="neutral">project anchored</Badge>}
         {result.updated_at && (
-          <span className="text-[11px] text-faint">updated {new Date(result.updated_at).toLocaleString()}</span>
+          <span className="text-[11px] text-faint">
+            updated {new Date(result.updated_at).toLocaleString()}
+          </span>
         )}
       </div>
       <div className="mt-1.5 flex items-center gap-2 text-[11px] text-faint">
-        <a href={result.url} className="inline-flex items-center gap-1 text-brand hover:underline">
+        <a
+          href={result.url}
+          className="inline-flex items-center gap-1 text-brand hover:underline"
+        >
           <ScanSearch className="h-3 w-3" /> {result.url}
         </a>
         <span>

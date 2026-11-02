@@ -1,43 +1,31 @@
-"""Phase 19 — Organization Graph nodes.
+"""Organization Node model."""
 
-Every major entity (employees, projects, tasks, meetings, goals, knowledge,
-customers, documents, workflows, departments, communities, policies, assets,
-learning, decisions) participates in a unified enterprise graph as a node.
-"""
+from datetime import datetime
+from typing import Optional
+from sqlalchemy import DateTime, ForeignKey, String, Text, JSON, Boolean, Index, UniqueConstraint, Integer
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from typing import Any, Optional
-
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Index, String
-from sqlalchemy.orm import Mapped, mapped_column
-
-from app.db.database import Base
-from app.models.organization import TimestampMixin, gen_uuid
-
-NODE_TYPES = (
-    "employee", "project", "task", "meeting", "goal", "knowledge", "customer",
-    "document", "workflow", "department", "community", "policy", "asset",
-    "learning", "idea", "recognition", "decision", "contract", "vendor",
-    "innovation", "team",
-)
+from app.models.base import Base, TimestampMixin, gen_uuid
 
 
 class OrganizationNode(Base, TimestampMixin):
-    """One node in the organization intelligence network."""
-
     __tablename__ = "organization_nodes"
-    __table_args__ = (
-        Index("ix_org_nodes_org_type", "organization_id", "node_type"),
-        Index("ix_org_nodes_org_name", "organization_id", "name"),
-    )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
     organization_id: Mapped[str] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    node_type: Mapped[str] = mapped_column(String(30), nullable=False)
-    # stable external id so re-syncs update the same node (e.g. the project id)
-    external_id: Mapped[str] = mapped_column(String(32), nullable=False)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    properties: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, default=dict)
-    importance: Mapped[float] = mapped_column(Float, default=1.0)
-    last_seen_at: Mapped[Optional[Any]] = mapped_column(DateTime(timezone=True))
+    node_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    entity_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    parent_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    level: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    path: Mapped[str] = mapped_column(String(500), nullable=False)
+    properties: Mapped[dict] = mapped_column(JSON, default=dict)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    organizationnode_metadata: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+
+    __table_args__ = (
+        Index("ix_org_nodes_org_type", "organization_id", "node_type"),
+        Index("ix_org_nodes_org_parent", "organization_id", "parent_id"),
+    )

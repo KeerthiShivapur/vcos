@@ -1,67 +1,221 @@
-"""VCOS backend entrypoint."""
+import sys
+import importlib.util
+from pathlib import Path
 
-import logging
+# Load all models first to ensure they're registered with SQLAlchemy metadata
+# This must happen before any service/api imports that might reference models
+def _load_all_models():
+    """Load all model modules to register them with SQLAlchemy metadata.
+    
+    This imports model modules directly from their file paths to avoid
+    circular import issues with app.models.__init__.
+    """
+    print("DEBUG: _load_all_models called", file=sys.stderr)
+    _models_dir = Path(__file__).parent / "models"
+    print(f"DEBUG: models dir = {_models_dir}", file=sys.stderr)
+    print(f"DEBUG: models dir exists = {_models_dir.exists()}", file=sys.stderr)
+    
+    _model_submodules = [
+        "organization",
+        "user",
+        "role",
+        "notification",
+        "workspace",
+        "ai",
+        "invitation",
+        "employee",
+        "department",
+        "team",
+        "skill",
+        "project",
+        "task",
+        "goal",
+        "meeting",
+        "calendar",
+        "collaboration",
+        "approval",
+        "governance",
+        "workload",
+        "knowledge",
+        "communication",
+        "executive",
+        "autonomy",
+        "continuous_twin",
+        "canonical_reliability",
+        "observability",
+        "workflow",
+        "enterprise",
+        "feature_flags",
+        "infrastructure",
+        "deployment_completeness",
+        "backup_manifest",
+        "release",
+        "industry",
+        "industry_module",
+        "industry_template",
+        "industry_policy",
+        "industry_configuration",
+        "digital_twin",
+        "developer",
+        "company_state",
+        "autonomous_plan",
+        "briefing",
+        "company_memory",
+        "decision_history",
+        "innovation",
+        "learning_cycle",
+        "optimization",
+        "organization_edge",
+        "organization_health",
+        "organization_node",
+        "prediction",
+        "recommendation",
+        "simulation",
+        "strategy_report",
+        "executive_intelligence",
+        "ai_governance",
+        "resilience_plan",
+        "brain",
+        "company_actions",
+        "organizational_learning",
+        "people_intelligence",
+        "skills_intelligence",
+        "ownership_intelligence",
+        "collaboration_intelligence",
+        "org_capability_intelligence",
+        "people_decision",
+        "execution_intelligence",
+        "execution_coordination",
+        "execution_strategy",
+        "resource_allocation_intelligence",
+        "customer_intelligence",
+        "business_commercial",
+        "business_performance",
+        "financial_resource_procurement",
+        "canonical_resource_asset",
+        "canonical_procurement_vendor",
+        "canonical_economic_intelligence",
+        "canonical_business_process",
+        "canonical_knowledge",
+        "canonical_communication_collaboration",
+        "canonical_business_intelligence",
+        "canonical_workforce",
+        "canonical_integration",
+        "company_operating",
+        "company_intent",
+        "canonical_company_continuity",
+        "longitudinal",
+        "learning_profile",
+        "course",
+        "learning_path",
+        "skill_gap",
+        "certification",
+        "assessment",
+        "academy",
+        "mentorship",
+        "career",
+        "onboarding",
+        "learning_recommendation",
+        "hr",
+        "customer",
+        "lead",
+        "contract",
+        "ticket",
+        "partner",
+        "portal",
+        "finance",
+        "adaptive_operating_profile",
+        "company_experience",
+    ]
+    
+    for submodule in _model_submodules:
+        module_name = f"app.models.{submodule}"
+        if module_name not in sys.modules:
+            module_path = Path(__file__).parent / "models" / f"{submodule}.py"
+            if module_path.exists():
+                print(f"DEBUG: Loading {module_name} from {module_path}", file=sys.stderr)
+                spec = importlib.util.spec_from_file_location(module_name, module_path)
+                if spec:
+                    module = importlib.util.module_from_spec(spec)
+                    sys.modules[module_name] = module
+                    spec.loader.exec_module(module)
+                    print(f"DEBUG: Loaded {module_name} successfully", file=sys.stderr)
+            else:
+                print(f"DEBUG: Module path not found: {module_path}", file=sys.stderr)
+        else:
+            print(f"DEBUG: {module_name} already in sys.modules", file=sys.stderr)
+
+
+# Load all models first to register them with SQLAlchemy metadata
+# This must happen before any service/api imports that might reference models
+# _load_all_models()  # Disabled - causes double-loading, normal imports handle it
+
 from contextlib import asynccontextmanager
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.openapi.utils import get_openapi
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
+from prometheus_client import generate_latest
+import logging
 
-from app.core.config import get_settings
-from app.core.middleware import RequestContextMiddleware
-from app.db.database import dispose_engine, init_db
+from app.api.v1 import router as api_router
+from app.core.config import settings
+from app.core.observability import init_observability
+from app.core.realtime import add_realtime_to_app
+from app.db.database import init_db
+from app.services.realtime_init import (
+    initialize_realtime_services,
+    shutdown_realtime_services,
+    get_realtime_health,
+)
 
-logger = logging.getLogger("vcos")
-
-settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("VCOS backend starting (env=%s)", settings.APP_ENV)
+    # Startup
+    init_observability(app)
     await init_db()
-    from app.services.permission_service import permission_service
-    from app.db.database import SessionLocal
-
-    async with SessionLocal() as db:
-        await permission_service.sync_catalog(db)
-        await permission_service.sync_role_permissions(db)
-        await db.commit()
-    if settings.APP_ENV != "test":
-        from app.workers.scheduler import start_scheduler, stop_scheduler
-
-        scheduler_tasks = start_scheduler()
-        logger.info("VCOS background workers running")
-    else:
-        scheduler_tasks = []
-    logger.info("VCOS backend ready")
+    
+    # Initialize real-time collaboration services
     try:
-        yield
-    finally:
-        if scheduler_tasks:
-            from app.workers.scheduler import stop_scheduler
-
-            stop_scheduler(scheduler_tasks)
-    await dispose_engine()
-    logger.info("VCOS backend stopped")
+        realtime_results = await initialize_realtime_services(
+            redis_url=settings.REDIS_URL if hasattr(settings, "REDIS_URL") else None,
+            livekit_url=settings.LIVEKIT_URL if hasattr(settings, "LIVEKIT_URL") else None,
+            livekit_api_key=settings.LIVEKIT_API_KEY if hasattr(settings, "LIVEKIT_API_KEY") else None,
+            livekit_api_secret=settings.LIVEKIT_API_SECRET if hasattr(settings, "LIVEKIT_API_SECRET") else None,
+            vapid_subject=settings.VAPID_SUBJECT if hasattr(settings, "VAPID_SUBJECT") else "mailto:admin@vcos.io",
+            fcm_server_key=settings.FCM_SERVER_KEY if hasattr(settings, "FCM_SERVER_KEY") else None,
+            fcm_project_id=settings.FCM_PROJECT_ID if hasattr(settings, "FCM_PROJECT_ID") else None,
+            apns_team_id=settings.APNS_TEAM_ID if hasattr(settings, "APNS_TEAM_ID") else None,
+            apns_key_id=settings.APNS_KEY_ID if hasattr(settings, "APNS_KEY_ID") else None,
+            apns_bundle_id=settings.APNS_BUNDLE_ID if hasattr(settings, "APNS_BUNDLE_ID") else None,
+            apns_private_key_path=settings.APNS_PRIVATE_KEY_PATH if hasattr(settings, "APNS_PRIVATE_KEY_PATH") else None,
+            apns_use_sandbox=settings.APNS_USE_SANDBOX if hasattr(settings, "APNS_USE_SANDBOX") else True,
+        )
+        logger.info("Real-time services initialized", extra={"results": realtime_results})
+    except Exception as e:
+        logger.error(f"Failed to initialize real-time services: {e}")
+    
+    yield
+    
+    # Shutdown
+    try:
+        await shutdown_realtime_services()
+    except Exception as e:
+        logger.error(f"Error during real-time services shutdown: {e}")
 
 
 app = FastAPI(
-    title="VCOS API — Virtual Company Operating System",
-    description=(
-        "The operating system for virtual companies. One identity, one organization graph, "
-        "one permission model, one event stream. Phase 3: Work Execution Engine — projects, "
-        "tasks, goals, meetings, calendar, approvals, risks, workload, AI Companion and "
-        "background intelligence workers."
-    ),
+    title="VCOS API",
+    description="Virtual Company Operating System API",
     version="1.0.0",
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_url="/openapi.json",
 )
 
-app.add_middleware(RequestContextMiddleware)
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -70,346 +224,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from app.api.v1 import (  # noqa: E402
-    academy,
-    accounts,
-    agents,
-    ai,
-    ai_actions,
-    ai_memory,
-    ai_predictions,
-    ai_planning,
-    ai_recommendations,
-    ai_search,
-    ai_voice,
-    analytics,
-    announcements,
-    approvals,
-    assessments,
-    assets,
-    attendance,
-    audit,
-    auth,
-    autonomy,
-    automation,
-    calendar,
-    career,
-    certifications,
-    communities,
-    community_events,
-    collaboration_intel,
-    collaboration_live,
-    compliance,
-    contracts,
-    contacts,
-    courses,
-    customers,
-    dashboard,
-    decisions,
-    departments,
-    developers,
-    digital_twin,
-    documents,
-    employees,
-    enterprise,
-    events,
-    exec_health,
-    exec_predictions,
-    exec_recommendations,
-    exec_reports,
-    exec_risks,
-    exec_simulations,
-    exec_strategy,
-    executive,
-    execution,
-    expertise,
-    extensions,
-    finance,
-    forums,
-    goals,
-    governance,
-    health,
-    hr,
-    infrastructure,
-    innovation,
-    industry,
-    insights,
-    intelligence,
-    intelligence_briefs,
-    knowledge,
-    leads,
-    learning,
-    learning_paths,
-    leave,
-    live,
-    meeting_intel,
-    meeting_rooms,
-    meetings,
-    memory,
-    mentorship,
-    messaging,
-    notifications,
-    offboarding,
-    onboarding,
-    opportunities,
-    organization,
-    organizations,
-    partners,
-    payroll,
-    performance,
-    policies,
-    polls,
-    portal,
-    posts,
-    prediction,
-    presence,
-    projects,
-    recognition,
-    recording_library,
-    recordings,
-    recommendations,
-    recruitment,
-    risks,
-    roles,
-    search,
-    skills,
-    sops,
-    support,
-    tasks,
-    teams,
-    templates,
-    users,
-    wellbeing,
-    webhooks,
-    wiki,
-    workforce,
-    workload,
-    workspace,
-    network,
-    brain,
-)
+# Add real-time WebSocket gateway
+add_realtime_to_app(app)
 
-API_PREFIX = settings.API_V1_PREFIX
-app.include_router(health.router)
-app.include_router(health.platform_router, prefix=API_PREFIX)
-app.include_router(ai.router, prefix=API_PREFIX)
-app.include_router(ai_actions.router, prefix=API_PREFIX)
-app.include_router(ai_memory.router, prefix=API_PREFIX)
-app.include_router(ai_predictions.router, prefix=API_PREFIX)
-app.include_router(ai_planning.router, prefix=API_PREFIX)
-app.include_router(ai_recommendations.router, prefix=API_PREFIX)
-app.include_router(ai_search.router, prefix=API_PREFIX)
-app.include_router(ai_voice.router, prefix=API_PREFIX)
-app.include_router(auth.router, prefix=API_PREFIX)
-app.include_router(organizations.router, prefix=API_PREFIX)
-app.include_router(users.router, prefix=API_PREFIX)
-app.include_router(roles.router, prefix=API_PREFIX)
-app.include_router(notifications.router, prefix=API_PREFIX)
-app.include_router(workspace.router, prefix=API_PREFIX)
-app.include_router(audit.router, prefix=API_PREFIX)
-app.include_router(events.router, prefix=API_PREFIX)
-app.include_router(search.router, prefix=API_PREFIX)
-app.include_router(execution.router, prefix=API_PREFIX)
-app.include_router(dashboard.router, prefix=API_PREFIX)
-app.include_router(employees.router, prefix=API_PREFIX)
-app.include_router(departments.router, prefix=API_PREFIX)
-app.include_router(teams.router, prefix=API_PREFIX)
-app.include_router(organization.router, prefix=API_PREFIX)
-app.include_router(expertise.router, prefix=API_PREFIX)
-app.include_router(presence.router, prefix=API_PREFIX)
-app.include_router(projects.router, prefix=API_PREFIX)
-app.include_router(tasks.router, prefix=API_PREFIX)
-app.include_router(goals.router, prefix=API_PREFIX)
-app.include_router(calendar.router, prefix=API_PREFIX)
-app.include_router(meeting_rooms.router, prefix=API_PREFIX)
-app.include_router(approvals.router, prefix=API_PREFIX)
-app.include_router(governance.router, prefix=API_PREFIX)
-app.include_router(risks.router, prefix=API_PREFIX)
-app.include_router(workload.router, prefix=API_PREFIX)
-app.include_router(documents.router, prefix=API_PREFIX)
-app.include_router(wiki.router, prefix=API_PREFIX)
-app.include_router(policies.router, prefix=API_PREFIX)
-app.include_router(sops.router, prefix=API_PREFIX)
-app.include_router(templates.router, prefix=API_PREFIX)
-app.include_router(decisions.router, prefix=API_PREFIX)
-app.include_router(knowledge.router, prefix=API_PREFIX)
-app.include_router(communities.router, prefix=API_PREFIX)
-app.include_router(posts.router, prefix=API_PREFIX)
-app.include_router(announcements.router, prefix=API_PREFIX)
-app.include_router(forums.router, prefix=API_PREFIX)
-app.include_router(recognition.router, prefix=API_PREFIX)
-app.include_router(innovation.router, prefix=API_PREFIX)
-app.include_router(polls.router, prefix=API_PREFIX)
-app.include_router(community_events.router, prefix=API_PREFIX)
-app.include_router(messaging.router, prefix=API_PREFIX)
-app.include_router(collaboration_live.router, prefix=API_PREFIX)
-app.include_router(live.router)
-app.include_router(meeting_intel.router, prefix=API_PREFIX)
-app.include_router(recording_library.router, prefix=API_PREFIX)
-app.include_router(meetings.router, prefix=API_PREFIX)
-app.include_router(recordings.router, prefix=API_PREFIX)
-app.include_router(executive.router, prefix=API_PREFIX)
-app.include_router(exec_health.router, prefix=API_PREFIX)
-app.include_router(exec_risks.router, prefix=API_PREFIX)
-app.include_router(exec_recommendations.router, prefix=API_PREFIX)
-app.include_router(exec_predictions.router, prefix=API_PREFIX)
-app.include_router(exec_simulations.router, prefix=API_PREFIX)
-app.include_router(exec_reports.router, prefix=API_PREFIX)
-app.include_router(exec_strategy.router, prefix=API_PREFIX)
-app.include_router(intelligence.router, prefix=API_PREFIX)
-app.include_router(collaboration_intel.router, prefix=API_PREFIX)
-app.include_router(intelligence_briefs.router, prefix=API_PREFIX)
-app.include_router(recommendations.router, prefix=API_PREFIX)
-app.include_router(insights.router, prefix=API_PREFIX)
-app.include_router(learning.router, prefix=API_PREFIX)
-app.include_router(courses.router, prefix=API_PREFIX)
-app.include_router(learning_paths.router, prefix=API_PREFIX)
-app.include_router(skills.router, prefix=API_PREFIX)
-app.include_router(assessments.router, prefix=API_PREFIX)
-app.include_router(mentorship.router, prefix=API_PREFIX)
-app.include_router(certifications.router, prefix=API_PREFIX)
-app.include_router(career.router, prefix=API_PREFIX)
-app.include_router(academy.router, prefix=API_PREFIX)
-app.include_router(onboarding.router, prefix=API_PREFIX)
-app.include_router(attendance.router, prefix=API_PREFIX)
-app.include_router(leave.router, prefix=API_PREFIX)
-app.include_router(hr.router, prefix=API_PREFIX)
-app.include_router(recruitment.router, prefix=API_PREFIX)
-app.include_router(performance.router, prefix=API_PREFIX)
-app.include_router(assets.router, prefix=API_PREFIX)
-app.include_router(offboarding.router, prefix=API_PREFIX)
-app.include_router(compliance.router, prefix=API_PREFIX)
-app.include_router(workforce.router, prefix=API_PREFIX)
-app.include_router(wellbeing.router, prefix=API_PREFIX)
-app.include_router(payroll.router, prefix=API_PREFIX)
-app.include_router(customers.router, prefix=API_PREFIX)
-app.include_router(contacts.router, prefix=API_PREFIX)
-app.include_router(leads.router, prefix=API_PREFIX)
-app.include_router(opportunities.router, prefix=API_PREFIX)
-app.include_router(contracts.router, prefix=API_PREFIX)
-app.include_router(support.router, prefix=API_PREFIX)
-app.include_router(partners.router, prefix=API_PREFIX)
-app.include_router(accounts.router, prefix=API_PREFIX)
-app.include_router(portal.router, prefix=API_PREFIX)
-app.include_router(analytics.router, prefix=API_PREFIX)
-app.include_router(finance.router, prefix=API_PREFIX)
-app.include_router(automation.router, prefix=API_PREFIX)
-app.include_router(enterprise.router, prefix=API_PREFIX)
-app.include_router(infrastructure.router, prefix=API_PREFIX)
-app.include_router(industry.router, prefix=API_PREFIX)
-app.include_router(digital_twin.router, prefix=API_PREFIX)
-app.include_router(developers.router, prefix=API_PREFIX)
-app.include_router(agents.router, prefix=API_PREFIX)
-app.include_router(webhooks.router, prefix=API_PREFIX)
-app.include_router(extensions.router, prefix=API_PREFIX)
-app.include_router(extensions.theme_router, prefix=API_PREFIX)
-app.include_router(memory.memory_router, prefix=API_PREFIX)
-app.include_router(memory.timeline_router, prefix=API_PREFIX)
-app.include_router(memory.context_router, prefix=API_PREFIX)
+# API routes
+app.include_router(api_router, prefix="/api/v1")
 
-# Phase 19 — Autonomous Enterprise & Intelligence Network
-app.include_router(autonomy.autonomy_router, prefix=API_PREFIX)
-app.include_router(autonomy.briefing_router, prefix=API_PREFIX)
-app.include_router(autonomy.decision_router, prefix=API_PREFIX)
-app.include_router(prediction.router, prefix=API_PREFIX)
-app.include_router(network.router, prefix=API_PREFIX)
+# Health check
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "service": "vcos-api"}
 
-# Phase 20 — Universal Organizational Intelligence Network (Company Brain)
-app.include_router(brain.router, prefix=API_PREFIX)
+# Real-time services health check
+@app.get("/health/realtime")
+async def realtime_health():
+    return await get_realtime_health()
 
-# Phase 17 — industry pack routers (one generated surface per vertical).
-from app.industry.api import INDUSTRY_ROUTERS  # noqa: E402
-
-for _industry_router in INDUSTRY_ROUTERS.values():
-    app.include_router(_industry_router, prefix=API_PREFIX)
+# Metrics endpoint
+@app.get("/metrics")
+async def metrics():
+    return Response(content=generate_latest(), media_type="text/plain")
 
 
-@app.get("/")
-async def root():
-    return {
-        "service": "VCOS API",
-        "version": "1.0.0",
-        "docs": "/docs",
-        "openapi": "/openapi.json",
-        "health": "/health",
-    }
-
-
-def custom_openapi():
-    if app.openapi_schema:
-        return app.openapi_schema
-    schema = get_openapi(
-        title=app.title,
-        version=app.version,
-        description=app.description,
-        routes=app.routes,
-    )
-    schema["x-vcos"] = {
-        "phase": 20,
-        "name": "Universal Organizational Intelligence Network — The Living Company Operating System",
-        "capabilities": [
-            "authentication",
-            "organizations",
-            "multi-tenancy",
-            "rbac",
-            "sessions",
-            "notifications",
-            "audit",
-            "events",
-            "workspace",
-            "search",
-            "ai-gateway",
-            "employees",
-            "departments",
-            "teams",
-            "org-chart",
-            "expertise",
-            "presence",
-            "intelligence",
-            "projects",
-            "tasks",
-            "goals",
-            "meetings",
-            "calendar",
-            "meeting-rooms",
-            "meeting-sessions",
-            "meeting-notes",
-            "live-presence",
-            "live-websocket",
-            "meeting-chat",
-            "meeting-whiteboard",
-            "screen-share",
-            "rtc-signaling",
-            "reactions",
-            "meeting-recordings",
-            "meeting-transcript",
-            "meeting-captions",
-            "live-translation",
-            "ai-meeting-intelligence",
-            "attendance-intelligence",
-            "meeting-analytics",
-            "calendar-intelligence",
-            "action-items-to-tasks",
-            "approvals",
-            "risks",
-            "workload",
-            "ai-companion",
-            "background-workers",
-            "industry-solutions",
-            "industry-packs",
-            "company-brain",
-            "universal-search",
-            "living-graph",
-            "company-memory",
-            "company-timeline",
-            "universal-context",
-            "company-health",
-            "event-bus",
-            "continuous-evolution",
-        ],
-    }
-    app.openapi_schema = schema
-    return app.openapi_schema
-
-
-app.openapi = custom_openapi
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8999)

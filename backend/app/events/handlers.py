@@ -3172,24 +3172,68 @@ async def handle_company_decision_recorded(db, event, payload):
 @on("company.action.executed")
 async def handle_company_action_executed(db, event, payload):
     """An approved company action was executed — transition the decision."""
-    from app.intelligence.company_operating_engine import company_operating_engine
+    from app.intelligence.company_operating_engine import (
+        DecisionExecutionRejected,
+        company_operating_engine,
+    )
 
     org_id = payload.get("organization_id") or event.organization_id
     if not org_id:
         return
-    await company_operating_engine.execute_decision(
-        db, organization_id=org_id, event=event, payload=payload,
-    )
+    try:
+        await company_operating_engine.execute_decision(
+            db, organization_id=org_id, event=event, payload=payload,
+        )
+    except DecisionExecutionRejected as exc:
+        # 4H.2 §4 law: a rejected execution must never transition the
+        # decision and must not be retried (it is a lawful rejection, not a
+        # transient failure). The event was already validated by the route
+        # before publish; this is the identical defense-in-depth check.
+        import logging
+
+        logging.getLogger("vcos.events.handlers").info(
+            "decision execution rejected: %s", exc
+        )
 
 
 @on("company.outcome.recorded")
 async def handle_company_outcome_recorded(db, event, payload):
     """The outcome + lesson of an executed action — close the learning loop."""
-    from app.intelligence.company_operating_engine import company_operating_engine
+    from app.intelligence.company_operating_engine import (
+        DecisionOutcomeRejected,
+        company_operating_engine,
+    )
 
     org_id = payload.get("organization_id") or event.organization_id
     if not org_id:
         return
-    await company_operating_engine.record_outcome(
-        db, organization_id=org_id, event=event, payload=payload,
-    )
+    try:
+        await company_operating_engine.record_outcome(
+            db, organization_id=org_id, event=event, payload=payload,
+        )
+    except DecisionOutcomeRejected as exc:
+        import logging
+
+        logging.getLogger("vcos.events.handlers").info(
+            "decision outcome recording rejected: %s", exc
+        )
+
+
+@on("company.causal_edge.refreshed")
+@on("company.prediction.recorded")
+@on("company.memory.lesson.derived")
+@on("company.state.composed")
+@on("company.state.changed")
+async def handle_company_universal_audit(db, event, payload):
+    """Slice 4H.1/4H.3 audit markers (extend the existing company_operating_engine
+    bridge; no second bridge class).
+
+    The causality snapshot, the decision prediction, the lesson memory and
+    the living-company state snapshots are written by the engine inside the
+    existing refresh / decision / outcome paths (exact-once on their own
+    source events), so these handlers carry no recompute work — they ack the
+    audit events without recompute loops. The 4H.3 state events are emitted
+    through the background-audit stream (no dispatch jobs), so this ack is
+    defense-in-depth only.
+    """
+    return None

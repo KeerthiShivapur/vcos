@@ -1,0 +1,43 @@
+Attempt to restore other org's backup into this organization
+            # This should fail due to tenant isolation
+            try:
+                restore_result = await self.restore_from_backup(
+                    db=db,
+                    backup_id=other_backup.id,
+                    organization_id=organization_id,
+                    initiated_by="adversarial_test",
+                )
+                
+                # Restore should fail due to tenant isolation
+                if restore_result.get("success", False):
+                    result.add_check(ValidationCheck(
+                        name="cross_tenant_restore_attempt",
+                        status=ValidationStatus.FAILED,
+                        message="Cross-tenant restore unexpectedly succeeded",
+                        details={"other_backup_id": other_backup.id},
+                    ))
+                else:
+                    result.add_check(ValidationCheck(
+                        name="cross_tenant_restore_attempt",
+                        status=ValidationStatus.VERIFIED,
+                        message="Cross-tenant restore correctly rejected",
+                        details={"other_backup_id": other_backup.id},
+                    ))
+            except Exception as e:
+                # Expected - restore should fail
+                result.add_check(ValidationCheck(
+                    name="cross_tenant_restore_attempt",
+                    status=ValidationStatus.VERIFIED,
+                    message="Cross-tenant restore correctly rejected",
+                    details={"error": str(e)},
+                ))
+            
+            # Cleanup
+            await db.delete(other_backup)
+            await db.delete(other_org)
+            await db.flush()
+            
+        except Exception as e:
+            logger.warning(f"Cross-tenant restore test failed: {e}")
+
+    async def _test_restore_mixed_tenant_data(self, result: ValidationResult, db: AsyncSession, organization_id: str) -> 

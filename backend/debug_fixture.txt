@@ -1,0 +1,104 @@
+tenant_isolation_test_setup(db_session: AsyncSession):
+    """Set up two tenants for isolation testing."""
+    # Create tenant A
+    org_a = Organization(
+        id=f"ua-tenant-a-{uuid.uuid4().hex[:8]}",
+        name="Tenant A Test Org",
+        slug=f"tenant-a-{uuid.uuid4().hex[:8]}",
+        status="active",
+    )
+    db_session.add(org_a)
+    await db_session.flush()
+    
+    user_a = User(
+        id=f"ua-user-a-{uuid.uuid4().hex[:8]}",
+        email=f"ua-admin-a-{uuid.uuid4().hex[:8]}@acceptance.test",
+        password_hash="test_hash",
+        full_name="Tenant A Admin",
+        organization_id=org_a.id,
+        status="active",
+        role="admin",
+    )
+    db_session.add(user_a)
+    await db_session.flush()
+    
+    emp_a = Employee(
+        id=f"ua-emp-a-{uuid.uuid4().hex[:8]}",
+        organization_id=org_a.id,
+        user_id=str(user_a.id),
+        employee_number=f"UAA{uuid.uuid4().hex[:6].upper()}",
+        first_name="Tenant",
+        last_name="A",
+        display_name="Tenant A Admin",
+        email=f"ua-admin-a-{uuid.uuid4().hex[:8]}@acceptance.test",
+        joining_date=datetime.now(timezone.utc).date(),
+        status="active",
+        employment_type="full_time",
+    )
+    db_session.add(emp_a)
+    await db_session.flush()
+    
+    caller_a = CallerAccess(
+        organization_id=org_a.id,
+        user_id=str(user_a.id),
+        employee_id=emp_a.id,
+        org_wide=True,
+    )
+    
+    # Create tenant B
+    org_b = Organization(
+        id=f"ua-tenant-b-{uuid.uuid4().hex[:8]}",
+        name="Tenant B Test Org",
+        slug=f"tenant-b-{uuid.uuid4().hex[:8]}",
+        status="active",
+    )
+    db_session.add(org_b)
+    await db_session.flush()
+    
+    user_b = User(
+        id=f"ua-user-b-{uuid.uuid4().hex[:8]}",
+        email=f"ua-admin-b-{uuid.uuid4().hex[:8]}@acceptance.test",
+        password_hash="test_hash",
+        full_name="Tenant B Admin",
+        organization_id=org_b.id,
+        status="active",
+        role="admin",
+    )
+    db_session.add(user_b)
+    await db_session.flush()
+    
+    emp_b = Employee(
+        id=f"ua-emp-b-{uuid.uuid4().hex[:8]}",
+        organization_id=org_b.id,
+        user_id=str(user_b.id),
+        employee_number=f"UAB{uuid.uuid4().hex[:6].upper()}",
+        first_name="Tenant",
+        last_name="B",
+        display_name="Tenant B Admin",
+        email=f"ua-admin-b-{uuid.uuid4().hex[:8]}@acceptance.test",
+        joining_date=datetime.now(timezone.utc).date(),
+        status="active",
+        employment_type="full_time",
+    )
+    db_session.add(emp_b)
+    await db_session.flush()
+    
+    caller_b = CallerAccess(
+        organization_id=org_b.id,
+        user_id=str(user_b.id),
+        employee_id=emp_b.id,
+        org_wide=True,
+    )
+    
+    await db_session.commit()
+    
+    return {
+        "caller_a": caller_a,
+        "caller_b": caller_b,
+        "org_a": org_a,
+        "org_b": org_b,
+    }
+
+
+class TestTenantIsolationAdversarial:
+    """Test cross-tenant isolation with a

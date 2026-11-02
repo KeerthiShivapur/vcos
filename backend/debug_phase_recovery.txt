@@ -1,0 +1,17 @@
+_phase_recovery_approved(self, db: AsyncSession, context: RestoreContext, restore_op: RestoreOperation) -> Dict[str, Any]:
+        """Phase 14: Recovery approved for activation."""
+        # Final comprehensive validation - check all previous phases
+        all_passed = True
+        messages = []
+        
+        for phase_record in context.phases:
+            if not phase_record.get("passed", False):
+                all_passed = False
+                messages.append(f"{phase_record['phase']}: {phase_record.get('message', 'Failed')}")
+        
+        if not all_passed:
+            return {"passed": False, "message": "Not all phases passed: " + "; ".join(messages), "validation_status": ValidationStatus.FAILED.value}
+        
+        # Additional check: no phase should be BLOCKED or INCONCLUSIVE for critical domains
+        critical_domains = ["schema", "canonical_integrity", "tenant_isolation", "temporal", "provenance", "epistemic", "governance"]
+        for domain in critical_domains:

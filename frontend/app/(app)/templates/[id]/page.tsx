@@ -9,7 +9,7 @@ import {
   getTemplate,
   publishTemplate,
   touchPresence,
-  useTemplate,
+  useTemplate as recordTemplateUse,
 } from "@/lib/api";
 import { roleCan, PERMISSIONS } from "@/lib/permissions";
 import type { Template } from "@/types";
@@ -85,7 +85,7 @@ function DetailContent() {
   async function recordUse() {
     setBusy(true);
     try {
-      setTemplate(await useTemplate(id));
+      setTemplate(await recordTemplateUse(id));
       toastSuccess("Usage recorded");
     } finally {
       setBusy(false);
@@ -115,11 +115,20 @@ function DetailContent() {
   }
 
   if (loading) {
-    return <div className="flex justify-center py-24"><Spinner label="Loading template" /></div>;
+    return (
+      <div className="flex justify-center py-24">
+        <Spinner label="Loading template" />
+      </div>
+    );
   }
 
   if (error || !template) {
-    return <ErrorState title="Template not found" message={error ?? "It may have been deleted."} />;
+    return (
+      <ErrorState
+        title="Template not found"
+        message={error ?? "It may have been deleted."}
+      />
+    );
   }
 
   return (
@@ -131,17 +140,31 @@ function DetailContent() {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <KnowledgeBadge status={template.status} kind="template" />
-            <Button size="sm" variant="secondary" onClick={recordUse} loading={busy}>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={recordUse}
+              loading={busy}
+            >
               <Copy className="h-4 w-4" /> Use template
             </Button>
             {canManage && (
               <>
                 {template.status !== "published" && (
-                  <Button size="sm" variant="ghost" onClick={publish} loading={busy}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={publish}
+                    loading={busy}
+                  >
                     <CheckCircle2 className="h-4 w-4" /> Publish
                   </Button>
                 )}
-                <Button size="sm" variant="ghost" onClick={() => setShowDelete(true)}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setShowDelete(true)}
+                >
                   <Trash2 className="h-4 w-4 text-danger" />
                 </Button>
               </>
@@ -153,13 +176,22 @@ function DetailContent() {
       <WatchBar kind="template" entityId={template.id} />
 
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-[12px] text-muted">
-        {template.owner_name && <span className="flex items-center gap-1.5"><Avatar name={template.owner_name} size="xs" /> {template.owner_name}</span>}
+        {template.owner_name && (
+          <span className="flex items-center gap-1.5">
+            <Avatar name={template.owner_name} size="xs" />{" "}
+            {template.owner_name}
+          </span>
+        )}
         <span>v{template.version}</span>
         <span>{template.view_count} views</span>
-        <span className="flex items-center gap-1 font-semibold text-brand"><Stamp className="h-3.5 w-3.5" /> {template.usage_count} uses</span>
+        <span className="flex items-center gap-1 font-semibold text-brand">
+          <Stamp className="h-3.5 w-3.5" /> {template.usage_count} uses
+        </span>
         <Badge tone="neutral">{template.kind_name}</Badge>
         {template.category && <Badge tone="neutral">{template.category}</Badge>}
-        <span className="ml-auto text-faint">Updated {formatDate(template.updated_at)}</span>
+        <span className="ml-auto text-faint">
+          Updated {formatDate(template.updated_at)}
+        </span>
       </div>
 
       <div className="card p-6">
@@ -172,19 +204,34 @@ function DetailContent() {
           )}
         </div>
         {template.content ? (
-          <div className="whitespace-pre-wrap font-mono text-[13px] leading-relaxed text-muted">{template.content}</div>
+          <div className="whitespace-pre-wrap font-mono text-[13px] leading-relaxed text-muted">
+            {template.content}
+          </div>
         ) : (
-          <EmptyState icon={Stamp} title="Empty template" description="This template has no content yet." />
+          <EmptyState
+            icon={Stamp}
+            title="Empty template"
+            description="This template has no content yet."
+          />
         )}
       </div>
 
       <CommentsPanel kind="template" entityId={template.id} />
       <VersionHistory kind="template" entityId={template.id} />
 
-      <Modal open={showDelete} onClose={() => setShowDelete(false)} title="Delete template?" description="This cannot be undone.">
+      <Modal
+        open={showDelete}
+        onClose={() => setShowDelete(false)}
+        title="Delete template?"
+        description="This cannot be undone."
+      >
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={() => setShowDelete(false)}>Cancel</Button>
-          <Button variant="danger" onClick={remove} loading={busy}>Delete</Button>
+          <Button variant="ghost" onClick={() => setShowDelete(false)}>
+            Cancel
+          </Button>
+          <Button variant="danger" onClick={remove} loading={busy}>
+            Delete
+          </Button>
         </div>
       </Modal>
     </div>

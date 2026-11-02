@@ -29,7 +29,7 @@ from app.knowledge.chunking import (
     content_hash,
 )
 from app.knowledge.embeddings import embedding_to_json, get_embedding_provider
-from app.models.knowledge import KnowledgeVector
+from app.models.intelligence import KnowledgeVector
 
 logger = logging.getLogger("vcos.knowledge.semantic_indexer")
 
@@ -204,3 +204,7 @@ async def delete_entity(
         )
     )
     return bool(result.rowcount)
+
+
+# Module-level instance for convenience
+semantic_indexer = None

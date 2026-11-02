@@ -9,6 +9,7 @@ import logging
 from typing import Any, Optional
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.timeutils import utcnow
@@ -43,7 +44,20 @@ class ProfileService:
                 learning_goals=[],
             )
             db.add(profile)
-            await db.flush()
+            try:
+                async with db.begin_nested():
+                    await db.flush()
+            except IntegrityError:
+                profile = (
+                    await db.execute(
+                        select(LearningProfile).where(
+                            LearningProfile.organization_id == organization_id,
+                            LearningProfile.employee_id == employee_id,
+                        )
+                    )
+                ).scalar_one_or_none()
+                if profile is None:
+                    raise
         return profile
 
     async def get_profile(self, db: AsyncSession, *, organization_id: str, employee_id: str) -> LearningProfile:

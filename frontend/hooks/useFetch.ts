@@ -1,81 +1,102 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useAuth } from "./useAuth";
 
-interface FetchState<T> {
-  data: T | null;
-  error: string | null;
-  loading: boolean;
+interface UseFetchOptions {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: any;
+  requireAuth?: boolean;
 }
 
-export type UseFetchOptions = {
-  query?: Record<string, string | number | boolean | undefined | null>;
-  deps?: unknown[];
-};
+export function useFetch<T = any>(url: string, options: UseFetchOptions = {}) {
+  const { data, setData } = useState<T | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { user, accessToken } = useAuth();
 
-/**
- * Minimal data-fetching hook around the API client.
- * Query params and refetching supported. Auth/refresh handled by lib/api.
- *
- * Usage:
- *   useFetch<T>("/users")                      — plain GET
- *   useFetch<T>("/users", { query: {...} })    — with query params
- *   useFetch<T>("/users", [deps])              — legacy deps-array form
- *   useFetch<T>(null)                          — disabled
- */
-export function useFetch<T>(
-  path: string | null,
-  options: UseFetchOptions | unknown[] = {}
-): FetchState<T> & { refetch: () => void; refresh: () => void } {
-  const { query, deps = [] } = Array.isArray(options) ? { deps: options } : options;
-  const [state, setState] = useState<FetchState<T>>({ data: null, error: null, loading: true });
-  const [tick, setTick] = useState(0);
+  const fetchData = useCallback(
+    async (overrideOptions: UseFetchOptions = {}) => {
+      const opts = { ...options, ...overrideOptions };
+      setLoading(true);
+      setError(null);
 
-  useEffect(() => {
-    if (!path) {
-      setState({ data: null, error: null, loading: false });
-      return;
-    }
-    let active = true;
-    let attempts = 0;
-    // The backend answers in well under a second; a fetch that lingers past
-    // this budget is stuck (cancelled by the browser during a navigation burst)
-    // and gets retried instead of leaving the page on a permanent spinner.
-    const SOFT_TIMEOUT_MS = 5_000;
-    const load = async () => {
-      setState((prev) => ({ ...prev, loading: true }));
       try {
-        const data = await Promise.race([
-          api<T>(path, { query }),
-          new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error("Request timed out, retrying")), SOFT_TIMEOUT_MS)
-          ),
-        ]);
-        if (active) setState({ data, error: null, loading: false });
-      } catch (error) {
-        if (!active) return;
-        if (attempts < 1) {
-          attempts += 1;
-          setTimeout(() => {
-            if (active) void load();
-          }, 400);
-        } else {
-          setState({
-            data: null,
-            error: error instanceof Error ? error.message : "Request failed",
-            loading: false,
-          });
-        }
-      }
-    };
-    void load();
-    return () => {
-      active = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path, tick, ...deps]);
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+          ...opts.headers,
+        };
 
-  const refresh = () => setTick((t) => t + 1);
-  return { ...state, refetch: refresh, refresh };
+        if (opts.requireAuth !== false && accessToken) {
+          headers["Authorization"] = `Bearer ${accessToken}`;
+        }
+
+        const response = await fetch(url, {
+          method: opts.method || "GET",
+          headers,
+          body: opts.body ? JSON.stringify(opts.body) : undefined,
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        setData(data);
+        return data;
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error("Unknown error");
+        setError(error.message);
+        throw error;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [url, accessToken, options],
+  );
+
+  return { data, loading, error, refetch: fetchData };
+}
+
+// Mutation hook
+export function useMutation<T = any, TVariables = any>(
+  url: string,
+  options: {
+    method?: string;
+    onSuccess?: (data: T) => void;
+    onError?: (error: Error) => void;
+  } = {},
+) {
+  const { user, accessToken } = useAuth();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const mutate = useCallback(async (variables: TVariables) => {
+    setLoading(true);
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("access_token")}`,
+        },
+        body: JSON.stringify(variables),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error("Unknown error");
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  return { mutate, loading, error };
 }

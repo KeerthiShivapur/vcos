@@ -1,0 +1,57 @@
+class CompanyDecisionEvidence(Base, TimestampMixin):
+    """§3.2 — evidence lineage rows answering "why did we decide this".
+
+    Every row carries the evidence's OWN timestamp (`captured_at`), never
+    write-time — it is the as-of anchor (§5.1). Constraints and stakeholders
+    are first-class evidence types.
+    """
+
+    __tablename__ = "company_decision_evidence"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "decision_id", "evidence_key",
+            name="uq_cdev_key",
+        ),
+        Index(
+            "ix_cdev_org_decision",
+            "organization_id", "decision_id",
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "decision_id"],
+            ["company_decisions.organization_id", "company_decisions.decision_id"],
+            name="fk_cdev_decision",
+            ondelete="CASCADE",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    decision_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    # optional per-alternative evidence
+    alternative_key: Mapped[Optional[str]] = mapped_column(String(80), default=None)
+    # `ev:<decision_id>:<n>` — exact-once
+    evidence_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    # event | metric | insight | pattern | memory | decision | constraint |
+    # stakeholder (DECISION_EVIDENCE_TYPES)
+    evidence_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    # link into the event fabric
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64), default=None)
+    # e.g. business.metric.updated, insight.detected
+    source_kind: Mapped[str] = mapped_column(String(60), nullable=False, default="")
+    # what this evidence said
+    source_summary: Mapped[str] = mapped_column(String(400), nullable=False, default="")
+    # the evidence's own timestamp — the as-of anchor
+    captured_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    # 0..1
+    weight: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+
+
+class CompanyDecisionPrecedent(Base, TimestampMixin):
+    """§3.3 — precedent citations: this decision cites a past decision.
+
+    `context_signature` is the deterministic linker (kind + scopes +
+    

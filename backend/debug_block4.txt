@@ -1,0 +1,7 @@
+Incomplete restore correctly rejected on real PostgreSQL") assert "failed" in str(exc_info.value).lower() or "not found" in str(exc_info.value).lower()
+        
+        logger.info("✅ Incomplete restore correctly rejected on real PostgreSQL")
+
+    @pytest.mark.asyncio
+    @pytest.mark.postgres
+    a

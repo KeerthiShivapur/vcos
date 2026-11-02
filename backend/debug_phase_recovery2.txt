@@ -1,0 +1,33 @@
+_phase_recovery_approved(self, db: AsyncSession, context: RestoreContext, restore_op: RestoreOperation) -> Dict[str, Any]:
+        """Phase 14: Recovery approved for activation."""
+        # Final comprehensive validation - check all previous phases
+        all_passed = True
+        messages = []
+        
+        for phase_record in context.phases:
+            if not phase_record.get("passed", False):
+                all_passed = False
+                messages.append(f"{phase_record['phase']}: {phase_record.get('message', 'Failed')}")
+        
+        if not all_passed:
+            return {"passed": False, "message": "Not all phases passed: " + "; ".join(messages), "validation_status": ValidationStatus.FAILED.value}
+        
+        # Additional check: no phase should be BLOCKED or INCONCLUSIVE for critical domains
+        critical_domains = ["schema", "canonical_integrity", "tenant_isolation", "temporal", "provenance", "epistemic", "governance"]
+        for domain in critical_domains:
+            if domain in context.validation_results:
+                vr = context.validation_results[domain]
+                if vr.overall_status in (ValidationStatus.BLOCKED, ValidationStatus.INCONCLUSIVE):
+                    return {"passed": False, "message": f"Critical domain {domain} is {vr.overall_status.value}", "validation_status": ValidationStatus.BLOCKED.value}
+        
+        return {"passed": True, "message": "Recovery approved for activation", "validation_status": ValidationStatus.VERIFIED.value}
+
+    async def _phase_activated(self, db: AsyncSession, context: RestoreContext, restore_op: RestoreOperation) -> Dict[str, Any]:
+        """Phase 15: Activate restored environment."""
+        # Mark restore as activated
+        restore_op.phase = "ACTIVATED"
+        restore_op.status = "activated"
+        restore_op.completed_at = utcnow()
+        await db.flush()
+        
+        return {"passed": True, "message": "Restored environment activated", "validation_status": Validat

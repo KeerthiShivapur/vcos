@@ -1,0 +1,37 @@
+{
+  "run_id": "b074fb26-53e",
+  "state": "BLOCKED",
+  "profile_name": "startup",
+  "employee_count": 5,
+  "tenant_count": 1,
+  "environment_type": "external_postgres",
+  "dataset_identity": {
+    "vcos_revision": "cd653b84c2a4",
+    "schema_revision": "unknown",
+    "generator_revision": "1.0",
+    "scale_profile": "startup",
+    "employee_count": 5,
+    "tenant_count": 1,
+    "seed": 42,
+    "density_strategy": "standard",
+    "environment_fingerprint": "a486493b8a2b23f5"
+  },
+  "ownership": {
+    "run_id": "b074fb26-53e",
+    "owns_database": false,
+    "owns_schema": false,
+    "owns_tables": false,
+    "database_name": null,
+    "schema_name": null,
+    "created_tables": [],
+    "temporary_resources": []
+  },
+  "checkpoints": [],
+  "current_phase": "schema_validation",
+  "started_at": "2026-09-26T02:52:16.890180",
+  "updated_at": "2026-09-26T02:52:17.332839",
+  "completed_at": "2026-09-26T02:52:17.332845",
+  "error": "Invalid transition: PREFLIGHTED -> SCHEMA_READY",
+  "retry_count": 0,
+  "max_retries": 3
+}

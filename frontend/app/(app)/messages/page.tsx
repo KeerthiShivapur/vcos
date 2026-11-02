@@ -76,7 +76,9 @@ function MessagesContent() {
       setMentions(mentionList);
       setMyEmployeeId(me?.id ?? null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load conversations");
+      setError(
+        err instanceof Error ? err.message : "Unable to load conversations",
+      );
     }
   }
 
@@ -84,7 +86,10 @@ function MessagesContent() {
     setActiveId(id);
     setLoading(true);
     try {
-      const [list, mentionList] = await Promise.all([listMessages(id), listMyMentions(20)]);
+      const [list, mentionList] = await Promise.all([
+        listMessages(id),
+        listMyMentions(20),
+      ]);
       setMessages(list);
       setMentions(mentionList);
       markConversationRead(id).catch(() => undefined);
@@ -106,7 +111,9 @@ function MessagesContent() {
       const message = data.message as ChatMessage | undefined;
       const conversationId = String(data.conversation_id ?? "");
       if (!message || message.conversation_id !== conversationId) return;
-      setMessages((rows) => (rows.some((r) => r.id === message.id) ? rows : [...rows, message]));
+      setMessages((rows) =>
+        rows.some((r) => r.id === message.id) ? rows : [...rows, message],
+      );
       if (activeId === conversationId) {
         markConversationRead(conversationId).catch(() => undefined);
         markMessageRead(message.id).catch(() => undefined);
@@ -125,19 +132,30 @@ function MessagesContent() {
         ),
       );
       if (myEmployeeId && message.mentions.includes(myEmployeeId)) {
-        listMyMentions(20).then(setMentions).catch(() => undefined);
+        listMyMentions(20)
+          .then(setMentions)
+          .catch(() => undefined);
       }
     };
 
     const updateMessage = (data: Record<string, unknown>) => {
       const message = data.message as ChatMessage | undefined;
       if (!message) return;
-      setMessages((rows) => rows.map((r) => (r.id === message.id ? message : r)));
-      setMentions((rows) => rows.map((r) => (r.id === message.id ? message : r)));
+      setMessages((rows) =>
+        rows.map((r) => (r.id === message.id ? message : r)),
+      );
+      setMentions((rows) =>
+        rows.map((r) => (r.id === message.id ? message : r)),
+      );
       setConversations((rows) =>
         rows.map((c) =>
           c.id === message.conversation_id
-            ? { ...c, last_message_preview: message.deleted ? "(deleted)" : (message.content ?? "") }
+            ? {
+                ...c,
+                last_message_preview: message.deleted
+                  ? "(deleted)"
+                  : (message.content ?? ""),
+              }
             : c,
         ),
       );
@@ -146,9 +164,16 @@ function MessagesContent() {
     const removeMessage = (data: Record<string, unknown>) => {
       const messageId = String(data.message_id ?? "");
       if (!messageId) return;
-      const tombstone = { deleted: true, content: null } as Partial<ChatMessage>;
-      setMessages((rows) => rows.map((r) => (r.id === messageId ? { ...r, ...tombstone } : r)));
-      setMentions((rows) => rows.map((r) => (r.id === messageId ? { ...r, ...tombstone } : r)));
+      const tombstone = {
+        deleted: true,
+        content: null,
+      } as Partial<ChatMessage>;
+      setMessages((rows) =>
+        rows.map((r) => (r.id === messageId ? { ...r, ...tombstone } : r)),
+      );
+      setMentions((rows) =>
+        rows.map((r) => (r.id === messageId ? { ...r, ...tombstone } : r)),
+      );
     };
 
     const applyReaction = (data: Record<string, unknown>) => {
@@ -162,13 +187,18 @@ function MessagesContent() {
           const reactions = [...r.reactions];
           const idx = reactions.findIndex((x) => x.emoji === emoji);
           if (reacted) {
-            if (idx >= 0) reactions[idx] = { emoji, count: reactions[idx].count + 1 };
+            if (idx >= 0)
+              reactions[idx] = { emoji, count: reactions[idx].count + 1 };
             else reactions.push({ emoji, count: 1 });
           } else if (idx >= 0) {
             if (reactions[idx].count <= 1) reactions.splice(idx, 1);
             else reactions[idx] = { emoji, count: reactions[idx].count - 1 };
           }
-          return { ...r, reactions, reaction_count: Math.max(0, r.reaction_count + (reacted ? 1 : -1)) };
+          return {
+            ...r,
+            reactions,
+            reaction_count: Math.max(0, r.reaction_count + (reacted ? 1 : -1)),
+          };
         }),
       );
     };
@@ -222,13 +252,20 @@ function MessagesContent() {
       await openConversation(conversation.id);
       setTab("conversations");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to open conversation");
+      setError(
+        err instanceof Error ? err.message : "Unable to open conversation",
+      );
     }
   }
 
   async function startChannel() {
     try {
-      const conversation = await createConversation({ type: "channel", title: "General", channel_kind: "general", channel_key: "general" });
+      const conversation = await createConversation({
+        type: "channel",
+        title: "General",
+        channel_kind: "general",
+        channel_key: "general",
+      });
       await loadConversations();
       await openConversation(conversation.id);
     } catch (err) {
@@ -292,9 +329,16 @@ function MessagesContent() {
     if (!window.confirm("Delete this message?")) return;
     try {
       await deleteMessage(id);
-      const tombstone = { deleted: true, content: null } as Partial<ChatMessage>;
-      setMessages((rows) => rows.map((r) => (r.id === id ? { ...r, ...tombstone } : r)));
-      setMentions((rows) => rows.map((r) => (r.id === id ? { ...r, ...tombstone } : r)));
+      const tombstone = {
+        deleted: true,
+        content: null,
+      } as Partial<ChatMessage>;
+      setMessages((rows) =>
+        rows.map((r) => (r.id === id ? { ...r, ...tombstone } : r)),
+      );
+      setMentions((rows) =>
+        rows.map((r) => (r.id === id ? { ...r, ...tombstone } : r)),
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to delete message");
     }
@@ -345,9 +389,13 @@ function MessagesContent() {
                 >
                   <div className="flex items-center justify-between gap-2">
                     <p className="truncate text-[13px] font-semibold text-ink">
-                      {conversation.title ?? (conversation.type === "channel" ? "# " : "") + "Direct message"}
+                      {conversation.title ??
+                        (conversation.type === "channel" ? "# " : "") +
+                          "Direct message"}
                     </p>
-                    {conversation.unread_count > 0 && <Badge tone="brand">{conversation.unread_count}</Badge>}
+                    {conversation.unread_count > 0 && (
+                      <Badge tone="brand">{conversation.unread_count}</Badge>
+                    )}
                   </div>
                   <p className="truncate text-[12px] text-faint">
                     {conversation.type} · {conversation.message_count} messages
@@ -355,7 +403,9 @@ function MessagesContent() {
                 </button>
               ))}
               <div className="mt-2 border-t border-line pt-2">
-                <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-faint">Start a DM</p>
+                <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-faint">
+                  Start a DM
+                </p>
                 {employees
                   .filter((e) => e.id !== myEmployeeId)
                   .slice(0, 20)
@@ -366,7 +416,9 @@ function MessagesContent() {
                       className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left hover:bg-surface-muted"
                     >
                       <Avatar name={employee.full_name} size="xs" />
-                      <span className="truncate text-[13px] text-muted">{employee.full_name}</span>
+                      <span className="truncate text-[13px] text-muted">
+                        {employee.full_name}
+                      </span>
                     </button>
                   ))}
               </div>
@@ -382,8 +434,12 @@ function MessagesContent() {
                     onClick={() => openConversation(mention.conversation_id)}
                     className="w-full rounded-md px-3 py-2 text-left hover:bg-surface-muted"
                   >
-                    <p className="truncate text-[13px] text-ink">{mention.sender_name} mentioned you</p>
-                    <p className="truncate text-[12px] text-faint">{mention.content}</p>
+                    <p className="truncate text-[13px] text-ink">
+                      {mention.sender_name} mentioned you
+                    </p>
+                    <p className="truncate text-[12px] text-faint">
+                      {mention.content}
+                    </p>
                   </button>
                 ))
               )}
@@ -396,27 +452,50 @@ function MessagesContent() {
             <>
               <div className="flex items-center justify-between border-b border-line px-4 py-3">
                 <div>
-                  <p className="text-sm font-semibold text-ink">{active.title ?? "Direct message"}</p>
+                  <p className="text-sm font-semibold text-ink">
+                    {active.title ?? "Direct message"}
+                  </p>
                   <p className="text-[12px] text-faint">
                     {active.type} · {active.member_count} members
                   </p>
                 </div>
-                <Button variant="ghost" size="sm" onClick={() => archiveConversation(active.id).then(loadConversations)}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() =>
+                    archiveConversation(active.id).then(loadConversations)
+                  }
+                >
                   Archive
                 </Button>
               </div>
 
-              <div ref={listRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+              <div
+                ref={listRef}
+                className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4"
+              >
                 {loading ? (
-                  <div className="flex justify-center py-12"><Spinner label="Loading messages" /></div>
+                  <div className="flex justify-center py-12">
+                    <Spinner label="Loading messages" />
+                  </div>
                 ) : messages.length === 0 ? (
-                  <EmptyState title="No messages yet" description="Say hello to get things started." />
+                  <EmptyState
+                    title="No messages yet"
+                    description="Say hello to get things started."
+                  />
                 ) : (
                   messages.map((message) => (
-                    <div key={message.id} className={`flex gap-2 ${message.sender_id === myEmployeeId ? "flex-row-reverse" : ""}`}>
-                      <div className={`max-w-[70%] rounded-lg px-3 py-2 ${message.sender_id === myEmployeeId ? "bg-brand text-white" : "bg-surface-muted text-ink"}`}>
+                    <div
+                      key={message.id}
+                      className={`flex gap-2 ${message.sender_id === myEmployeeId ? "flex-row-reverse" : ""}`}
+                    >
+                      <div
+                        className={`max-w-[70%] rounded-lg px-3 py-2 ${message.sender_id === myEmployeeId ? "bg-brand text-white" : "bg-surface-muted text-ink"}`}
+                      >
                         {message.sender_id !== myEmployeeId && (
-                          <p className="text-[11px] font-semibold opacity-70">{message.sender_name}</p>
+                          <p className="text-[11px] font-semibold opacity-70">
+                            {message.sender_name}
+                          </p>
                         )}
                         {editingId === message.id ? (
                           <div className="flex items-center gap-1">
@@ -430,23 +509,33 @@ function MessagesContent() {
                               }}
                               placeholder="Edit message…"
                             />
-                            <Button size="sm" variant="secondary" onClick={() => saveEdit(message.id)}>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => saveEdit(message.id)}
+                            >
                               Save
                             </Button>
                           </div>
                         ) : message.deleted ? (
-                          <p className="text-[13px] italic opacity-60">Deleted message</p>
+                          <p className="text-[13px] italic opacity-60">
+                            Deleted message
+                          </p>
                         ) : (
                           <p className="whitespace-pre-wrap text-[13px]">
                             {message.content}
                             {message.edited && (
-                              <span className={`ml-1 text-[11px] ${message.sender_id === myEmployeeId ? "text-white/70" : "text-faint"}`}>
+                              <span
+                                className={`ml-1 text-[11px] ${message.sender_id === myEmployeeId ? "text-white/70" : "text-faint"}`}
+                              >
                                 (edited)
                               </span>
                             )}
                           </p>
                         )}
-                        <div className={`mt-1 flex items-center gap-2 text-[11px] ${message.sender_id === myEmployeeId ? "text-white/70" : "text-faint"}`}>
+                        <div
+                          className={`mt-1 flex items-center gap-2 text-[11px] ${message.sender_id === myEmployeeId ? "text-white/70" : "text-faint"}`}
+                        >
                           <span>{timeAgo(message.created_at)}</span>
                           <button
                             onClick={() => react(message, "👍")}
@@ -454,26 +543,44 @@ function MessagesContent() {
                             className="flex items-center gap-0.5 hover:opacity-70"
                           >
                             <Smile className="h-3 w-3" />
-                            {message.reaction_count > 0 && <span>{message.reaction_count}</span>}
+                            {message.reaction_count > 0 && (
+                              <span>{message.reaction_count}</span>
+                            )}
                           </button>
-                          <button onClick={() => pin(message)} title="Pin" className="hover:opacity-70">
+                          <button
+                            onClick={() => pin(message)}
+                            title="Pin"
+                            className="hover:opacity-70"
+                          >
                             <Pin className="h-3 w-3" />
                           </button>
-                          {!message.deleted && message.sender_id === myEmployeeId && (
-                            <>
-                              <button onClick={() => startEdit(message)} title="Edit" className="hover:opacity-70">
-                                <Pencil className="h-3 w-3" />
-                              </button>
-                              <button onClick={() => remove(message.id)} title="Delete" className="hover:opacity-70">
-                                <Trash2 className="h-3 w-3" />
-                              </button>
-                            </>
-                          )}
+                          {!message.deleted &&
+                            message.sender_id === myEmployeeId && (
+                              <>
+                                <button
+                                  onClick={() => startEdit(message)}
+                                  title="Edit"
+                                  className="hover:opacity-70"
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </button>
+                                <button
+                                  onClick={() => remove(message.id)}
+                                  title="Delete"
+                                  className="hover:opacity-70"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              </>
+                            )}
                         </div>
                         {message.reactions.length > 0 && (
                           <div className="mt-1 flex gap-1">
                             {message.reactions.map((reaction) => (
-                              <span key={reaction.emoji} className="rounded bg-white/20 px-1.5 py-0.5 text-[11px]">
+                              <span
+                                key={reaction.emoji}
+                                className="rounded bg-white/20 px-1.5 py-0.5 text-[11px]"
+                              >
                                 {reaction.emoji} {reaction.count}
                               </span>
                             ))}

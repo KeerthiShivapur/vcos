@@ -1,0 +1,9 @@
+assert "not found" in result["error"].lower() or "backup" in result["error"].lower()
+        
+        logger.info("✅ Incomplete restore correctly rejected on real PostgreSQL") assert "failed" in str(exc_info.value).lower() or "not found" in str(exc_info.value).lower()
+        
+        logger.info("✅ Incomplete restore correctly rejected on real PostgreSQL")
+
+    @pytest.mark.asyncio
+    @pytest.mark.postgres
+    async def test_recovery_authorization_real_pg(self, pg_db_session, production_compan

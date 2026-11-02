@@ -53,11 +53,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.timeutils import ensure_aware
 from app.intelligence.company_context import CallerAccess, resolve_caller_access, tokens
-from app.knowledge.canonical_service import (
-    _AUTHORITY_LABELS,
-    _load_provenance,
-    now_utc,
-)
+from app.core.timeutils import utcnow as now_utc
+import json
+
+def _load_provenance(raw: Optional[str]) -> dict[str, Any]:
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+
+_AUTHORITY_LABELS = {
+    1: "unverified",
+    2: "team_record",
+    3: "documented",
+    4: "authoritative",
+    5: "official",
+}
 from app.knowledge.synthesis_engine import (
     _AUTHORITY_NORM,
     _MONTHS,
@@ -141,6 +154,55 @@ _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
         "prevents us from doing", "prevents us from taking",
         "blocking us from doing", "gap prevents us",
     )),
+    # Slice 4H.5 — Strategic Decision-to-Action & Execution Intelligence.
+    # Routes BEFORE the generic execution meaning so "execution status of
+    # decision X" resolves to the canonical lineage surfaces instead of the
+    # 4G.1 command center. Collision guards: 4E.6 action-center phrases
+    # ("my actions", "action center") and 4G.7/4H.4 what-if phrasing are
+    # deliberately absent here — they keep their pre-existing paths
+    # (unit-tested).
+    ("company_execution_plan", (
+        "action plan for", "plan of action for",
+        "what should we do about decision",
+        "what should we do about the decision",
+        "turn this decision into action", "turn the decision into action",
+        "next steps for decision", "next steps for the decision",
+        "how do we execute this decision", "how do we execute the decision",
+        "what actions are supported for decision",
+        "what actions are supported for the decision",
+    )),
+    ("company_execution_chain", (
+        "execution status of decision", "execution status of the decision",
+        "did we act on", "what happened after we decided",
+        "execution chain", "chain of action",
+    )),
+    # Slice 4H.6 — outcome & performance intelligence (§8). Placed directly
+    # AFTER the 4H.5 lineage intents (plan/chain keep first claim on shared
+    # decision phrasing) and BEFORE the generic recommendations/execution
+    # meanings: the ratified phrase "did the decision improve <metric>" would
+    # otherwise be swallowed by the bare "improve" keyword (unit-tested).
+    # Collision guards held by unit test: "my actions"/"action center"/
+    # "outcome intelligence" (4E.6), what-if (4G.7/4H.4), "execution chain"/
+    # "action plan"/"what happened after we decided" (4H.5), "track record"/
+    # "precedent" (4H.2) never contain these keywords.
+    ("company_decision_performance", (
+        "how did the decision perform", "how did that decision perform",
+        "how did this decision perform", "did the decision perform",
+        "did that decision perform", "performance of the decision",
+        "performance of that decision",
+    )),
+    ("company_measured_change", (
+        "did the decision improve", "did that decision improve",
+        "did this decision improve",
+        "measured change from the decision", "measured change after the decision",
+        "metric change after the decision",
+    )),
+    ("company_decision_comparison", (
+        "compare the outcomes of these decisions",
+        "compare the outcomes of the decisions",
+        "compare these decisions", "compare our decisions",
+        "outcome comparison",
+    )),
     # Slice 4G.1 — Project & Execution command questions route second so the
     # execution meaning wins over the knowledge/health meanings: "is X on
     # track" is the execution health view (not claim health), "why is the
@@ -181,6 +243,20 @@ _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
         "which projects depend", "who depends on",
         "blocking each other", "blocked by another project",
         "depends on another project", "critical conflict", "contention",
+    )),
+    # Slice 4H.4 — Decision-Rehearsal / Strategic Scenario questions. Routes
+    # before the generic company meanings so "what would happen if we delay
+    # X", "compare the scenarios we rehearsed" and rehearsal phrasing resolve
+    # to the canonical scenario layer. Deliberately does NOT include the
+    # generic "what if we reallocate/delay/hire" phrasing — those stay on
+    # their pre-existing intent paths (4G.4 capacity, coordination,
+    # discovery) — collision guard.
+    ("company_scenario", (
+        "what would happen if", "what could happen if", "what might happen if",
+        "simulate losing", "decision rehearsal", "rehearse",
+        "compare scenario", "scenario compare", "compare scenarios",
+        "compare our scenarios", "compare the scenarios",
+        "baseline vs", "which option", "which is better",
     )),
     # Slice 4G.3 — Strategic Portfolio & Goal Execution questions route after
     # coordination so the strategy meaning wins over the generic knowledge
@@ -288,6 +364,31 @@ _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
         "what should we do about the business", "business recommendation",
         "business recommendations", "commercial recommendations",
     )),
+    # Slice 4H.1 — Universal Company / Organizational Intelligence questions
+    # route FIRST (before company_operating) with phrase-level keywords that
+    # never collide with the 4G.7 vocabulary: temporal narrative, multi-level
+    # scopes, causality and prediction recall get their own company_universal
+    # handler. "why did company health decline" → the causal narrative;
+    # "how is my team/department" → multi_level_state of the caller's scope.
+    ("company_universal", (
+        "across my company", "across our company", "across the company",
+        "happening in the company", "happening across", "what is happening in",
+        "how is my company", "how is our company", "how is the company doing",
+        "my company doing", "our company doing",
+        "did company health decline", "did company health drop",
+        "did company health slip", "why did company health",
+        "why has company health", "company health declined",
+        "company health drop", "company health slip",
+        "how is my team", "how is my department", "how is my business unit",
+        "how is our team", "how is our department", "how is the team doing",
+        "how is the department doing", "how is the business unit doing",
+        "team health", "department health", "business unit health",
+        "single point of failure", "dependent on one person",
+        "most exposed", "compete for the same", "company lesson",
+        "lessons the company", "prediction track record",
+        "did the prediction hold", "how accurate was our prediction",
+        "company timeline", "company story", "story of the company",
+    )),
     # Slice 4G.7 — Universal Company Operating questions route FIRST so the
     # company-as-a-whole meaning wins over the single-domain meanings ("what
     # should the company do next" is the company operating queue, not the
@@ -304,6 +405,38 @@ _INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
         "company recommendation", "company-level changes",
         "company-level change", "what should we focus on as a company",
         "whole company", "how is the entire company",
+        # Slice 4H.2 — universal decision intelligence (§7.3), appended after
+        # the 4G.7 vocabulary. people_decision / company_universal keywords
+        # still win when their meaning is specific; these catch the
+        # company-decision reason/alternatives/why-not/outcome/precedent/
+        # impact questions that would otherwise fall to the generic groups.
+        "why did we decide", "reason for the decision", "what led to the decision",
+        "alternatives we considered", "what were the options",
+        "what else could we have done",
+        "why not", "why did we reject", "why didn't we choose",
+        "what happened after", "outcome of the decision", "did the decision work",
+        "what did we do when", "have we faced this before",
+        "similar situation", "past decision like this",
+        "decision impact", "what did this decision affect",
+        "caused by the decision",
+        # Slice 4H.3 — living company state (§7.3), appended after 4H.2. The
+        # company-level living-state, delta, dependency, risk and opportunity
+        # questions route through company_operating and resolve with the
+        # 4H.3 intent labels. company_universal's exact phrases ("what is
+        # happening in", "how is the company doing") stay 4H.1 untouched;
+        # the 4E.7 company_changes phrases ("changed overnight", "changed in
+        # the company", "company changes", "changed since yesterday") stay
+        # the learning feed untouched.
+        "company state", "state of the company", "status of the company",
+        "living state",
+        "what changed in the company", "what has changed in the company",
+        "what's changed in the company", "whats changed in the company",
+        "company dependencies", "what depends on",
+        "what is dependent on", "dependencies in the company",
+        "company risks", "company risk", "key risks", "risk exposure",
+        "exposures", "what is at risk in the company",
+        "opportunit", "where should we focus", "where we should focus",
+        "where should the company focus",
     )),
     # Slice 4E.7 — the company-level loop surfaces route FIRST so the company
     # meaning wins over the knowledge-only meaning ("what changed in the
@@ -3571,8 +3704,211 @@ class IntelligenceEngine:
         return {**result, "question": question, "intent": "business_performance",
                 "scope": "org", "generated_at": _utcnow_iso()}
 
+    async def _company_universal_query(
+        self, db: AsyncSession, *, organization_id: str, question: str, user: Any,
+    ) -> dict[str, Any]:
+        """Slice 4H.1 — Universal Company / Organizational Intelligence.
+
+        Temporal state + narrative, multi-level scopes, causality and
+        prediction recall — every answer composed from the canonical 4G.7
+        surfaces, advisory-only and bounded. Scoped callers reach only the
+        scopes their governance covers (their own team / department /
+        business unit), never the org-wide views.
+        """
+        from app.intelligence.company_operating_engine import company_operating_engine
+
+        access = await self._access(db, organization_id=organization_id, user=user)
+        lowered = question.lower()
+        token = None
+        for candidate in ("business unit", "department", "team"):
+            if candidate in lowered:
+                token = candidate
+                break
+        if token:
+            scope_type, scope_id = await self._resolve_my_scope(
+                db, organization_id=organization_id, access=access, token=token,
+            )
+            if scope_type is None:
+                return {
+                    "question": question, "intent": "company_universal",
+                    "scope": "unknown",
+                    "answer": (
+                        "could not resolve your team/department — the caller "
+                        "has no employee record on file."
+                    ),
+                    "advisory_only": True,
+                    "generated_at": _utcnow_iso(),
+                }
+            result = await company_operating_engine.multi_level_state(
+                db, organization_id=organization_id,
+                scope_type=scope_type, scope_id=scope_id,
+            )
+            return {**result, "question": question, "intent": "company_universal",
+                    "scope": scope_type, "generated_at": _utcnow_iso()}
+        if not access.org_wide:
+            return {
+                "question": question, "intent": "company_universal",
+                "scope": "project",
+                "answer": (
+                    "Universal company views are organization-wide; your scope "
+                    "does not include them."
+                ),
+                "advisory_only": True,
+                "generated_at": _utcnow_iso(),
+            }
+        if any(k in lowered for k in (
+            "single point of failure", "dependent on one person",
+            "most exposed", "compete for the same",
+        )):
+            health = await company_operating_engine.health(
+                db, organization_id=organization_id,
+            )
+            pc = health.get("primary_constraint") or {}
+            subject_type = pc.get("domain") or "project"
+            subject_id = pc.get("label") or pc.get("domain") or "company"
+            chain = await company_operating_engine.causal_chain(
+                db, organization_id=organization_id,
+                entity_type=subject_type, entity_id=subject_id,
+            )
+            return {**chain, "question": question, "intent": "company_universal",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        if any(k in lowered for k in (
+            "company lesson", "lessons the company", "prediction track record",
+            "did the prediction hold", "how accurate was our prediction",
+        )):
+            result = await company_operating_engine.memory(
+                db, organization_id=organization_id, predicted=True,
+            )
+            return {**result, "question": question, "intent": "company_universal",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        if any(k in lowered for k in (
+            "why did company health", "why has company health",
+            "company health decline", "company health drop", "company health slip",
+            "company story", "company timeline",
+            "story of the company",
+        )):
+            result = await company_operating_engine.narrative(
+                db, organization_id=organization_id,
+            )
+            return {**result, "question": question, "intent": "company_universal",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        result = await company_operating_engine.temporal_state(
+            db, organization_id=organization_id,
+        )
+        return {**result, "question": question, "intent": "company_universal",
+                "scope": "org", "generated_at": _utcnow_iso()}
+
+    async def _resolve_my_scope(
+        self, db: AsyncSession, *, organization_id: str, access: Any, token: str,
+    ) -> tuple[Optional[str], Optional[str]]:
+        """The caller's own team / department / business unit scope."""
+        from app.models.employee import Employee
+
+        employee_id = getattr(access, "employee_id", None)
+        if not employee_id:
+            return None, None
+        row = (
+            await db.execute(
+                select(Employee).where(Employee.id == employee_id)
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            return None, None
+        if token == "team" and row.team_id:
+            return "team", row.team_id
+        if token == "department" and row.department_id:
+            return "department", row.department_id
+        if token == "business unit" and row.business_unit_id:
+            return "business_unit", row.business_unit_id
+        return None, None
+
+    async def _resolve_decision_anchor(
+        self, db: AsyncSession, *, organization_id: str, question: str,
+    ) -> Optional[dict[str, str]]:
+        """Slice 4H.5 — deterministic decision pick for the execution
+        plan/chain intents: newest-first bounded scan matching the decision's
+        kind or a distinctive title token (>= 6 chars) in the question; else
+        the most recent decision; else None."""
+        from app.models.company_operating import CompanyDecision
+
+        lowered = question.lower()
+        rows = list(
+            (
+                await db.execute(
+                    select(
+                        CompanyDecision.decision_id,
+                        CompanyDecision.title,
+                        CompanyDecision.kind,
+                    )
+                    .where(CompanyDecision.organization_id == organization_id)
+                    .order_by(CompanyDecision.created_at.desc())
+                    .limit(50)
+                )
+            ).all()
+        )
+        if not rows:
+            return None
+        for decision_id, title, kind in rows:
+            title_tokens = [
+                t for t in re.split(r"[^a-z0-9]+", str(title or "").lower())
+                if len(t) >= 6
+            ]
+            kind_hit = bool(kind) and str(kind).lower() in lowered
+            token_hit = any(t in lowered for t in title_tokens)
+            if kind_hit or token_hit:
+                return {"decision_id": str(decision_id), "title": str(title),
+                        "kind": str(kind) if kind else None}
+        return {
+            "decision_id": str(rows[0][0]),
+            "title": str(rows[0][1]),
+            "kind": str(rows[0][2]) if rows[0][2] else None,
+        }
+
+    async def _resolve_dependency_anchor(
+        self, db: AsyncSession, *, organization_id: str, question: str,
+    ) -> Optional[dict[str, str]]:
+        """Slice 4H.3 — deterministic subject pick for the
+        company_dependencies intent: (1) a person whose name appears in the
+        question (org-scoped, bounded, alphabetical first match); (2) else
+        the first subject of the most recent causal-edge batch; (3) else
+        None (the route answers honestly that no anchor resolved)."""
+        from app.models.company_operating import CompanyCausalEdge
+        from app.models.employee import Employee
+
+        lowered = question.lower()
+        people = list(
+            (
+                await db.execute(
+                    select(Employee.id, Employee.display_name, Employee.first_name, Employee.last_name)
+                    .where(Employee.organization_id == organization_id)
+                    .order_by(Employee.display_name.asc())
+                    .limit(50)
+                )
+            ).all()
+        )
+        named = []
+        for p in people:
+            name_bits = [str(b or "").strip().lower() for b in p[1:]]
+            if any(len(b) >= 3 and b in lowered for b in name_bits if b):
+                named.append((str(p[0]), sorted(name_bits, key=len, reverse=True)[0]))
+        if named:
+            emp, label = named[0]
+            return {"type": "person", "id": emp, "label": label}
+        edge_row = (
+            await db.execute(
+                select(CompanyCausalEdge.source_type, CompanyCausalEdge.source_id)
+                .where(CompanyCausalEdge.organization_id == organization_id)
+                .order_by(CompanyCausalEdge.created_at.desc())
+                .limit(1)
+            )
+        ).first()
+        if edge_row is not None and edge_row[0] and edge_row[1]:
+            return {"type": str(edge_row[0]), "id": str(edge_row[1]), "label": str(edge_row[1])}
+        return None
+
     async def _company_operating_query(
         self, db: AsyncSession, *, organization_id: str, question: str, user: Any,
+        intent: str = "company_operating",
     ) -> dict[str, Any]:
         """Slice 4G.7 — Universal Company Operating questions.
 
@@ -3599,6 +3935,280 @@ class IntelligenceEngine:
                 "generated_at": _utcnow_iso(),
             }
         lowered = question.lower()
+        # ---- Slice 4H.5 — decision-to-action lineage (§7.2). The plan
+        # branch is byte-deterministic (no generated_at — L19); the chain
+        # branch is a live truthful read-model. Both are advisory and
+        # org-wide; neither writes or emits anything.
+        if intent == "company_execution_plan":
+            anchor = await self._resolve_decision_anchor(
+                db, organization_id=organization_id, question=question,
+            )
+            if anchor is None:
+                return {
+                    "question": question, "intent": "company_execution_plan",
+                    "scope": "org",
+                    "answer": "No decision resolved for this question — name "
+                              "the decision or record one first.",
+                    "advisory_only": True,
+                }
+            result = await company_operating_engine.derive_action_plan(
+                db, organization_id=organization_id,
+                decision_id=anchor["decision_id"],
+            )
+            if result is None:
+                return {
+                    "question": question, "intent": "company_execution_plan",
+                    "scope": "org",
+                    "answer": f"Decision {anchor['decision_id']} not found.",
+                    "advisory_only": True,
+                }
+            if result.get("rejected"):
+                return {
+                    **result,
+                    "question": question, "intent": "company_execution_plan",
+                    "scope": "org", "advisory_only": True,
+                }
+            return {**result, "question": question,
+                    "intent": "company_execution_plan", "scope": "org"}
+        if intent == "company_execution_chain":
+            anchor = await self._resolve_decision_anchor(
+                db, organization_id=organization_id, question=question,
+            )
+            if anchor is None:
+                return {
+                    "question": question, "intent": "company_execution_chain",
+                    "scope": "org",
+                    "answer": "No decision resolved for this question — name "
+                              "the decision or record one first.",
+                    "advisory_only": True, "generated_at": _utcnow_iso(),
+                }
+            result = await company_operating_engine.execution_chain(
+                db, organization_id=organization_id,
+                decision_id=anchor["decision_id"], access=access,
+            )
+            if result is None:
+                return {
+                    "question": question, "intent": "company_execution_chain",
+                    "scope": "org",
+                    "answer": f"Decision {anchor['decision_id']} not found.",
+                    "advisory_only": True, "generated_at": _utcnow_iso(),
+                }
+            return {**result, "question": question,
+                    "intent": "company_execution_chain", "scope": "org",
+                    "generated_at": _utcnow_iso()}
+        # ---- Slice 4H.6 — outcome & performance intelligence (§8). Routes
+        # into the deterministic Steps 2-6 read models; the Brain points at
+        # canonical evidence and never generates a performance interpretation.
+        # No generated_at: the underlying payloads are byte-deterministic
+        # (L19/L20) and the answer must be reproducible.
+        if intent == "company_decision_performance":
+            anchor = await self._resolve_decision_anchor(
+                db, organization_id=organization_id, question=question,
+            )
+            if anchor is None:
+                return {
+                    "question": question, "intent": "company_decision_performance",
+                    "scope": "org",
+                    "answer": "No decision resolved for this question — name "
+                              "the decision or record one first.",
+                    "advisory_only": True,
+                }
+            result = await company_operating_engine.decision_performance_assessment(
+                db, organization_id=organization_id,
+                decision_id=anchor["decision_id"], access=access,
+            )
+            if result is None:
+                return {
+                    "question": question, "intent": "company_decision_performance",
+                    "scope": "org",
+                    "answer": f"Decision {anchor['decision_id']} not found.",
+                    "advisory_only": True,
+                }
+            return {**result, "question": question, "resolved_anchor": anchor,
+                    "intent": "company_decision_performance", "scope": "org"}
+        if intent == "company_measured_change":
+            anchor = await self._resolve_decision_anchor(
+                db, organization_id=organization_id, question=question,
+            )
+            if anchor is None:
+                return {
+                    "question": question, "intent": "company_measured_change",
+                    "scope": "org",
+                    "answer": "No decision resolved for this question — name "
+                              "the decision or record one first.",
+                    "advisory_only": True,
+                }
+            result = await company_operating_engine.decision_performance_assessment(
+                db, organization_id=organization_id,
+                decision_id=anchor["decision_id"], access=access,
+            )
+            if result is None:
+                return {
+                    "question": question, "intent": "company_measured_change",
+                    "scope": "org",
+                    "answer": f"Decision {anchor['decision_id']} not found.",
+                    "advisory_only": True,
+                }
+            return {**result, "question": question, "resolved_anchor": anchor,
+                    "intent": "company_measured_change", "scope": "org"}
+        if intent == "company_decision_comparison":
+            anchor = await self._resolve_decision_anchor(
+                db, organization_id=organization_id, question=question,
+            )
+            anchor_kind = anchor.get("kind") if anchor else None
+            cohort = await company_operating_engine.decision_performance_cohort(
+                db, organization_id=organization_id, kind=anchor_kind,
+            )
+            return {
+                "question": question,
+                "resolved_anchor": anchor,
+                "cohort": cohort,
+                "canonical_route": {
+                    "method": "POST",
+                    "path": "/execution/company/decisions/compare",
+                    "body": {"decision_ids": ["<2..5 decision ids>"]},
+                },
+                "honesty": {"advisory_only": True, "read_only": True,
+                            "compare_not_rank": True},
+                "intent": "company_decision_comparison", "scope": "org",
+            }
+        # ---- Slice 4H.3 — living company state (§7.3). The five intents
+        # resolve deterministically with the 4H.3 surfaces; the 4G.7/4H.2
+        # branches below stay untouched (their own keywords still route).
+        if any(k in lowered for k in (
+            "company state", "state of the company", "status of the company",
+            "living state",
+        )):
+            result = await company_operating_engine.living_state(
+                db, organization_id=organization_id,
+            )
+            return {**result, "question": question, "intent": "company_state",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        if any(k in lowered for k in (
+            "what changed in the company", "what has changed in the company",
+            "what's changed in the company", "whats changed in the company",
+        )):
+            result = await company_operating_engine.state_delta(
+                db, organization_id=organization_id,
+            )
+            return {**result, "question": question, "intent": "company_changes",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        if any(k in lowered for k in (
+            "company dependencies", "what depends on", "what is dependent on",
+            "dependencies in the company",
+        )):
+            anchor = await self._resolve_dependency_anchor(
+                db, organization_id=organization_id, question=question,
+            )
+            if anchor is None:
+                return {"question": question, "intent": "company_dependencies",
+                        "scope": "org",
+                        "answer": "No dependency anchor resolved yet — name "
+                                  "a person or revisit once the causal trail grows.",
+                        "advisory_only": True, "generated_at": _utcnow_iso()}
+            result = await company_operating_engine.state_dependencies(
+                db, organization_id=organization_id,
+                entity_type=anchor["type"], entity_id=anchor["id"],
+            )
+            if result.get("not_found"):
+                return {"question": question, "intent": "company_dependencies",
+                        "scope": "org",
+                        "subject": {"type": anchor["type"], "id": anchor["id"]},
+                        "answer": f"No dependency trail is recorded for "
+                                  f"{anchor['id']} yet.",
+                        "advisory_only": True, "generated_at": _utcnow_iso()}
+            return {**result, "question": question,
+                    "intent": "company_dependencies", "scope": "org",
+                    "generated_at": _utcnow_iso()}
+        if any(k in lowered for k in (
+            "company risks", "key risks", "company risk", "risk exposure",
+            "exposures", "what is at risk in the company",
+        )):
+            result = await company_operating_engine.state_risks(
+                db, organization_id=organization_id,
+            )
+            return {**result, "question": question, "intent": "company_risks",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        if any(k in lowered for k in (
+            "opportunit", "where should we focus", "where we should focus",
+            "where should the company focus",
+        )):
+            result = await company_operating_engine.state_opportunities(
+                db, organization_id=organization_id,
+            )
+            return {**result, "question": question,
+                    "intent": "company_opportunities", "scope": "org",
+                    "generated_at": _utcnow_iso()}
+        # ---- Slice 4H.4 — decision rehearsal (§7.2). Resolved ADDITIVELY in
+        # front of the 4G.7 what-if block; generic "what if we
+        # reallocate/delay/hire" phrasing NEVER resolves to a 4H.4 rehearsal —
+        # those questions route through the pre-existing intent machinery
+        # (the 4G.4 capacity meaning, coordination, or discovery). The
+        # "what if we" guard below makes that precise (collision guard,
+        # unit-tested). Rehearsals through the brain are always dry-run —
+        # deriving and displaying, writing nothing — the honest "show me"
+        # path; recording is a governed act on the API (brain:manage).
+        if "what if we" not in lowered and any(k in lowered for k in (
+            "compare scenario", "compare scenarios", "compare the scenario",
+            "compare the scenarios", "scenario compare", "scenario vs",
+            "which option", "which is better", "baseline vs",
+        )):
+            hist = await company_operating_engine.scenario_history(
+                db, organization_id=organization_id, limit=5,
+            )
+            ids = [s["scenario_id"] for s in hist.get("scenarios", [])]
+            if len(ids) < 2:
+                return {
+                    "question": question, "intent": "company_scenarios_compare",
+                    "scope": "org",
+                    "answer": "At least two recorded scenarios are needed to "
+                              "compare — record a few rehearsals first.",
+                    "advisory_only": True, "generated_at": _utcnow_iso(),
+                }
+            result = await company_operating_engine.scenario_compare(
+                db, organization_id=organization_id, scenario_ids=ids,
+            )
+            return {**result, "question": question,
+                    "intent": "company_scenarios_compare", "scope": "org",
+                    "generated_at": _utcnow_iso()}
+        if "what if we" not in lowered and any(k in lowered for k in (
+            "what happens if", "what would happen if", "what could happen if",
+            "what might happen if", "simulate losing", "rehearse",
+            "if we lose", "if we delay", "consequences of",
+        )):
+            if "delay" in lowered and "reallocat" not in lowered:
+                kind = "delay"
+            elif "reallocat" in lowered and "delay" not in lowered:
+                kind = "reallocate"
+            elif "hire" in lowered:
+                kind = "hire"
+            elif "loss" in lowered or "losing" in lowered or "lost" in lowered:
+                kind = "resource_loss"
+            elif "dependency" in lowered or "break" in lowered:
+                kind = "dependency_break"
+            else:
+                kind = "reallocate"
+            anchor = await self._resolve_dependency_anchor(
+                db, organization_id=organization_id, question=question,
+            )
+            if anchor is None:
+                return {
+                    "question": question, "intent": "company_scenario",
+                    "scope": "org",
+                    "answer": "No entity in the company model resolved for "
+                              "this rehearsal — name a project, person, "
+                              "customer or decision explicitly.",
+                    "advisory_only": True, "generated_at": _utcnow_iso(),
+                }
+            result = await company_operating_engine.scenario_rehearse(
+                db, organization_id=organization_id,
+                scenario_kind=kind,
+                subject_type=anchor["type"], subject_id=anchor["id"],
+                params={}, assumptions=[], dry_run=True,
+            )
+            return {**result, "question": question,
+                    "intent": "company_scenario", "scope": "org",
+                    "generated_at": _utcnow_iso()}
         if any(k in lowered for k in (
             "what if we", "what-if", "what if", "reallocat", "delay the",
             "hire", "scenario",
@@ -3648,6 +4258,97 @@ class IntelligenceEngine:
             )
             return {**result, "question": question, "intent": "company_operating",
                     "scope": "org", "generated_at": _utcnow_iso()}
+        # ---- Slice 4H.2 — universal decision intelligence (§7.3 route groups)
+        # Decision-reason and outcome questions share the 4G.7 decision
+        # memory surface (decision -> reason -> action -> outcome -> learning)
+        # with a distinct intent label; prediction questions keep their
+        # existing 4H.1 routing (the prediction pool at ~3668) unchanged.
+        if any(k in lowered for k in (
+            "why did we decide", "reason for the decision", "what led to the decision",
+        )):
+            result = await company_operating_engine.memory(
+                db, organization_id=organization_id,
+            )
+            return {**result, "question": question, "intent": "decision_reason",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        if any(k in lowered for k in (
+            "what happened after", "outcome of the decision", "did the decision work",
+        )):
+            result = await company_operating_engine.memory(
+                db, organization_id=organization_id,
+            )
+            return {**result, "question": question, "intent": "decision_outcome",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        if any(k in lowered for k in (
+            "what did we do when", "have we faced this before",
+            "similar situation", "past decision like this",
+        )):
+            result = await company_operating_engine.decision_precedents(
+                db, organization_id=organization_id,
+                context=question.strip().lower()[:160], as_of=None, limit=10,
+            )
+            return {**result, "question": question, "intent": "decision_precedent",
+                    "scope": "org", "generated_at": _utcnow_iso()}
+        # Alternatives / why-not / impact need a concrete decision; pin them to
+        # the most recent decision (deterministic and bounded) and label the
+        # pin explicitly so the caller knows which decision the answer cites.
+        if any(k in lowered for k in (
+            "alternatives we considered", "what were the options",
+            "what else could we have done",
+        )):
+            latest = await company_operating_engine.decisions(
+                db, organization_id=organization_id, limit=1,
+            )
+            latest_id = latest["decisions"][0]["decision_id"] if latest.get("decisions") else None
+            if latest_id is None:
+                return {"question": question, "intent": "decision_alternatives",
+                        "scope": "org",
+                        "answer": "No company decisions have been recorded yet.",
+                        "advisory_only": True, "generated_at": _utcnow_iso()}
+            detail = await company_operating_engine.decision_detail(
+                db, organization_id=organization_id, decision_id=latest_id,
+            )
+            return {"decision_id": latest_id, "question": question,
+                    "intent": "decision_alternatives", "scope": "org",
+                    "alternatives": detail["alternatives"] if detail else [],
+                    "advisory_only": True, "generated_at": _utcnow_iso()}
+        if any(k in lowered for k in ("why not", "why did we reject", "why didn't we choose")):
+            latest = await company_operating_engine.decisions(
+                db, organization_id=organization_id, limit=1,
+            )
+            latest_id = latest["decisions"][0]["decision_id"] if latest.get("decisions") else None
+            if latest_id is None:
+                return {"question": question, "intent": "decision_why_not",
+                        "scope": "org",
+                        "answer": "No company decisions have been recorded yet.",
+                        "advisory_only": True, "generated_at": _utcnow_iso()}
+            why_not = await company_operating_engine.decision_why_not(
+                db, organization_id=organization_id, decision_id=latest_id,
+            )
+            return {"decision_id": latest_id, "question": question,
+                    "intent": "decision_why_not", "scope": "org",
+                    "why_not": (why_not or {}).get("why_not", []),
+                    "advisory_only": True, "generated_at": _utcnow_iso()}
+        if any(k in lowered for k in (
+            "decision impact", "what did this decision affect", "caused by the decision",
+        )):
+            latest = await company_operating_engine.decisions(
+                db, organization_id=organization_id, limit=1,
+            )
+            latest_id = latest["decisions"][0]["decision_id"] if latest.get("decisions") else None
+            if latest_id is None:
+                return {"question": question, "intent": "decision_impact",
+                        "scope": "org",
+                        "answer": "No company decisions have been recorded yet.",
+                        "advisory_only": True, "generated_at": _utcnow_iso()}
+            impact = await company_operating_engine.decision_impact(
+                db, organization_id=organization_id,
+                decision_id=latest_id, depth=3,
+            )
+            return {"decision_id": latest_id, "question": question,
+                    "intent": "decision_impact", "scope": "org",
+                    **{k: v for k, v in impact.items() if k not in ("decision_id",)},
+                    "advisory_only": True, "generated_at": _utcnow_iso()}
         result = await company_operating_engine.health(
             db, organization_id=organization_id,
         )
@@ -4156,9 +4857,19 @@ class IntelligenceEngine:
                 "generated_at": _utcnow_iso(),
             }
         # --------------------------------------------------- Slice 4E.7 loop
-        if intent == "company_operating":
+        if intent == "company_universal":
+            return await self._company_universal_query(
+                db, organization_id=organization_id, question=question, user=user,
+            )
+        if intent in (
+            "company_operating", "company_scenario",
+            "company_execution_plan", "company_execution_chain",
+            "company_decision_performance", "company_measured_change",
+            "company_decision_comparison",
+        ):
             return await self._company_operating_query(
                 db, organization_id=organization_id, question=question, user=user,
+                intent=intent,
             )
         if intent == "company_changes":
             from app.knowledge.learning_engine import learning_engine

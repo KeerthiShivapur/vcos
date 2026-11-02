@@ -53,7 +53,10 @@ function DetailContent() {
     setLoading(true);
     setError(null);
     try {
-      const [goalData, krList] = await Promise.all([getGoal(id), listKeyResults(id)]);
+      const [goalData, krList] = await Promise.all([
+        getGoal(id),
+        listKeyResults(id),
+      ]);
       setGoal(goalData);
       setKeyResults(krList);
     } catch (err) {
@@ -86,7 +89,9 @@ function DetailContent() {
       setShowAdd(false);
       await load();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Unable to add key result");
+      setFormError(
+        err instanceof Error ? err.message : "Unable to add key result",
+      );
     } finally {
       setSaving(false);
     }
@@ -98,7 +103,9 @@ function DetailContent() {
       setKeyResults((list) => list.map((k) => (k.id === kr.id ? updated : k)));
       toastSuccess("Key result updated");
     } catch (err) {
-      toastError(err instanceof Error ? err.message : "Unable to update key result");
+      toastError(
+        err instanceof Error ? err.message : "Unable to update key result",
+      );
     }
   }
 
@@ -108,14 +115,23 @@ function DetailContent() {
       toastSuccess("Key result deleted");
       await load();
     } catch (err) {
-      toastError(err instanceof Error ? err.message : "Unable to delete key result");
+      toastError(
+        err instanceof Error ? err.message : "Unable to delete key result",
+      );
     }
   }
 
   if (error) return <ErrorState title="Could not load goal" message={error} />;
-  if (loading || !goal) return <div className="flex justify-center py-24"><Spinner label="Loading goal" /></div>;
+  if (loading || !goal)
+    return (
+      <div className="flex justify-center py-24">
+        <Spinner label="Loading goal" />
+      </div>
+    );
 
-  const achieved = keyResults.filter((kr) => kr.target && kr.current !== null && kr.current >= kr.target).length;
+  const achieved = keyResults.filter(
+    (kr) => kr.target && kr.current !== null && kr.current >= kr.target,
+  ).length;
 
   return (
     <div className="space-y-6">
@@ -126,17 +142,31 @@ function DetailContent() {
         actions={
           <div className="flex items-center gap-2">
             <Badge tone={statusTone(goal.status)}>{goal.status}</Badge>
-            <Badge tone={goal.priority === "critical" ? "danger" : goal.priority === "high" ? "warning" : "neutral"}>{goal.priority}</Badge>
+            <Badge
+              tone={
+                goal.priority === "critical"
+                  ? "danger"
+                  : goal.priority === "high"
+                    ? "warning"
+                    : "neutral"
+              }
+            >
+              {goal.priority}
+            </Badge>
           </div>
         }
       />
 
       <Card title="Progress" subtitle={`${Math.round(goal.progress)}% overall`}>
         <div className="h-2 overflow-hidden rounded-full bg-canvas">
-          <div className="h-full rounded-full bg-brand" style={{ width: `${Math.round(goal.progress)}%` }} />
+          <div
+            className="h-full rounded-full bg-brand"
+            style={{ width: `${Math.round(goal.progress)}%` }}
+          />
         </div>
         <p className="mt-3 text-[13px] text-muted">
-          {achieved} of {keyResults.length} key results achieved · {goal.description ?? "No description"}
+          {achieved} of {keyResults.length} key results achieved ·{" "}
+          {goal.description ?? "No description"}
         </p>
       </Card>
 
@@ -145,14 +175,22 @@ function DetailContent() {
         subtitle="Measurable outcomes"
         actions={
           canManage ? (
-            <Button size="sm" variant="secondary" onClick={() => setShowAdd(true)}>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setShowAdd(true)}
+            >
               <Plus className="h-3.5 w-3.5" /> Add KR
             </Button>
           ) : undefined
         }
       >
         {keyResults.length === 0 ? (
-          <EmptyState icon={Target} title="No key results" description="Add measurable outcomes to track progress." />
+          <EmptyState
+            icon={Target}
+            title="No key results"
+            description="Add measurable outcomes to track progress."
+          />
         ) : (
           <ul className="space-y-4">
             {keyResults.map((kr) => {
@@ -164,22 +202,43 @@ function DetailContent() {
                 <li key={kr.id} className="rounded-lg border border-line p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="text-[13px] font-semibold text-ink">{kr.title}</p>
+                      <p className="text-[13px] font-semibold text-ink">
+                        {kr.title}
+                      </p>
                       <p className="text-[12px] text-faint">
-                        {kr.metric ?? "progress"} · {kr.current ?? 0}{kr.unit ? ` ${kr.unit}` : ""} of {kr.target ?? 0}{kr.unit ? ` ${kr.unit}` : ""}
+                        {kr.metric ?? "progress"} · {kr.current ?? 0}
+                        {kr.unit ? ` ${kr.unit}` : ""} of {kr.target ?? 0}
+                        {kr.unit ? ` ${kr.unit}` : ""}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Badge tone={pct >= 100 ? "success" : kr.status === "at_risk" ? "danger" : "brand"}>{pct}%</Badge>
+                      <Badge
+                        tone={
+                          pct >= 100
+                            ? "success"
+                            : kr.status === "at_risk"
+                              ? "danger"
+                              : "brand"
+                        }
+                      >
+                        {pct}%
+                      </Badge>
                       {canManage && (
-                        <button onClick={() => handleDeleteKr(kr)} className="rounded-lg p-1 text-faint hover:bg-danger/10 hover:text-danger" title="Delete key result">
+                        <button
+                          onClick={() => handleDeleteKr(kr)}
+                          className="rounded-lg p-1 text-faint hover:bg-danger/10 hover:text-danger"
+                          title="Delete key result"
+                        >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       )}
                     </div>
                   </div>
                   <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-canvas">
-                    <div className="h-full rounded-full bg-brand" style={{ width: `${pct}%` }} />
+                    <div
+                      className="h-full rounded-full bg-brand"
+                      style={{ width: `${pct}%` }}
+                    />
                   </div>
                   {canManage && (
                     <div className="mt-3 flex items-center gap-2">
@@ -193,7 +252,10 @@ function DetailContent() {
                         onKeyDown={(event) => {
                           if (event.key === "Enter") {
                             event.preventDefault();
-                            handleUpdateKr(kr, Number((event.target as HTMLInputElement).value));
+                            handleUpdateKr(
+                              kr,
+                              Number((event.target as HTMLInputElement).value),
+                            );
                           }
                         }}
                         onBlur={(event) => {
@@ -201,7 +263,9 @@ function DetailContent() {
                           if (value !== kr.current) handleUpdateKr(kr, value);
                         }}
                       />
-                      <span className="text-[12px] text-faint">Enter to update current value</span>
+                      <span className="text-[12px] text-faint">
+                        Enter to update current value
+                      </span>
                     </div>
                   )}
                 </li>
@@ -211,19 +275,54 @@ function DetailContent() {
         )}
       </Card>
 
-      <Modal open={showAdd} onClose={() => setShowAdd(false)} title="Add key result" description="A measurable outcome for this goal.">
+      <Modal
+        open={showAdd}
+        onClose={() => setShowAdd(false)}
+        title="Add key result"
+        description="A measurable outcome for this goal."
+      >
         <form onSubmit={handleAddKr} className="space-y-4">
-          {formError && <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger">{formError}</div>}
-          <Input label="Title" name="title" required placeholder="Increase retention to 60%" />
+          {formError && (
+            <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger">
+              {formError}
+            </div>
+          )}
+          <Input
+            label="Title"
+            name="title"
+            required
+            placeholder="Increase retention to 60%"
+          />
           <div className="grid gap-4 sm:grid-cols-3">
-            <Input label="Target" name="target" type="number" min={0} step="any" />
-            <Input label="Current" name="current" type="number" min={0} step="any" defaultValue="0" />
+            <Input
+              label="Target"
+              name="target"
+              type="number"
+              min={0}
+              step="any"
+            />
+            <Input
+              label="Current"
+              name="current"
+              type="number"
+              min={0}
+              step="any"
+              defaultValue="0"
+            />
             <Input label="Unit" name="unit" placeholder="%" />
           </div>
           <Input label="Metric" name="metric" placeholder="retention" />
           <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="ghost" onClick={() => setShowAdd(false)}>Cancel</Button>
-            <Button type="submit" loading={saving}>Add key result</Button>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setShowAdd(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" loading={saving}>
+              Add key result
+            </Button>
           </div>
         </form>
       </Modal>

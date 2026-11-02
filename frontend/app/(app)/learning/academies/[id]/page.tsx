@@ -78,12 +78,23 @@ function AcademyDetail() {
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-8">
-      <Link href="/learning?tab=academies" className="mb-4 inline-flex items-center gap-1.5 text-[13px] font-medium text-faint transition-colors hover:text-brand">
+      <Link
+        href="/learning?tab=academies"
+        className="mb-4 inline-flex items-center gap-1.5 text-[13px] font-medium text-faint transition-colors hover:text-brand"
+      >
         <ArrowLeft className="h-3.5 w-3.5" /> Back to Learning Center
       </Link>
 
-      {error && <div className="mb-4 rounded-lg border border-danger/20 bg-danger/5 px-4 py-2.5 text-[13px] text-danger">{error}</div>}
-      {notice && <div className="mb-4 rounded-lg border border-success/20 bg-success/5 px-4 py-2.5 text-[13px] text-success">{notice}</div>}
+      {error && (
+        <div className="mb-4 rounded-lg border border-danger/20 bg-danger/5 px-4 py-2.5 text-[13px] text-danger">
+          {error}
+        </div>
+      )}
+      {notice && (
+        <div className="mb-4 rounded-lg border border-success/20 bg-success/5 px-4 py-2.5 text-[13px] text-success">
+          {notice}
+        </div>
+      )}
 
       <PageHeader
         title={academy.name}
@@ -91,31 +102,66 @@ function AcademyDetail() {
         breadcrumb="Academy"
         actions={
           academy.joined ? (
-            <Button variant="secondary" loading={busy} onClick={() => run(async () => { await leaveAcademy(academy.id); }, "Left academy")}>Leave academy</Button>
+            <Button
+              variant="secondary"
+              loading={busy}
+              onClick={() =>
+                run(async () => {
+                  await leaveAcademy(academy.id);
+                }, "Left academy")
+              }
+            >
+              Leave academy
+            </Button>
           ) : (
-            <Button loading={busy} onClick={() => run(async () => { await joinAcademy(academy.id); }, "Joined academy")}>Join academy</Button>
+            <Button
+              loading={busy}
+              onClick={() =>
+                run(async () => {
+                  await joinAcademy(academy.id);
+                }, "Joined academy")
+              }
+            >
+              Join academy
+            </Button>
           )
         }
       />
 
       <div className="mb-5 flex flex-wrap gap-2">
         <Badge tone="brand">{academy.category ?? "General"}</Badge>
-        <Badge tone={statusTone(academy.status ?? "published")}>{academy.status ?? "published"}</Badge>
-        <Badge tone="neutral"><Users className="h-3 w-3" /> {academy.member_count ?? 0} members</Badge>
-        <Badge tone="neutral"><GraduationCap className="h-3 w-3" /> {academy.course_count ?? 0} courses</Badge>
+        <Badge tone={statusTone(academy.status ?? "published")}>
+          {academy.status ?? "published"}
+        </Badge>
+        <Badge tone="neutral">
+          <Users className="h-3 w-3" /> {academy.member_count ?? 0} members
+        </Badge>
+        <Badge tone="neutral">
+          <GraduationCap className="h-3 w-3" /> {academy.course_count ?? 0}{" "}
+          courses
+        </Badge>
       </div>
 
       {academy.cover_url && (
-        <img src={academy.cover_url} alt={academy.name} className="mb-6 h-40 w-full rounded-xl object-cover" />
+        <img
+          src={academy.cover_url}
+          alt={academy.name}
+          className="mb-6 h-40 w-full rounded-xl object-cover"
+        />
       )}
 
       <Card title="Curriculum" subtitle="Focus areas of this academy">
         {!academy.curriculum?.length ? (
-          <EmptyState title="No curriculum" description="This academy has no curriculum areas defined yet." />
+          <EmptyState
+            title="No curriculum"
+            description="This academy has no curriculum areas defined yet."
+          />
         ) : (
           <div className="flex flex-wrap gap-2">
             {academy.curriculum.map((c) => (
-              <Badge key={c} tone="brand">{c}</Badge>
+              <Badge key={c} tone="brand">
+                {c}
+              </Badge>
             ))}
           </div>
         )}

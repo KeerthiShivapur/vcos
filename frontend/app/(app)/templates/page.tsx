@@ -18,8 +18,17 @@ import { Spinner } from "@/components/ui/Spinner";
 import { KnowledgeCard } from "@/components/knowledge/KnowledgeCard";
 
 const TEMPLATE_KINDS = [
-  "meeting_notes", "architecture", "project_plan", "release_plan", "incident_report",
-  "research", "customer_proposal", "contract", "training", "onboarding", "other",
+  "meeting_notes",
+  "architecture",
+  "project_plan",
+  "release_plan",
+  "incident_report",
+  "research",
+  "customer_proposal",
+  "contract",
+  "training",
+  "onboarding",
+  "other",
 ];
 
 export default function TemplatesPage() {
@@ -45,7 +54,11 @@ function TemplatesContent() {
     setError(null);
     try {
       const [templateList, usedList] = await Promise.all([
-        listTemplates({ kind: kindFilter || undefined, search: search || undefined, limit: 200 }),
+        listTemplates({
+          kind: kindFilter || undefined,
+          search: search || undefined,
+          limit: 200,
+        }),
         listMostUsedTemplates().catch(() => [] as Template[]),
       ]);
       setTemplates(templateList);
@@ -67,9 +80,15 @@ function TemplatesContent() {
       <PageHeader
         title="Templates"
         description="Reusable starting points for recurring work."
-        actions={canManage ? (
-          <Link href="/templates/new"><Button size="sm"><Plus className="h-4 w-4" /> New template</Button></Link>
-        ) : undefined}
+        actions={
+          canManage ? (
+            <Link href="/templates/new">
+              <Button size="sm">
+                <Plus className="h-4 w-4" /> New template
+              </Button>
+            </Link>
+          ) : undefined
+        }
       />
 
       {mostUsed.length > 0 && (
@@ -77,7 +96,11 @@ function TemplatesContent() {
           <p className="text-[13px] font-semibold text-brand">Most used</p>
           <div className="mt-2 flex flex-wrap gap-2">
             {mostUsed.slice(0, 5).map((template) => (
-              <Link key={template.id} href={`/templates/${template.id}`} className="rounded-md bg-white/70 px-2.5 py-1 text-[12px] font-medium text-ink hover:bg-white">
+              <Link
+                key={template.id}
+                href={`/templates/${template.id}`}
+                className="rounded-md bg-white/70 px-2.5 py-1 text-[12px] font-medium text-ink hover:bg-white"
+              >
                 {template.title} · {template.usage_count}
               </Link>
             ))}
@@ -98,7 +121,10 @@ function TemplatesContent() {
           value={kindFilter}
           onChange={(e) => setKindFilter(e.target.value)}
           placeholder="All kinds"
-          options={TEMPLATE_KINDS.map((k) => ({ value: k, label: k.replace(/_/g, " ") }))}
+          options={TEMPLATE_KINDS.map((k) => ({
+            value: k,
+            label: k.replace(/_/g, " "),
+          }))}
           className="w-44"
         />
       </div>
@@ -106,18 +132,32 @@ function TemplatesContent() {
       {error ? (
         <ErrorState title="Could not load templates" message={error} />
       ) : loading ? (
-        <div className="flex justify-center py-24"><Spinner label="Loading templates" /></div>
+        <div className="flex justify-center py-24">
+          <Spinner label="Loading templates" />
+        </div>
       ) : templates.length === 0 ? (
         <EmptyState
           icon={Stamp}
           title="No templates yet"
           description="Create templates for the work you repeat."
-          action={canManage ? <Link href="/templates/new"><Button size="sm"><Plus className="h-4 w-4" /> New template</Button></Link> : undefined}
+          action={
+            canManage ? (
+              <Link href="/templates/new">
+                <Button size="sm">
+                  <Plus className="h-4 w-4" /> New template
+                </Button>
+              </Link>
+            ) : undefined
+          }
         />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {templates.map((template) => (
-            <KnowledgeCard key={template.id} item={template} href={`/templates/${template.id}`} />
+            <KnowledgeCard
+              key={template.id}
+              item={template}
+              href={`/templates/${template.id}`}
+            />
           ))}
         </div>
       )}

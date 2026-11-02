@@ -1,7 +1,7 @@
 """Phase 2 — People & Organization schemas."""
 
 from datetime import date, datetime
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -141,13 +141,94 @@ class PresenceOut(ORMModel):
     timezone: Optional[str] = None
     device: Optional[str] = None
     updated_at: Optional[datetime] = None
+    valid_from: Optional[datetime] = None
+    valid_to: Optional[datetime] = None
+    version: int = 1
+    fingerprint: Optional[str] = None
+    supersedes_id: Optional[str] = None
+    source_event_id: Optional[str] = None
+    actor_id: Optional[str] = None
 
 
 class PresenceUpdate(BaseModel):
-    status: Optional[str] = Field(default=None, pattern="^(online|away|busy|offline)$")
+    status: Optional[str] = Field(default=None, pattern="^(AVAILABLE|IN_MEETING|FOCUS_WORK|AWAY|OFFLINE|DO_NOT_DISTURB|UNAVAILABLE)$")
+    note: Optional[str] = None
     working_hours: Optional[dict[str, Any]] = None
     timezone: Optional[str] = None
     device: Optional[str] = None
+    source_event_id: Optional[str] = None
+    expected_version: Optional[int] = None
+
+
+class OperatingPresenceOut(ORMModel):
+    """Canonical operating presence state."""
+    employee_id: str
+    employee_number: str
+    full_name: str
+    status: str
+    is_online: bool
+    last_active_at: Optional[datetime] = None
+    valid_from: datetime
+    valid_to: Optional[datetime] = None
+    timezone: Optional[str] = None
+    device: Optional[str] = None
+    version: int
+    fingerprint: Optional[str] = None
+    supersedes_id: Optional[str] = None
+
+
+class OperatingContextOut(ORMModel):
+    """Canonical operating context for a person — derived from canonical reality."""
+    # Identity
+    employee_id: str
+    employee_number: str
+    full_name: str
+    email: str
+    user_id: Optional[str]
+    avatar_url: Optional[str]
+    designation: Optional[str]
+    timezone: str
+    language: Optional[str]
+
+    # Organizational context
+    organization_id: str
+    organization_name: str
+    department_id: Optional[str]
+    department_name: Optional[str]
+    team_id: Optional[str]
+    team_name: Optional[str]
+    manager_id: Optional[str]
+    manager_name: Optional[str]
+    location_id: Optional[str]
+    location_name: Optional[str]
+
+    # Presence
+    presence: Optional[OperatingPresenceOut] = None
+    availability_status: Optional[str] = None
+    is_online: bool = False
+
+    # Active responsibilities
+    responsibilities: List[Dict[str, Any]] = []
+
+    # Active commitments
+    commitments: List[Dict[str, Any]] = []
+
+    # Current work
+    current_actions: List[Dict[str, Any]] = []
+    current_tasks: List[Dict[str, Any]] = []
+    current_projects: List[Dict[str, Any]] = []
+
+    # Meetings
+    upcoming_meetings: List[Dict[str, Any]] = []
+
+    # Governance
+    governance_scopes: List[Dict[str, Any]] = []
+    permissions: List[str] = []
+    org_wide: bool = False
+
+    # Metadata
+    derived_at: datetime
+    version: int = 1
 
 
 class EmployeeSummary(ORMModel):

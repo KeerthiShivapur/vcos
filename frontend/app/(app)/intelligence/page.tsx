@@ -109,10 +109,14 @@ export default function IntelligencePage() {
   );
 }
 
-function levelTone(level: string): "neutral" | "brand" | "success" | "warning" | "danger" {
+function levelTone(
+  level: string,
+): "neutral" | "brand" | "success" | "warning" | "danger" {
   if (level === "high" || level === "critical") return "danger";
-  if (level === "elevated" || level === "moderate" || level === "warning") return "warning";
-  if (level === "low" || level === "info" || level === "neutral") return "neutral";
+  if (level === "elevated" || level === "moderate" || level === "warning")
+    return "warning";
+  if (level === "low" || level === "info" || level === "neutral")
+    return "neutral";
   return "brand";
 }
 
@@ -124,12 +128,16 @@ function IntelligenceContent() {
   const [overview, setOverview] = useState<IntelligenceOverview | null>(null);
   const [events, setEvents] = useState<IntelligenceEvent[]>([]);
   const [eventStats, setEventStats] = useState<IntelligenceJobs | null>(null);
-  const [workers, setWorkers] = useState<{ name: string; interval_seconds?: number; run_on_demand: boolean }[]>([]);
+  const [workers, setWorkers] = useState<
+    { name: string; interval_seconds?: number; run_on_demand: boolean }[]
+  >([]);
   const [jobs, setJobs] = useState<unknown[]>([]);
   const [leaderboard, setLeaderboard] = useState<ExpertiseLeaderEntry[]>([]);
   const [history, setHistory] = useState<ExpertiseHistoryEntry[]>([]);
   const [edges, setEdges] = useState<GraphEdge[]>([]);
-  const [graphStats, setGraphStats] = useState<{ [k: string]: unknown } | null>(null);
+  const [graphStats, setGraphStats] = useState<{ [k: string]: unknown } | null>(
+    null,
+  );
   const [bottlenecks, setBottlenecks] = useState<GraphPathStep[]>([]);
   const [knowledge, setKnowledge] = useState<KnowledgeInsight[]>([]);
   const [burnout, setBurnout] = useState<BurnoutSignal[]>([]);
@@ -137,7 +145,10 @@ function IntelligenceContent() {
   const [patterns, setPatterns] = useState<PatternDetection[]>([]);
   const [workflow, setWorkflow] = useState<WorkflowInsight[]>([]);
   const [lessons, setLessons] = useState<LearningLesson[]>([]);
-  const [learningSummary, setLearningSummary] = useState<{ total: number; by_type: Record<string, number> } | null>(null);
+  const [learningSummary, setLearningSummary] = useState<{
+    total: number;
+    by_type: Record<string, number>;
+  } | null>(null);
   const [collab, setCollab] = useState<CollaborationMetrics | null>(null);
   const [execBrief, setExecBrief] = useState<DailyBrief | null>(null);
   const [employeeBrief, setEmployeeBrief] = useState<DailyBrief | null>(null);
@@ -155,28 +166,47 @@ function IntelligenceContent() {
     setLoading(true);
     setError(null);
     try {
-      const [ov, ev, es, wk, lb, gs, eg, bot, kn, bu, du, pa, wf, ls, ls2, co, fe, rk, al] =
-        await Promise.all([
-          getIntelligenceOverview(),
-          listIntelligenceEvents(100),
-          getIntelligenceEventStats(),
-          listWorkers(),
-          getExpertiseLeaderboard(),
-          getGraphStats(),
-          listGraphEdges({ limit: 100 }),
-          getGraphBottlenecks(),
-          listKnowledgeInsights({ limit: 100 }),
-          listBurnoutSignals("moderate", undefined, 100),
-          listDuplicates(undefined, "open", 100),
-          listPatterns(undefined, "open", 100),
-          listWorkflowInsights("open", 100),
-          listLearningLessons(undefined, 100),
-          getLearningSummary(),
-          getCollaborationMetrics(),
-          getMyRecommendations(25),
-          getInsightRisks({ limit: 50 }),
-          getAutonomousNotifications(undefined, 50),
-        ]);
+      const [
+        ov,
+        ev,
+        es,
+        wk,
+        lb,
+        gs,
+        eg,
+        bot,
+        kn,
+        bu,
+        du,
+        pa,
+        wf,
+        ls,
+        ls2,
+        co,
+        fe,
+        rk,
+        al,
+      ] = await Promise.all([
+        getIntelligenceOverview(),
+        listIntelligenceEvents(100),
+        getIntelligenceEventStats(),
+        listWorkers(),
+        getExpertiseLeaderboard(),
+        getGraphStats(),
+        listGraphEdges({ limit: 100 }),
+        getGraphBottlenecks(),
+        listKnowledgeInsights({ limit: 100 }),
+        listBurnoutSignals("moderate", undefined, 100),
+        listDuplicates(undefined, "open", 100),
+        listPatterns(undefined, "open", 100),
+        listWorkflowInsights("open", 100),
+        listLearningLessons(undefined, 100),
+        getLearningSummary(),
+        getCollaborationMetrics(),
+        getMyRecommendations(25),
+        getInsightRisks({ limit: 50 }),
+        getAutonomousNotifications(undefined, 50),
+      ]);
       setOverview(ov);
       setEvents(ev);
       setEventStats(es);
@@ -198,7 +228,9 @@ function IntelligenceContent() {
       setAlerts(al);
       setLoading(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load intelligence");
+      setError(
+        err instanceof Error ? err.message : "Failed to load intelligence",
+      );
       setLoading(false);
     }
   }, []);
@@ -277,7 +309,11 @@ function IntelligenceContent() {
     setBusy(true);
     try {
       const result = await scanInsightRisks();
-      flash(result.scanned ? `Risk scan complete: ${result.new_risks} new` : "No new risks detected");
+      flash(
+        result.scanned
+          ? `Risk scan complete: ${result.new_risks} new`
+          : "No new risks detected",
+      );
       await loadAll();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Risk scan failed");
@@ -294,17 +330,15 @@ function IntelligenceContent() {
       flash(`Generated ${result.generated} autonomous notifications`);
       await loadAll();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Notification generation failed");
+      setError(
+        err instanceof Error ? err.message : "Notification generation failed",
+      );
     } finally {
       setBusy(false);
     }
   };
 
-  const handleSetStatus = async (
-    kind: string,
-    id: string,
-    status: string
-  ) => {
+  const handleSetStatus = async (kind: string, id: string, status: string) => {
     try {
       if (kind === "knowledge") await setKnowledgeInsightStatus(id, status);
       if (kind === "burnout") await setBurnoutSignalStatus(id, status);
@@ -334,14 +368,42 @@ function IntelligenceContent() {
       { id: "brain", label: "Company Brain", icon: Sparkles },
       { id: "semantic", label: "Semantic Knowledge", icon: ScanSearch },
       { id: "memory", label: "Company Memory", icon: BookOpen },
-      { id: "patterns", label: "Pattern Intelligence", icon: Repeat2, count: patterns.filter((p) => ["candidate", "emerging", "confirmed", "persistent", "fading"].includes(p.status)).length },
+      {
+        id: "patterns",
+        label: "Pattern Intelligence",
+        icon: Repeat2,
+        count: patterns.filter((p) =>
+          [
+            "candidate",
+            "emerging",
+            "confirmed",
+            "persistent",
+            "fading",
+          ].includes(p.status),
+        ).length,
+      },
       { id: "company-insights", label: "Company Insights", icon: Radar },
-      { id: "events", label: "Event Bus", icon: Activity, count: overview?.jobs.done ?? 0 },
+      {
+        id: "events",
+        label: "Event Bus",
+        icon: Activity,
+        count: overview?.jobs.done ?? 0,
+      },
       { id: "workers", label: "Workers", icon: Play },
       { id: "expertise", label: "Expertise", icon: BarChart3 },
-      { id: "graph", label: "Org Graph", icon: Network, count: overview?.graph.edges ?? 0 },
+      {
+        id: "graph",
+        label: "Org Graph",
+        icon: Network,
+        count: overview?.graph.edges ?? 0,
+      },
       { id: "insights", label: "Insights", icon: FileSearch },
-      { id: "learning", label: "Learning", icon: BookOpen, count: learningSummary?.total ?? 0 },
+      {
+        id: "learning",
+        label: "Learning",
+        icon: BookOpen,
+        count: learningSummary?.total ?? 0,
+      },
       { id: "collab", label: "Collaboration", icon: GitBranch },
       { id: "briefs", label: "Daily Briefs", icon: Sparkles },
       { id: "feed", label: "My Recommendations", icon: Zap },
@@ -352,13 +414,16 @@ function IntelligenceContent() {
         count: overview?.risks?.count ?? 0,
       },
     ],
-    [overview, learningSummary]
+    [overview, learningSummary],
   );
 
   if (error) {
     return (
       <div className="p-6">
-        <PageHeader title="Background Intelligence" description="The autonomous organization at work" />
+        <PageHeader
+          title="Background Intelligence"
+          description="The autonomous organization at work"
+        />
         <ErrorState message={error} onRetry={loadAll} />
       </div>
     );
@@ -381,16 +446,25 @@ function IntelligenceContent() {
           <>
             {canManage && (
               <>
-                <Button variant="secondary" onClick={handleProcessEvents} disabled={busy}>
+                <Button
+                  variant="secondary"
+                  onClick={handleProcessEvents}
+                  disabled={busy}
+                >
                   <Play className="h-4 w-4" /> Dispatch events
                 </Button>
-                <Button variant="secondary" onClick={handleBriefs} disabled={busy}>
+                <Button
+                  variant="secondary"
+                  onClick={handleBriefs}
+                  disabled={busy}
+                >
                   <Sparkles className="h-4 w-4" /> Generate briefs
                 </Button>
               </>
             )}
             <Button onClick={loadAll} disabled={busy}>
-              <RefreshCw className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} /> Refresh
+              <RefreshCw className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} />{" "}
+              Refresh
             </Button>
           </>
         }
@@ -423,10 +497,19 @@ function IntelligenceContent() {
             />
           )}
           {tab === "workers" && (
-            <WorkersTab workers={workers} canManage={canManage} onRun={handleRunWorker} busy={busy} />
+            <WorkersTab
+              workers={workers}
+              canManage={canManage}
+              onRun={handleRunWorker}
+              busy={busy}
+            />
           )}
           {tab === "expertise" && (
-            <ExpertiseTab leaderboard={leaderboard} history={history} onSelect={setHistory} />
+            <ExpertiseTab
+              leaderboard={leaderboard}
+              history={history}
+              onSelect={setHistory}
+            />
           )}
           {tab === "graph" && (
             <GraphTab
@@ -448,8 +531,12 @@ function IntelligenceContent() {
               canManage={canManage}
             />
           )}
-          {tab === "learning" && <LearningTab lessons={lessons} summary={learningSummary} />}
-          {tab === "collab" && <CollabTab metrics={collab} onRefresh={loadAll} busy={busy} />}
+          {tab === "learning" && (
+            <LearningTab lessons={lessons} summary={learningSummary} />
+          )}
+          {tab === "collab" && (
+            <CollabTab metrics={collab} onRefresh={loadAll} busy={busy} />
+          )}
           {tab === "briefs" && (
             <BriefsTab
               execBrief={execBrief}
@@ -468,7 +555,12 @@ function IntelligenceContent() {
             />
           )}
           {tab === "feed" && (
-            <FeedTab feed={feed} onRefresh={handleRefreshFeed} onStatus={handleSetStatus} busy={busy} />
+            <FeedTab
+              feed={feed}
+              onRefresh={handleRefreshFeed}
+              onStatus={handleSetStatus}
+              busy={busy}
+            />
           )}
           {tab === "risks" && (
             <RisksTab
@@ -488,11 +580,23 @@ function IntelligenceContent() {
 
 // ------------------------------------------------------------------ overview
 
-function StatCard({ label, value, icon, tone }: { label: string; value: number | string; icon: React.ReactNode; tone?: string }) {
+function StatCard({
+  label,
+  value,
+  icon,
+  tone,
+}: {
+  label: string;
+  value: number | string;
+  icon: React.ReactNode;
+  tone?: string;
+}) {
   return (
     <Card className="p-5">
       <div className="flex items-center gap-3">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-soft text-brand">{icon}</div>
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-soft text-brand">
+          {icon}
+        </div>
         <div>
           <p className="text-xl font-bold text-ink">{value}</p>
           <p className="text-xs text-faint">{label}</p>
@@ -507,10 +611,26 @@ function OverviewTab({ overview }: { overview: IntelligenceOverview }) {
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <StatCard label="Events dispatched" value={jobs.done ?? 0} icon={<Activity className="h-4 w-4" />} />
-        <StatCard label="Graph edges" value={overview.graph.edges ?? 0} icon={<Network className="h-4 w-4" />} />
-        <StatCard label="Searches" value={overview.search.total_searches ?? 0} icon={<FileSearch className="h-4 w-4" />} />
-        <StatCard label="Lessons learned" value={overview.learning.total ?? 0} icon={<BookOpen className="h-4 w-4" />} />
+        <StatCard
+          label="Events dispatched"
+          value={jobs.done ?? 0}
+          icon={<Activity className="h-4 w-4" />}
+        />
+        <StatCard
+          label="Graph edges"
+          value={overview.graph.edges ?? 0}
+          icon={<Network className="h-4 w-4" />}
+        />
+        <StatCard
+          label="Searches"
+          value={overview.search.total_searches ?? 0}
+          icon={<FileSearch className="h-4 w-4" />}
+        />
+        <StatCard
+          label="Lessons learned"
+          value={overview.learning.total ?? 0}
+          icon={<BookOpen className="h-4 w-4" />}
+        />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -524,40 +644,77 @@ function OverviewTab({ overview }: { overview: IntelligenceOverview }) {
           </div>
         </Card>
 
-        <Card title="Signals needing attention" subtitle="Elevated burnout + open insights">
+        <Card
+          title="Signals needing attention"
+          subtitle="Elevated burnout + open insights"
+        >
           <div className="space-y-2 text-[13px]">
             <p>
-              <Badge tone={overview.burnout.latest.length ? "warning" : "success"}>
+              <Badge
+                tone={overview.burnout.latest.length ? "warning" : "success"}
+              >
                 {overview.burnout.count} burnout signals
               </Badge>{" "}
-              <span className="text-muted">{overview.burnout.latest.length ? "— elevated workload patterns detected" : "— no elevated workload patterns"}</span>
-            </p>
-            <p>
-              <Badge tone="neutral">{overview.knowledge.count} knowledge insights</Badge>{" "}
-              <span className="text-muted">outdated, duplicate or missing content</span>
-            </p>
-            <p>
-              <Badge tone="neutral">{overview.duplicates.count} duplicate detections</Badge>
-            </p>
-            <p>
-              <Badge tone="warning">{overview.patterns.count} patterns</Badge>{" "}
-              <span className="text-muted">repeated delays, bottlenecks, gaps</span>
-            </p>
-            <p>
-              <Badge tone="neutral">{overview.workflow.count} workflow insights</Badge>{" "}
-              <span className="text-muted">slow approvals and automation chances</span>
-            </p>
-            <p>
-              <Badge tone={overview.risks && overview.risks.count > 0 ? "danger" : "success"}>
-                {overview.risks?.count ?? 0} strategic risks
-              </Badge>{" "}
               <span className="text-muted">
-                {overview.risks && overview.risks.count > 0 ? "— from background intelligence scans" : "— no open strategic risks"}
+                {overview.burnout.latest.length
+                  ? "— elevated workload patterns detected"
+                  : "— no elevated workload patterns"}
               </span>
             </p>
             <p>
-              <Badge tone={overview.autonomous_notifications && overview.autonomous_notifications.count > 0 ? "warning" : "neutral"}>
-                {overview.autonomous_notifications?.count ?? 0} autonomous notifications
+              <Badge tone="neutral">
+                {overview.knowledge.count} knowledge insights
+              </Badge>{" "}
+              <span className="text-muted">
+                outdated, duplicate or missing content
+              </span>
+            </p>
+            <p>
+              <Badge tone="neutral">
+                {overview.duplicates.count} duplicate detections
+              </Badge>
+            </p>
+            <p>
+              <Badge tone="warning">{overview.patterns.count} patterns</Badge>{" "}
+              <span className="text-muted">
+                repeated delays, bottlenecks, gaps
+              </span>
+            </p>
+            <p>
+              <Badge tone="neutral">
+                {overview.workflow.count} workflow insights
+              </Badge>{" "}
+              <span className="text-muted">
+                slow approvals and automation chances
+              </span>
+            </p>
+            <p>
+              <Badge
+                tone={
+                  overview.risks && overview.risks.count > 0
+                    ? "danger"
+                    : "success"
+                }
+              >
+                {overview.risks?.count ?? 0} strategic risks
+              </Badge>{" "}
+              <span className="text-muted">
+                {overview.risks && overview.risks.count > 0
+                  ? "— from background intelligence scans"
+                  : "— no open strategic risks"}
+              </span>
+            </p>
+            <p>
+              <Badge
+                tone={
+                  overview.autonomous_notifications &&
+                  overview.autonomous_notifications.count > 0
+                    ? "warning"
+                    : "neutral"
+                }
+              >
+                {overview.autonomous_notifications?.count ?? 0} autonomous
+                notifications
               </Badge>
             </p>
           </div>
@@ -568,10 +725,17 @@ function OverviewTab({ overview }: { overview: IntelligenceOverview }) {
         <Card title="Latest burnout signals">
           <div className="space-y-2">
             {overview.burnout.latest.map((signal) => (
-              <div key={signal.id} className="flex items-center justify-between rounded-lg border border-line px-3 py-2">
+              <div
+                key={signal.id}
+                className="flex items-center justify-between rounded-lg border border-line px-3 py-2"
+              >
                 <div>
-                  <p className="text-[13px] font-medium text-ink">{signal.employee_name ?? signal.employee_id}</p>
-                  <p className="text-xs text-faint">Workload pattern · score {signal.score}</p>
+                  <p className="text-[13px] font-medium text-ink">
+                    {signal.employee_name ?? signal.employee_id}
+                  </p>
+                  <p className="text-xs text-faint">
+                    Workload pattern · score {signal.score}
+                  </p>
                 </div>
                 <Badge tone={levelTone(signal.level)}>{signal.level}</Badge>
               </div>
@@ -606,7 +770,14 @@ function EventsTab({
       <div className="flex flex-wrap items-center gap-3">
         {stats && (
           <>
-            <Badge tone="neutral">total jobs {stats.queued + stats.done + stats.running + stats.retry + stats.failed}</Badge>
+            <Badge tone="neutral">
+              total jobs{" "}
+              {stats.queued +
+                stats.done +
+                stats.running +
+                stats.retry +
+                stats.failed}
+            </Badge>
             <Badge tone="success">done {stats.done ?? 0}</Badge>
             <Badge tone="warning">retry {stats.retry ?? 0}</Badge>
             <Badge tone="danger">failed {stats.failed ?? 0}</Badge>
@@ -616,23 +787,39 @@ function EventsTab({
           {processed}/{events.length} events processed
         </span>
         {canManage && (
-          <Button size="sm" variant="secondary" onClick={onProcess} disabled={busy}>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={onProcess}
+            disabled={busy}
+          >
             <Play className="h-3.5 w-3.5" /> Dispatch pending
           </Button>
         )}
       </div>
 
       {events.length === 0 ? (
-        <EmptyState icon={Activity} title="No events yet" description="Activity will appear here as the organization works." />
+        <EmptyState
+          icon={Activity}
+          title="No events yet"
+          description="Activity will appear here as the organization works."
+        />
       ) : (
         <Card bodyClassName="p-0">
           <div className="divide-y divide-line">
             {events.slice(0, 60).map((event) => (
-              <div key={event.id} className="flex items-center justify-between gap-3 px-5 py-2.5">
+              <div
+                key={event.id}
+                className="flex items-center justify-between gap-3 px-5 py-2.5"
+              >
                 <div className="min-w-0">
-                  <p className="truncate text-[13px] font-medium text-ink">{event.name}</p>
+                  <p className="truncate text-[13px] font-medium text-ink">
+                    {event.name}
+                  </p>
                   <p className="truncate text-xs text-faint">
-                    {event.occurred_at ? new Date(event.occurred_at).toLocaleString() : "—"}
+                    {event.occurred_at
+                      ? new Date(event.occurred_at).toLocaleString()
+                      : "—"}
                   </p>
                 </div>
                 <Badge tone={event.processed_at ? "success" : "warning"}>
@@ -655,24 +842,42 @@ function WorkersTab({
   onRun,
   busy,
 }: {
-  workers: { name: string; interval_seconds?: number; run_on_demand: boolean }[];
+  workers: {
+    name: string;
+    interval_seconds?: number;
+    run_on_demand: boolean;
+  }[];
   canManage: boolean;
   onRun: (name: string) => void;
   busy: boolean;
 }) {
   return (
-    <Card title="Background workers" subtitle="Scheduled autonomous passes — run any of them on demand" bodyClassName="p-0">
+    <Card
+      title="Background workers"
+      subtitle="Scheduled autonomous passes — run any of them on demand"
+      bodyClassName="p-0"
+    >
       <div className="divide-y divide-line">
         {workers.map((worker) => (
-          <div key={worker.name} className="flex items-center justify-between gap-3 px-5 py-3">
+          <div
+            key={worker.name}
+            className="flex items-center justify-between gap-3 px-5 py-3"
+          >
             <div>
-              <p className="font-mono text-[13px] font-medium text-ink">{worker.name}</p>
+              <p className="font-mono text-[13px] font-medium text-ink">
+                {worker.name}
+              </p>
               <p className="text-xs text-faint">
                 every {Math.round((worker.interval_seconds ?? 0) / 60)} min
               </p>
             </div>
             {canManage && worker.run_on_demand && (
-              <Button size="sm" variant="secondary" onClick={() => onRun(worker.name)} disabled={busy}>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => onRun(worker.name)}
+                disabled={busy}
+              >
                 <Play className="h-3.5 w-3.5" /> Run now
               </Button>
             )}
@@ -696,29 +901,46 @@ function ExpertiseTab({
 }) {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      <Card title="Expertise leaderboard" subtitle="Evolved continuously from organizational activity">
+      <Card
+        title="Expertise leaderboard"
+        subtitle="Evolved continuously from organizational activity"
+      >
         {leaderboard.length === 0 ? (
-          <EmptyState icon={BarChart3} title="No expertise yet" description="Complete tasks, milestones and meetings to grow expertise." />
+          <EmptyState
+            icon={BarChart3}
+            title="No expertise yet"
+            description="Complete tasks, milestones and meetings to grow expertise."
+          />
         ) : (
           <div className="space-y-2">
             {leaderboard.map((entry, index) => (
               <button
                 key={entry.employee_id}
-                onClick={async () => onSelect(await getExpertiseHistory(entry.employee_id, 25))}
+                onClick={async () =>
+                  onSelect(await getExpertiseHistory(entry.employee_id, 25))
+                }
                 className="flex w-full items-center justify-between gap-3 rounded-lg border border-line px-3 py-2 text-left hover:bg-surface"
               >
                 <div className="flex items-center gap-3">
-                  <span className="w-5 text-center text-xs font-semibold text-faint">{index + 1}</span>
+                  <span className="w-5 text-center text-xs font-semibold text-faint">
+                    {index + 1}
+                  </span>
                   <div>
-                    <p className="text-[13px] font-medium text-ink">{entry.name}</p>
-                    <p className="text-xs text-faint">{entry.designation ?? "Employee"}</p>
+                    <p className="text-[13px] font-medium text-ink">
+                      {entry.name}
+                    </p>
+                    <p className="text-xs text-faint">
+                      {entry.designation ?? "Employee"}
+                    </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   {entry.top_skills?.slice(0, 2).map((skill) => (
                     <Badge key={skill.skill_id}>{skill.skill_name}</Badge>
                   ))}
-                  <span className="text-sm font-bold text-brand">{entry.expertise_score?.toFixed(0) ?? "0"}</span>
+                  <span className="text-sm font-bold text-brand">
+                    {entry.expertise_score?.toFixed(0) ?? "0"}
+                  </span>
                 </div>
               </button>
             ))}
@@ -726,16 +948,30 @@ function ExpertiseTab({
         )}
       </Card>
 
-      <Card title="Expertise evolution" subtitle="Activity deltas behind the scores">
+      <Card
+        title="Expertise evolution"
+        subtitle="Activity deltas behind the scores"
+      >
         {history.length === 0 ? (
-          <EmptyState icon={Activity} title="Select an employee" description="Click a leader to see their expertise history." />
+          <EmptyState
+            icon={Activity}
+            title="Select an employee"
+            description="Click a leader to see their expertise history."
+          />
         ) : (
           <div className="divide-y divide-line">
             {history.map((entry) => (
-              <div key={entry.id} className="flex items-center justify-between gap-3 py-2">
+              <div
+                key={entry.id}
+                className="flex items-center justify-between gap-3 py-2"
+              >
                 <div className="min-w-0">
-                  <p className="truncate text-[13px] text-ink">{entry.skill_name}</p>
-                  <p className="truncate text-xs text-faint">{entry.reason ?? entry.source_event}</p>
+                  <p className="truncate text-[13px] text-ink">
+                    {entry.skill_name}
+                  </p>
+                  <p className="truncate text-xs text-faint">
+                    {entry.reason ?? entry.source_event}
+                  </p>
                 </div>
                 <Badge tone={entry.delta > 0 ? "success" : "neutral"}>
                   {entry.before} → {entry.after} (+{entry.delta})
@@ -766,7 +1002,8 @@ function GraphTab({
 }) {
   const edgesByRelation = useMemo(() => {
     const map: Record<string, number> = {};
-    for (const edge of edges) map[edge.relation] = (map[edge.relation] ?? 0) + 1;
+    for (const edge of edges)
+      map[edge.relation] = (map[edge.relation] ?? 0) + 1;
     return map;
   }, [edges]);
 
@@ -794,13 +1031,23 @@ function GraphTab({
       </div>
 
       {bottlenecks.length > 0 && (
-        <Card title="Collaboration bottlenecks" subtitle="Highly connected employees — risk concentration">
+        <Card
+          title="Collaboration bottlenecks"
+          subtitle="Highly connected employees — risk concentration"
+        >
           <div className="space-y-2">
             {bottlenecks.map((edge) => (
-              <div key={String(edge.employee_id)} className="flex items-center justify-between rounded-lg border border-line px-3 py-2">
+              <div
+                key={String(edge.employee_id)}
+                className="flex items-center justify-between rounded-lg border border-line px-3 py-2"
+              >
                 <div>
-                  <p className="text-[13px] font-medium text-ink">{String(edge.name ?? edge.employee_id)}</p>
-                  <p className="text-xs text-faint">{String(edge.designation ?? "Employee")}</p>
+                  <p className="text-[13px] font-medium text-ink">
+                    {String(edge.name ?? edge.employee_id)}
+                  </p>
+                  <p className="text-xs text-faint">
+                    {String(edge.designation ?? "Employee")}
+                  </p>
                 </div>
                 <Badge tone="warning">degree {Number(edge.degree ?? 0)}</Badge>
               </div>
@@ -809,10 +1056,17 @@ function GraphTab({
         </Card>
       )}
 
-      <Card title={`Org graph edges (${edges.length})`} subtitle="Structural + activity relationships" bodyClassName="p-0">
+      <Card
+        title={`Org graph edges (${edges.length})`}
+        subtitle="Structural + activity relationships"
+        bodyClassName="p-0"
+      >
         <div className="divide-y divide-line">
           {edges.slice(0, 80).map((edge) => (
-            <div key={edge.id} className="flex items-center justify-between gap-3 px-5 py-2.5">
+            <div
+              key={edge.id}
+              className="flex items-center justify-between gap-3 px-5 py-2.5"
+            >
               <div className="min-w-0">
                 <p className="truncate text-[13px] text-ink">
                   {edge.source_name ?? edge.source_id}{" "}
@@ -822,7 +1076,9 @@ function GraphTab({
                 <p className="truncate text-xs text-faint">{edge.evidence}</p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
-                <Badge tone={edge.active ? "success" : "neutral"}>{edge.active ? "active" : "inactive"}</Badge>
+                <Badge tone={edge.active ? "success" : "neutral"}>
+                  {edge.active ? "active" : "inactive"}
+                </Badge>
                 {canManage && (
                   <button
                     onClick={() => onDeactivate(edge.id)}
@@ -865,12 +1121,20 @@ function InsightRow({
       <div className="flex shrink-0 items-center gap-2">
         <Badge tone={tone as never}>{status}</Badge>
         {onAction && status === "open" && (
-          <Button size="sm" variant="secondary" onClick={() => onAction("accepted")}>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => onAction("accepted")}
+          >
             Accept
           </Button>
         )}
         {onAction && status === "open" && (
-          <Button size="sm" variant="ghost" onClick={() => onAction("dismissed")}>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => onAction("dismissed")}
+          >
             Dismiss
           </Button>
         )}
@@ -912,7 +1176,9 @@ function InsightsTab({
             key={s.id}
             onClick={() => setSection(s.id)}
             className={`border-b-2 px-3.5 py-2 text-[13px] font-medium ${
-              section === s.id ? "border-brand text-ink" : "border-transparent text-faint"
+              section === s.id
+                ? "border-brand text-ink"
+                : "border-transparent text-faint"
             }`}
           >
             {s.label} ({s.count})
@@ -921,9 +1187,16 @@ function InsightsTab({
       </div>
 
       {section === "knowledge" && (
-        <Card title="Knowledge insights" subtitle="Outdated, duplicate, unused and missing knowledge">
+        <Card
+          title="Knowledge insights"
+          subtitle="Outdated, duplicate, unused and missing knowledge"
+        >
           {knowledge.length === 0 ? (
-            <EmptyState icon={FileSearch} title="No knowledge insights" description="The knowledge worker will surface issues here." />
+            <EmptyState
+              icon={FileSearch}
+              title="No knowledge insights"
+              description="The knowledge worker will surface issues here."
+            />
           ) : (
             <div className="divide-y divide-line">
               {knowledge.map((insight) => (
@@ -933,7 +1206,11 @@ function InsightsTab({
                   detail={`${insight.kind} · ${Math.round(insight.confidence * 100)}% confident`}
                   status={insight.status}
                   tone={insight.kind === "outdated" ? "warning" : "neutral"}
-                  onAction={canManage ? (status) => onStatus("knowledge", insight.id, status) : undefined}
+                  onAction={
+                    canManage
+                      ? (status) => onStatus("knowledge", insight.id, status)
+                      : undefined
+                  }
                 />
               ))}
             </div>
@@ -942,23 +1219,49 @@ function InsightsTab({
       )}
 
       {section === "burnout" && (
-        <Card title="Burnout signals" subtitle="Workload patterns — task load, overdue pressure, meetings">
+        <Card
+          title="Burnout signals"
+          subtitle="Workload patterns — task load, overdue pressure, meetings"
+        >
           {burnout.length === 0 ? (
-            <EmptyState icon={HeartPulse} title="No signals" description="No elevated workload patterns right now." />
+            <EmptyState
+              icon={HeartPulse}
+              title="No signals"
+              description="No elevated workload patterns right now."
+            />
           ) : (
             <div className="divide-y divide-line">
               {burnout.map((signal) => (
-                <div key={signal.id} className="flex items-center justify-between gap-3 px-5 py-3">
+                <div
+                  key={signal.id}
+                  className="flex items-center justify-between gap-3 px-5 py-3"
+                >
                   <div className="min-w-0">
-                    <p className="truncate text-[13px] font-medium text-ink">{signal.employee_name ?? signal.employee_id}</p>
+                    <p className="truncate text-[13px] font-medium text-ink">
+                      {signal.employee_name ?? signal.employee_id}
+                    </p>
                     <p className="truncate text-xs text-faint">
-                      {signal.signals_json ? Object.entries(signal.signals_json as Record<string, unknown>).map(([k, v]) => `${k} ${v as number}`).join(" · ") : `score ${signal.score}`}
+                      {signal.signals_json
+                        ? Object.entries(
+                            signal.signals_json as Record<string, unknown>,
+                          )
+                            .map(([k, v]) => `${k} ${v as number}`)
+                            .join(" · ")
+                        : `score ${signal.score}`}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    <Badge tone={levelTone(signal.level)}>{signal.level} · {signal.score}</Badge>
+                    <Badge tone={levelTone(signal.level)}>
+                      {signal.level} · {signal.score}
+                    </Badge>
                     {canManage && signal.status === "open" && (
-                      <Button size="sm" variant="secondary" onClick={() => onStatus("burnout", signal.id, "acknowledged")}>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() =>
+                          onStatus("burnout", signal.id, "acknowledged")
+                        }
+                      >
                         Acknowledge
                       </Button>
                     )}
@@ -971,9 +1274,16 @@ function InsightsTab({
       )}
 
       {section === "duplicates" && (
-        <Card title="Duplicate detections" subtitle="Similar projects, tasks, meetings, policies and ideas">
+        <Card
+          title="Duplicate detections"
+          subtitle="Similar projects, tasks, meetings, policies and ideas"
+        >
           {duplicates.length === 0 ? (
-            <EmptyState icon={Copy} title="No duplicates" description="Nothing similar found in the current scan." />
+            <EmptyState
+              icon={Copy}
+              title="No duplicates"
+              description="Nothing similar found in the current scan."
+            />
           ) : (
             <div className="divide-y divide-line">
               {duplicates.map((duplicate) => (
@@ -983,7 +1293,16 @@ function InsightsTab({
                   detail={`vs ${duplicate.title_b ?? "…"} · ${Math.round(duplicate.similarity * 100)}% similar`}
                   status={duplicate.status}
                   tone="warning"
-                  onAction={canManage ? (status) => onStatus("duplicate", duplicate.id, status === "accepted" ? "confirmed" : "dismissed") : undefined}
+                  onAction={
+                    canManage
+                      ? (status) =>
+                          onStatus(
+                            "duplicate",
+                            duplicate.id,
+                            status === "accepted" ? "confirmed" : "dismissed",
+                          )
+                      : undefined
+                  }
                 />
               ))}
             </div>
@@ -992,9 +1311,16 @@ function InsightsTab({
       )}
 
       {section === "patterns" && (
-        <Card title="Repeated patterns" subtitle="Delays, bottlenecks and knowledge gaps that recur">
+        <Card
+          title="Repeated patterns"
+          subtitle="Delays, bottlenecks and knowledge gaps that recur"
+        >
           {patterns.length === 0 ? (
-            <EmptyState icon={AlertTriangle} title="No patterns" description="No repeated organizational patterns detected." />
+            <EmptyState
+              icon={AlertTriangle}
+              title="No patterns"
+              description="No repeated organizational patterns detected."
+            />
           ) : (
             <div className="divide-y divide-line">
               {patterns.map((pattern) => (
@@ -1004,7 +1330,18 @@ function InsightsTab({
                   detail={`${pattern.detail ?? ""} · seen ${pattern.count}×`}
                   status={pattern.status}
                   tone="warning"
-                  onAction={canManage ? (status) => onStatus("pattern", pattern.id, status === "accepted" ? "acknowledged" : "dismissed") : undefined}
+                  onAction={
+                    canManage
+                      ? (status) =>
+                          onStatus(
+                            "pattern",
+                            pattern.id,
+                            status === "accepted"
+                              ? "acknowledged"
+                              : "dismissed",
+                          )
+                      : undefined
+                  }
                 />
               ))}
             </div>
@@ -1013,9 +1350,16 @@ function InsightsTab({
       )}
 
       {section === "workflow" && (
-        <Card title="Workflow insights" subtitle="Slow approvals and automation opportunities">
+        <Card
+          title="Workflow insights"
+          subtitle="Slow approvals and automation opportunities"
+        >
           {workflow.length === 0 ? (
-            <EmptyState icon={ListChecks} title="No workflow insights" description="Approval flows look healthy." />
+            <EmptyState
+              icon={ListChecks}
+              title="No workflow insights"
+              description="Approval flows look healthy."
+            />
           ) : (
             <div className="divide-y divide-line">
               {workflow.map((insight) => (
@@ -1025,7 +1369,11 @@ function InsightsTab({
                   detail={insight.detail}
                   status={insight.status}
                   tone={insight.severity === "critical" ? "danger" : "warning"}
-                  onAction={canManage ? (status) => onStatus("workflow", insight.id, status) : undefined}
+                  onAction={
+                    canManage
+                      ? (status) => onStatus("workflow", insight.id, status)
+                      : undefined
+                  }
                 />
               ))}
             </div>
@@ -1057,20 +1405,34 @@ function LearningTab({
           ))}
         </div>
       </Card>
-      <Card title="Lessons learned" subtitle="What the organization has learned — also stored in AI memory" bodyClassName="p-0">
+      <Card
+        title="Lessons learned"
+        subtitle="What the organization has learned — also stored in AI memory"
+        bodyClassName="p-0"
+      >
         {lessons.length === 0 ? (
-          <EmptyState icon={BookOpen} title="No lessons yet" description="Lessons are captured as work completes." />
+          <EmptyState
+            icon={BookOpen}
+            title="No lessons yet"
+            description="Lessons are captured as work completes."
+          />
         ) : (
           <div className="divide-y divide-line">
             {lessons.map((lesson) => (
               <div key={lesson.id} className="px-5 py-3">
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-[13px] font-medium text-ink">{lesson.title}</p>
+                  <p className="text-[13px] font-medium text-ink">
+                    {lesson.title}
+                  </p>
                   <Badge>{lesson.event_type}</Badge>
                 </div>
-                {lesson.lesson && <p className="mt-1 text-xs text-muted">{lesson.lesson}</p>}
+                {lesson.lesson && (
+                  <p className="mt-1 text-xs text-muted">{lesson.lesson}</p>
+                )}
                 <p className="mt-0.5 text-xs text-faint">
-                  {lesson.created_at ? new Date(lesson.created_at).toLocaleDateString() : ""}
+                  {lesson.created_at
+                    ? new Date(lesson.created_at).toLocaleDateString()
+                    : ""}
                   {lesson.tags?.length ? ` · ${lesson.tags.join(", ")}` : ""}
                 </p>
               </div>
@@ -1100,7 +1462,12 @@ function CollabTab({
         title="No collaboration metrics yet"
         description="Run the collaboration worker to compute department interactions and silos."
         action={
-          <Button size="sm" variant="secondary" onClick={onRefresh} disabled={busy}>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={onRefresh}
+            disabled={busy}
+          >
             <RefreshCw className="h-3.5 w-3.5" /> Refresh
           </Button>
         }
@@ -1109,11 +1476,18 @@ function CollabTab({
   }
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      <Card title="Department pair interactions" subtitle="Cross-department collaboration strength">
-        {Array.isArray(metrics.department_pairs) && metrics.department_pairs.length ? (
+      <Card
+        title="Department pair interactions"
+        subtitle="Cross-department collaboration strength"
+      >
+        {Array.isArray(metrics.department_pairs) &&
+        metrics.department_pairs.length ? (
           <div className="space-y-2">
             {metrics.department_pairs.map((pair, index) => (
-              <div key={index} className="flex items-center justify-between rounded-lg border border-line px-3 py-2">
+              <div
+                key={index}
+                className="flex items-center justify-between rounded-lg border border-line px-3 py-2"
+              >
                 <p className="text-[13px] text-ink">
                   {pair.a} ↔ {pair.b}
                 </p>
@@ -1122,26 +1496,42 @@ function CollabTab({
             ))}
           </div>
         ) : (
-          <p className="text-sm text-faint">No cross-department interactions yet.</p>
+          <p className="text-sm text-faint">
+            No cross-department interactions yet.
+          </p>
         )}
       </Card>
       <Card title="Department activity" subtitle="Interactions per department">
         <div className="space-y-2">
-          {Object.entries(metrics.department_activity ?? {}).map(([department, count]) => (
-            <div key={department} className="flex items-center justify-between rounded-lg border border-line px-3 py-2">
-              <p className="text-[13px] text-ink">{department}</p>
-              <Badge>{count as number} interactions</Badge>
-            </div>
-          ))}
+          {Object.entries(metrics.department_activity ?? {}).map(
+            ([department, count]) => (
+              <div
+                key={department}
+                className="flex items-center justify-between rounded-lg border border-line px-3 py-2"
+              >
+                <p className="text-[13px] text-ink">{department}</p>
+                <Badge>{count as number} interactions</Badge>
+              </div>
+            ),
+          )}
         </div>
         {Array.isArray(metrics.silos) && metrics.silos.length > 0 && (
           <div className="mt-4">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-faint">Potential silos</p>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-faint">
+              Potential silos
+            </p>
             <div className="space-y-2">
               {metrics.silos.map((silo) => (
-                <div key={silo.employee_id} className="rounded-lg border border-line px-3 py-2">
-                  <p className="text-[13px] text-ink">{silo.name ?? silo.employee_id}</p>
-                  {silo.department_id && <p className="text-xs text-faint">{silo.department_id}</p>}
+                <div
+                  key={silo.employee_id}
+                  className="rounded-lg border border-line px-3 py-2"
+                >
+                  <p className="text-[13px] text-ink">
+                    {silo.name ?? silo.employee_id}
+                  </p>
+                  {silo.department_id && (
+                    <p className="text-xs text-faint">{silo.department_id}</p>
+                  )}
                 </div>
               ))}
             </div>
@@ -1157,17 +1547,33 @@ function CollabTab({
 function BriefCard({ brief }: { brief: DailyBrief | null }) {
   if (!brief) return null;
   return (
-    <Card title={brief.brief_type === "executive" ? "Executive brief" : `Employee brief · ${brief.recipient_name ?? ""}`} subtitle={brief.brief_date}>
+    <Card
+      title={
+        brief.brief_type === "executive"
+          ? "Executive brief"
+          : `Employee brief · ${brief.recipient_name ?? ""}`
+      }
+      subtitle={brief.brief_date}
+    >
       <div className="space-y-3">
         {brief.sections.map((section, index) => (
-          <div key={index} className="rounded-lg border border-line px-3 py-2.5">
+          <div
+            key={index}
+            className="rounded-lg border border-line px-3 py-2.5"
+          >
             <div className="flex items-center justify-between">
-              <p className="text-[13px] font-semibold text-ink">{section.title}</p>
-              <Badge tone={levelTone(section.severity)}>{section.severity}</Badge>
+              <p className="text-[13px] font-semibold text-ink">
+                {section.title}
+              </p>
+              <Badge tone={levelTone(section.severity)}>
+                {section.severity}
+              </Badge>
             </div>
             <ul className="mt-1.5 space-y-1">
               {section.items.map((item, itemIndex) => (
-                <li key={itemIndex} className="text-xs text-muted">• {item}</li>
+                <li key={itemIndex} className="text-xs text-muted">
+                  • {item}
+                </li>
               ))}
             </ul>
           </div>
@@ -1199,18 +1605,35 @@ function BriefsTab({
         <BriefCard brief={execBrief} />
         <BriefCard brief={employeeBrief} />
       </div>
-      <Card title="Recent briefs" subtitle="Autonomously generated daily" bodyClassName="p-0">
+      <Card
+        title="Recent briefs"
+        subtitle="Autonomously generated daily"
+        bodyClassName="p-0"
+      >
         {briefs.length === 0 ? (
-          <EmptyState icon={Sparkles} title="No briefs yet" description="Generate the daily briefs to see the autonomous summaries." />
+          <EmptyState
+            icon={Sparkles}
+            title="No briefs yet"
+            description="Generate the daily briefs to see the autonomous summaries."
+          />
         ) : (
           <div className="divide-y divide-line">
             {briefs.map((brief) => (
-              <div key={brief.id} className="flex items-center justify-between px-5 py-3">
+              <div
+                key={brief.id}
+                className="flex items-center justify-between px-5 py-3"
+              >
                 <p className="text-[13px] font-medium text-ink">
-                  {brief.brief_type === "executive" ? "Executive brief" : "Employee brief"}
+                  {brief.brief_type === "executive"
+                    ? "Executive brief"
+                    : "Employee brief"}
                   {brief.recipient_name ? ` · ${brief.recipient_name}` : ""}
                 </p>
-                <Badge tone={brief.brief_type === "executive" ? "brand" : "neutral"}>{brief.brief_date}</Badge>
+                <Badge
+                  tone={brief.brief_type === "executive" ? "brand" : "neutral"}
+                >
+                  {brief.brief_date}
+                </Badge>
               </div>
             ))}
           </div>
@@ -1237,14 +1660,24 @@ function FeedTab({
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted">
-          Personalized recommendations — experts to learn from, docs to read, communities to join.
+          Personalized recommendations — experts to learn from, docs to read,
+          communities to join.
         </p>
-        <Button size="sm" variant="secondary" onClick={onRefresh} disabled={busy}>
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={onRefresh}
+          disabled={busy}
+        >
           <RefreshCw className="h-3.5 w-3.5" /> Regenerate
         </Button>
       </div>
       {feed.length === 0 ? (
-        <EmptyState icon={Zap} title="No recommendations yet" description="Regenerate your feed once there is more activity." />
+        <EmptyState
+          icon={Zap}
+          title="No recommendations yet"
+          description="Regenerate your feed once there is more activity."
+        />
       ) : (
         <div className="space-y-3">
           {feed.map((item) => (
@@ -1253,22 +1686,42 @@ function FeedTab({
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <Badge tone="brand">{item.kind}</Badge>
-                    <span className="text-xs text-faint">score {Math.round(item.score * 10) / 10}</span>
+                    <span className="text-xs text-faint">
+                      score {Math.round(item.score * 10) / 10}
+                    </span>
                   </div>
-                  <p className="mt-1.5 text-[13px] font-semibold text-ink">{item.title}</p>
-                  {item.body && <p className="mt-0.5 text-xs text-muted">{item.body}</p>}
+                  <p className="mt-1.5 text-[13px] font-semibold text-ink">
+                    {item.title}
+                  </p>
+                  {item.body && (
+                    <p className="mt-0.5 text-xs text-muted">{item.body}</p>
+                  )}
                   {item.reasons?.length > 0 && (
-                    <p className="mt-1 text-xs text-faint">{item.reasons.join(" · ")}</p>
+                    <p className="mt-1 text-xs text-faint">
+                      {item.reasons.join(" · ")}
+                    </p>
                   )}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <Badge>{item.status}</Badge>
                   {item.status === "active" && (
                     <>
-                      <Button size="sm" variant="secondary" onClick={() => onStatus("recommendation", item.id, "accepted")}>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() =>
+                          onStatus("recommendation", item.id, "accepted")
+                        }
+                      >
                         Accept
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => onStatus("recommendation", item.id, "dismissed")}>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() =>
+                          onStatus("recommendation", item.id, "dismissed")
+                        }
+                      >
                         Dismiss
                       </Button>
                     </>
@@ -1305,12 +1758,18 @@ function RisksTab({
     return acc;
   }, {});
   const alertTone = (priority: string) =>
-    priority === "urgent" ? "danger" : priority === "high" ? "warning" : "neutral";
+    priority === "urgent"
+      ? "danger"
+      : priority === "high"
+        ? "warning"
+        : "neutral";
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <Badge tone={risks.length > 0 ? "danger" : "success"}>{risks.length} open risks</Badge>
+        <Badge tone={risks.length > 0 ? "danger" : "success"}>
+          {risks.length} open risks
+        </Badge>
         <Badge tone="neutral">{alerts.length} autonomous notifications</Badge>
         {Object.entries(riskCounts).map(([level, count]) => (
           <Badge key={level} tone={levelTone(level)}>
@@ -1319,17 +1778,31 @@ function RisksTab({
         ))}
         {canManage && (
           <span className="ml-auto flex gap-2">
-            <Button size="sm" variant="secondary" onClick={onScan} disabled={busy}>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={onScan}
+              disabled={busy}
+            >
               <ScanSearch className="h-3.5 w-3.5" /> Scan for risks
             </Button>
-            <Button size="sm" variant="secondary" onClick={onGenerate} disabled={busy}>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={onGenerate}
+              disabled={busy}
+            >
               <BellRing className="h-3.5 w-3.5" /> Generate alerts
             </Button>
           </span>
         )}
       </div>
 
-      <Card title="Strategic risk register" subtitle="Background engine over intelligence signals" bodyClassName="p-0">
+      <Card
+        title="Strategic risk register"
+        subtitle="Background engine over intelligence signals"
+        bodyClassName="p-0"
+      >
         {risks.length === 0 ? (
           <EmptyState
             icon={AlertTriangle}
@@ -1339,21 +1812,34 @@ function RisksTab({
         ) : (
           <div className="divide-y divide-line">
             {risks.map((risk) => (
-              <div key={risk.id} className="flex items-start justify-between gap-3 px-5 py-3">
+              <div
+                key={risk.id}
+                className="flex items-start justify-between gap-3 px-5 py-3"
+              >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <Badge tone={levelTone(risk.level)}>{risk.level}</Badge>
                     <Badge tone="neutral">{risk.kind}</Badge>
                     <span className="text-xs text-faint">
-                      score {Math.round(risk.score * 100) / 100} · {Math.round(risk.probability * 100)}% × {Math.round(risk.impact * 100)}%
+                      score {Math.round(risk.score * 100) / 100} ·{" "}
+                      {Math.round(risk.probability * 100)}% ×{" "}
+                      {Math.round(risk.impact * 100)}%
                     </span>
                   </div>
-                  <p className="mt-1.5 text-[13px] font-semibold text-ink">{risk.title}</p>
-                  {risk.description && <p className="mt-0.5 text-xs text-muted">{risk.description}</p>}
+                  <p className="mt-1.5 text-[13px] font-semibold text-ink">
+                    {risk.title}
+                  </p>
+                  {risk.description && (
+                    <p className="mt-0.5 text-xs text-muted">
+                      {risk.description}
+                    </p>
+                  )}
                   {risk.subject_name && (
                     <p className="mt-0.5 text-xs text-faint">
                       Subject: {risk.subject_name}
-                      {risk.created_at ? ` · ${new Date(risk.created_at).toLocaleString()}` : ""}
+                      {risk.created_at
+                        ? ` · ${new Date(risk.created_at).toLocaleString()}`
+                        : ""}
                     </p>
                   )}
                 </div>
@@ -1364,7 +1850,11 @@ function RisksTab({
         )}
       </Card>
 
-      <Card title="Autonomous notifications" subtitle="Risk alerts, burnout warnings and pattern flags" bodyClassName="p-0">
+      <Card
+        title="Autonomous notifications"
+        subtitle="Risk alerts, burnout warnings and pattern flags"
+        bodyClassName="p-0"
+      >
         {alerts.length === 0 ? (
           <EmptyState
             icon={BellRing}
@@ -1374,16 +1864,27 @@ function RisksTab({
         ) : (
           <div className="divide-y divide-line">
             {alerts.map((alert) => (
-              <div key={alert.id} className="flex items-start justify-between gap-3 px-5 py-3">
+              <div
+                key={alert.id}
+                className="flex items-start justify-between gap-3 px-5 py-3"
+              >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <Badge tone={alertTone(alert.priority)}>{alert.priority}</Badge>
+                    <Badge tone={alertTone(alert.priority)}>
+                      {alert.priority}
+                    </Badge>
                     <Badge tone="neutral">{alert.type}</Badge>
                   </div>
-                  <p className="mt-1.5 text-[13px] font-semibold text-ink">{alert.title}</p>
-                  {alert.body && <p className="mt-0.5 text-xs text-muted">{alert.body}</p>}
+                  <p className="mt-1.5 text-[13px] font-semibold text-ink">
+                    {alert.title}
+                  </p>
+                  {alert.body && (
+                    <p className="mt-0.5 text-xs text-muted">{alert.body}</p>
+                  )}
                   {alert.created_at && (
-                    <p className="mt-0.5 text-xs text-faint">{new Date(alert.created_at).toLocaleString()}</p>
+                    <p className="mt-0.5 text-xs text-faint">
+                      {new Date(alert.created_at).toLocaleString()}
+                    </p>
                   )}
                 </div>
                 <Badge>{alert.entity_type ?? "—"}</Badge>

@@ -27,7 +27,7 @@ from sqlalchemy import literal, select
 from app.intelligence.company_context import resolve_caller_access
 from app.knowledge import knowledge_base as kb
 from app.knowledge.embeddings import get_embedding_provider
-from app.models.knowledge import KnowledgeVector
+from app.models.intelligence import KnowledgeVector
 
 logger = logging.getLogger("vcos.knowledge.semantic_search")
 

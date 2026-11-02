@@ -1,0 +1,31 @@
+class CompanyAction(Base):
+    """The universal, governed action row (Slice 4E.6)."""
+
+    __tablename__ = "company_actions"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    action_type: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(240), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    state: Mapped[str] = mapped_column(String(20), default="proposed", nullable=False, index=True)
+    risk: Mapped[str] = mapped_column(String(16), default="low", nullable=False)
+    priority_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    scope_type: Mapped[str] = mapped_column(String(20), default="org", nullable=False)
+    scope_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    # exact-once key: organization + action_type + scope + target + source_problem
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+    target_label: Mapped[Optional[str]] = mapped_column(String(160))
+    source_problem: Mapped[Optional[str]] = mapped_column(Text)
+    why: Mapped[Optional[str]] = mapped_column(Text)
+    # lineage — where this action came from in the knowledge layer
+    source_recommendation_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    source_insight_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    source_claim_ids_json: Mapped[Optional[str]] = mapped_column(Text)
+    # Slice 4H.5 — decision lineage: the strategic decision (and optional
+    # scenario) this action was authorized from. Pure provenance: never
+    # changes lifecycle, policy, routing, or governance semantics.
+    # Slice 4H.5 - decision lineage (provenance only).  St

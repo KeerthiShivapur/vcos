@@ -1,0 +1,7 @@
+{
+  "email": "newuser@example.com",
+  "password": "TestPass123!",
+  "full_name": "New User",
+  "organization_name": "Test Org 2",
+  "organization_slug": "test-org-2"
+}

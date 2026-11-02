@@ -227,5 +227,20 @@ class ApprovalService:
         }
 
 
+async def count_pending_for_approver(
+        self, db: AsyncSession, *, organization_id: str, employee_id: str,
+    ) -> int:
+        """Count pending approvals where the user is the approver."""
+        from sqlalchemy import select, func
+        result = await db.execute(
+            select(func.count(Approval.id)).where(
+                Approval.organization_id == organization_id,
+                Approval.approver_id == employee_id,
+                Approval.status == "pending",
+            )
+        )
+        return result.scalar() or 0
+
+
 approval_service = ApprovalService()
 

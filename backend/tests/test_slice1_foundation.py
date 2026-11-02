@@ -235,10 +235,16 @@ async def test_manager_cannot_invite(client):
 
 @pytest.mark.asyncio
 async def test_suspended_user_cannot_login(client):
+    import uuid
+
     org = await register_org(client, email="suspend@slice1.test.co")
-    users = await register_roles(client, org, "employee")
+    email = f"employee-{uuid.uuid4().hex[:8]}@slice1.test.co"
+    r = await invite(client, org["headers"], email, role="employee", full_name="Susp Employee")
+    assert r.status_code == 201, r.text
+    r = await accept(client, r.json()["token"], email, full_name="Susp Employee")
+    assert r.status_code == 201, r.text
     listing = await client.get("/api/v1/users", headers=org["headers"])
-    target = next(u for u in listing.json()["items"] if u["email"] == "employee@slice1.test.co")
+    target = next(u for u in listing.json()["items"] if u["email"] == email)
     r = await client.patch(
         f"/api/v1/users/{target['id']}/status",
         json={"status": "suspended"},
@@ -247,6 +253,6 @@ async def test_suspended_user_cannot_login(client):
     assert r.status_code == 200
     r = await client.post(
         "/api/v1/auth/login",
-        json={"email": "employee@slice1.test.co", "password": "InviteePass123!"},
+        json={"email": email, "password": "InviteePass123!"},
     )
     assert r.status_code == 403

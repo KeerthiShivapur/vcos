@@ -1,0 +1,26 @@
+async def provisioned_company(db_session, test_org_data):
+    """Provision a complete company through the full lifecycle."""
+    # Step 1: Start provisioning
+    provisioning = await provisioning_service.start_provisioning(
+        db_session,
+        organization_name=test_org_data["organization_name"],
+        domain=test_org_data["domain"],
+        admin_email=test_org_data["admin_email"],
+        admin_name=test_org_data["admin_name"],
+        plan_key=test_org_data["plan_key"],
+        billing_interval=test_org_data["billing_interval"],
+    )
+    
+    # Step 2: Execute full provisioning
+    result = await provisioning_service.execute_provisioning(
+        db_session, provisioning.id
+    )
+    
+    assert result.state == ProvisioningState.READY.value
+    assert result.validation_passed is True
+    
+    # Get the organization
+    org = await db_session.get(Organization, result.organization_id)
+    assert org is not None
+    assert org.status == "active"
+    

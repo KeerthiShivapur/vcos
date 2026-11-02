@@ -1,0 +1,17 @@
+=============================================================
+        logger.info("=== PHASE 8: COMPANY CONTINUITY ===")
+        
+        # Create a backup (this is the continuity checkpoint)
+        backup_metadata = await backup_service.create_full_backup(
+            db=db_session,
+            kind=SvcBackupKind.FULL,
+            organization_id=org.id,
+            retention_days=30,
+        )
+        
+        assert backup_metadata.status == SvcBackupStatus.VERIFIED, \
+            f"Backup not verified: {backup_metadata.error}"
+        
+        # Verify backup integrity
+        verification = await backup_service.verify_backup(db_session, backup_metadata.backup_id)
+        assert verific

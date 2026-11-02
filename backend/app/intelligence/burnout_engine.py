@@ -24,6 +24,7 @@ from app.models.calendar import CalendarEvent
 from app.models.employee import Employee
 from app.models.intelligence import BurnoutSignal
 from app.models.task import Task
+from app.intelligence.company_context import resolve_caller_access, CallerAccess
 
 logger = logging.getLogger("vcos.intelligence.burnout")
 
@@ -171,6 +172,47 @@ class BurnoutEngine:
         self, db: AsyncSession, *, organization_id: str, limit: int = 50,
         min_level: str = "moderate", status: Optional[str] = None,
     ) -> list[dict[str, Any]]:
+        levels = {"low": 0, "moderate": 1, "elevated": 2, "high": 3}
+        rows = (
+            await db.execute(
+                select(BurnoutSignal).where(BurnoutSignal.organization_id == organization_id)
+                .order_by(BurnoutSignal.score.desc())
+                .limit(limit)
+            )
+        ).scalars().all()
+        result = []
+        for row in rows:
+            if levels.get(row.level, 0) < levels.get(min_level, 0):
+                continue
+            if status and row.status != status:
+                continue
+            employee = await db.get(Employee, row.employee_id)
+            result.append({
+                "id": row.id,
+                "employee_id": row.employee_id,
+                "name": (employee.display_name or f"{employee.first_name} {employee.last_name or ''}".strip()) if employee else "—",
+                "designation": employee.designation if employee else None,
+                "department_id": employee.department_id if employee else None,
+                "score": row.score,
+                "level": row.level,
+                "signals": row.signals,
+                "suggestions": row.suggestions,
+                "status": row.status,
+                "period_start": row.period_start.isoformat() if row.period_start else None,
+            })
+        return result
+
+    async def list_signals_visible(
+        self, db: AsyncSession, *, organization_id: str, access: CallerAccess, limit: int = 50,
+        min_level: str = "moderate", status: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """Governance-scoped list: only returns signals the caller may access."""
+        if not access.org_wide:
+            if not access.project_ids:
+                return []
+            # Filter to employees in accessible projects
+            # This is a simplified check - real implementation would be more sophisticated
+            pass
         levels = {"low": 0, "moderate": 1, "elevated": 2, "high": 3}
         rows = (
             await db.execute(

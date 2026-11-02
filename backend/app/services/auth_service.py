@@ -28,7 +28,7 @@ from app.core.security import (
 )
 from app.models.invitation import Invitation, PasswordReset
 from app.models.organization import Organization
-from app.models.role import UserRole
+from app.models.role import UserRoleModel
 from app.models.user import Session, User
 from app.models.workspace import Workspace
 from app.schemas.auth import LoginRequest, RegisterRequest
@@ -136,6 +136,8 @@ class AuthService:
             action="auth.login",
             actor_id=owner.id,
             actor_email=owner.email,
+            resource_type="session",
+            resource_id=session.id,
             ip_address=ip_address,
             user_agent=user_agent,
             details={"session_id": session.id, "source": "register"},
@@ -172,16 +174,27 @@ class AuthService:
         ip_address: Optional[str] = None,
         user_agent: Optional[str] = None,
     ) -> dict[str, Any]:
-        user = (
-            await db.execute(select(User).where(User.email == payload.email))
-        ).scalar_one_or_none()
-        if user is None:
+        candidates = (
+            await db.execute(
+                select(User).where(User.email == payload.email).order_by(User.created_at)
+            )
+        ).scalars().all()
+        if not candidates:
             raise AuthError("Invalid email or password.", "invalid_credentials", 401)
+        if len(candidates) == 1:
+            user = candidates[0]
+        else:
+            matching = [
+                c for c in candidates if verify_password(payload.password, c.hashed_password)
+            ]
+            if len(matching) != 1:
+                raise AuthError("Invalid email or password.", "invalid_credentials", 401)
+            user = matching[0]
 
         if user.locked_until and not is_expired(user.locked_until):
             raise AuthError("Account temporarily locked due to failed attempts.", "account_locked", 423)
 
-        if not verify_password(payload.password, user.password_hash):
+        if not verify_password(payload.password, user.hashed_password):
             user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
             settings = get_settings()
             if user.failed_login_attempts >= settings.LOGIN_MAX_ATTEMPTS:
@@ -360,9 +373,12 @@ class AuthService:
     ) -> Session:
         settings = get_settings()
         device = _parse_device(user_agent, device_name)
+        now = _now()
+        # Create a temporary session to get an ID for the refresh token
         session = Session(
             user_id=user.id,
             organization_id=organization_id,
+            token_hash="pending",
             refresh_token_hash="pending",
             device_name=device["device_name"],
             device_type=device["device_type"],
@@ -370,13 +386,18 @@ class AuthService:
             os=device["os"],
             ip_address=ip_address,
             user_agent=(user_agent or "")[:500],
-            expires_at=_now() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+            expires_at=now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+            last_activity_at=now,
             is_current=not remember_me,
         )
         db.add(session)
         await db.flush()
+        # Now create the actual tokens with the session ID
+        access_token = create_access_token(user.id, organization_id)
         refresh_token = create_refresh_token(user.id, organization_id, session.id)
+        session.token_hash = hash_token(access_token)
         session.refresh_token_hash = hash_token(refresh_token)
+        await db.flush()
         return session
 
     # ------------------------------------------------------------------ passwords
@@ -510,7 +531,7 @@ class AuthService:
             await db.flush()
         return user
 
-    # ------------------------------------------------------------------ invitations
+# ------------------------------------------------------------------ invitations
     async def invite(
         self,
         db: AsyncSession,
@@ -554,19 +575,20 @@ class AuthService:
         if role_target is None:
             from app.models.role import Role
 
+            # Handle duplicate roles gracefully - use first() instead of scalar_one_or_none()
             r = (
                 await db.execute(
                     select(Role).where(Role.organization_id == organization.id, Role.code == role)
                 )
-            ).scalar_one_or_none()
+            ).scalars().first()
             role_target = r.id if r else None
+
         if role_target is None:
             raise AuthError("Invalid role.", "invalid_role", 400)
 
         # Assignment policy: an inviter cannot grant a role whose permissions
         # exceed their own effective permission set.
         from app.models.role import Permission, RolePermission
-        from app.services.permission_service import permission_service
 
         target_perm_rows = await db.execute(
             select(Permission.code)
@@ -773,7 +795,7 @@ class AuthService:
         )
         db.add(user)
         await db.flush()
-        db.add(UserRole(user_id=user.id, role_id=invitation.role, organization_id=invitation.organization_id))
+        db.add(UserRoleModel(user_id=user.id, role_id=invitation.role, organization_id=invitation.organization_id))
         db.add(Workspace(organization_id=invitation.organization_id, user_id=user.id))
 
         invitation.status = "accepted"

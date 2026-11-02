@@ -1,0 +1,83 @@
+# VCOS WebSocket Gateway Configuration
+
+server:
+  host: "0.0.0.0"
+  port: 8001
+  workers: 4
+  timeout: 30
+  keepalive: 5
+  max_connections: 10000
+  max_message_size: 16777216  # 16MB
+
+redis:
+  host: "localhost"
+  port: 6379
+  db: 1
+  password: null
+  max_connections: 100
+  socket_timeout: 5
+  socket_connect_timeout: 5
+  health_check_interval: 30
+
+pubsub:
+  channels:
+    presence: "vcos:presence"
+    crdt: "vcos:crdt"
+    signaling: "vcos:signaling"
+    notifications: "vcos:notifications"
+    system: "vcos:system"
+  publish_timeout: 5
+  subscribe_timeout: 10
+
+websocket:
+  ping_interval: 25
+  ping_timeout: 20
+  close_timeout: 10
+  max_queue_size: 1000
+  compression: true
+  per_message_deflate: true
+
+auth:
+  jwt_secret: "your-jwt-secret-change-in-production"
+  jwt_algorithm: "HS256"
+  jwt_expiry: 3600
+  token_header: "Authorization"
+  token_query_param: "token"
+  allow_anonymous: false
+
+rate_limit:
+  enabled: true
+  requests_per_second: 100
+  burst: 200
+  redis_prefix: "vcos:ws:ratelimit:"
+
+sticky_sessions:
+  enabled: true
+  cookie_name: "vcos_ws_session"
+  cookie_secure: true
+  cookie_httponly: true
+  cookie_samesite: "lax"
+  session_ttl: 86400
+
+metrics:
+  enabled: true
+  port: 9091
+  path: "/metrics"
+
+tracing:
+  enabled: true
+  service_name: "vcos-websocket-gateway"
+  exporter: "prometheus"
+  sampling_rate: 0.1
+
+logging:
+  level: "INFO"
+  format: "json"
+  output: "stdout"
+  access_log: true
+  error_log: true
+
+health:
+  enabled: true
+  path: "/health"
+  interval: 30

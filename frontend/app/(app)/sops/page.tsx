@@ -39,7 +39,11 @@ function SopsContent() {
     setError(null);
     try {
       setSops(
-        await listSops({ status: status || undefined, search: search || undefined, limit: 200 })
+        await listSops({
+          status: status || undefined,
+          search: search || undefined,
+          limit: 200,
+        }),
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load SOPs");
@@ -58,9 +62,15 @@ function SopsContent() {
       <PageHeader
         title="Standard Operating Procedures"
         description="Step-by-step playbooks for repeatable work."
-        actions={canManage ? (
-          <Link href="/sops/new"><Button size="sm"><Plus className="h-4 w-4" /> New SOP</Button></Link>
-        ) : undefined}
+        actions={
+          canManage ? (
+            <Link href="/sops/new">
+              <Button size="sm">
+                <Plus className="h-4 w-4" /> New SOP
+              </Button>
+            </Link>
+          ) : undefined
+        }
       />
 
       <div className="flex flex-wrap gap-2">
@@ -76,7 +86,10 @@ function SopsContent() {
           value={status}
           onChange={(e) => setStatus(e.target.value)}
           placeholder="All statuses"
-          options={["draft", "published", "archived"].map((s) => ({ value: s, label: s[0].toUpperCase() + s.slice(1) }))}
+          options={["draft", "published", "archived"].map((s) => ({
+            value: s,
+            label: s[0].toUpperCase() + s.slice(1),
+          }))}
           className="w-40"
         />
       </div>
@@ -84,13 +97,23 @@ function SopsContent() {
       {error ? (
         <ErrorState title="Could not load SOPs" message={error} />
       ) : loading ? (
-        <div className="flex justify-center py-24"><Spinner label="Loading SOPs" /></div>
+        <div className="flex justify-center py-24">
+          <Spinner label="Loading SOPs" />
+        </div>
       ) : sops.length === 0 ? (
         <EmptyState
           icon={ListChecks}
           title="No SOPs yet"
           description="Capture your repeatable processes as checklists."
-          action={canManage ? <Link href="/sops/new"><Button size="sm"><Plus className="h-4 w-4" /> New SOP</Button></Link> : undefined}
+          action={
+            canManage ? (
+              <Link href="/sops/new">
+                <Button size="sm">
+                  <Plus className="h-4 w-4" /> New SOP
+                </Button>
+              </Link>
+            ) : undefined
+          }
         />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">

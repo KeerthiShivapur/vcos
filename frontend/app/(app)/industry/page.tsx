@@ -163,7 +163,9 @@ function IndustryContent() {
       setInstalled(inst);
       setSelections(sel);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load industry data");
+      setError(
+        err instanceof Error ? err.message : "Failed to load industry data",
+      );
     } finally {
       setLoading(false);
     }
@@ -197,7 +199,9 @@ function IndustryContent() {
       setError(null);
       try {
         await industryInstall(key);
-        setNotice(`${catalog.find((p) => p.key === key)?.name ?? key} installed`);
+        setNotice(
+          `${catalog.find((p) => p.key === key)?.name ?? key} installed`,
+        );
         await load();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Install failed");
@@ -205,12 +209,17 @@ function IndustryContent() {
         setBusy(false);
       }
     },
-    [catalog, load]
+    [catalog, load],
   );
 
   const uninstallPack = useCallback(
     async (key: string) => {
-      if (!window.confirm(`Uninstall the ${key} industry pack? This removes modules and configurations.`)) return;
+      if (
+        !window.confirm(
+          `Uninstall the ${key} industry pack? This removes modules and configurations.`,
+        )
+      )
+        return;
       setBusy(true);
       setError(null);
       try {
@@ -223,7 +232,7 @@ function IndustryContent() {
         setBusy(false);
       }
     },
-    [load]
+    [load],
   );
 
   const selectPack = useCallback(async () => {
@@ -237,7 +246,9 @@ function IndustryContent() {
         company_size: selectForm.company_size || undefined,
         country: selectForm.country || undefined,
       });
-      setNotice(`${catalog.find((p) => p.key === showSelect)?.name ?? showSelect} selected for your company`);
+      setNotice(
+        `${catalog.find((p) => p.key === showSelect)?.name ?? showSelect} selected for your company`,
+      );
       setShowSelect(null);
       await load();
     } catch (err) {
@@ -271,7 +282,11 @@ function IndustryContent() {
         title="Industry Solutions"
         description="Vertical industry packs with prebuilt modules, workflows, compliance controls, AI profiles and KPIs."
         actions={
-          <Button variant="secondary" onClick={() => void load()} loading={busy}>
+          <Button
+            variant="secondary"
+            onClick={() => void load()}
+            loading={busy}
+          >
             <RefreshCw className="h-4 w-4" /> Refresh
           </Button>
         }
@@ -283,7 +298,10 @@ function IndustryContent() {
           <span className="flex items-center gap-2">
             <CheckCircle2 className="h-4 w-4" /> {notice}
           </span>
-          <button onClick={() => setNotice(null)} className="text-success/70 hover:text-success">
+          <button
+            onClick={() => setNotice(null)}
+            className="text-success/70 hover:text-success"
+          >
             <XCircle className="h-4 w-4" />
           </button>
         </div>
@@ -304,7 +322,12 @@ function IndustryContent() {
           <Tabs
             tabs={[
               { id: "overview", label: "Overview", icon: LayoutDashboard },
-              { id: "catalog", label: "Pack Catalog", icon: Store, count: catalog.length },
+              {
+                id: "catalog",
+                label: "Pack Catalog",
+                icon: Store,
+                count: catalog.length,
+              },
               { id: "workflows", label: "Workflows", icon: ListChecks },
             ]}
             active={tab}
@@ -334,7 +357,10 @@ function IndustryContent() {
               />
             )}
             {tab === "workflows" && (
-              <WorkflowsTab installed={installed} onOpen={(key) => void openPack(key)} />
+              <WorkflowsTab
+                installed={installed}
+                onOpen={(key) => void openPack(key)}
+              />
             )}
           </div>
         </>
@@ -361,19 +387,25 @@ function IndustryContent() {
             label="Business type"
             placeholder="e.g. boutique firm, enterprise, startup"
             value={selectForm.business_type}
-            onChange={(e) => setSelectForm({ ...selectForm, business_type: e.target.value })}
+            onChange={(e) =>
+              setSelectForm({ ...selectForm, business_type: e.target.value })
+            }
           />
           <Input
             label="Company size"
             placeholder="e.g. 11-50, 51-200, 201-1000"
             value={selectForm.company_size}
-            onChange={(e) => setSelectForm({ ...selectForm, company_size: e.target.value })}
+            onChange={(e) =>
+              setSelectForm({ ...selectForm, company_size: e.target.value })
+            }
           />
           <Input
             label="Country"
             placeholder="e.g. US, UK, IN"
             value={selectForm.country}
-            onChange={(e) => setSelectForm({ ...selectForm, country: e.target.value })}
+            onChange={(e) =>
+              setSelectForm({ ...selectForm, country: e.target.value })
+            }
           />
         </div>
       </Modal>
@@ -406,16 +438,39 @@ function OverviewTab({
 }) {
   const installedCount = installedStatus(catalog);
   const running = installed.filter(
-    (p) => p.status === "active" || p.status === "enabled"
+    (p) => p.status === "active" || p.status === "enabled",
   ).length;
 
   return (
     <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Installed packs" value={installedCount} hint="Active industry solutions" icon={Boxes} />
-        <StatCard label="Active modules" value={installed.reduce((n, p) => n + (p.modules_enabled?.length ?? 0), 0)} hint="Across installed packs" icon={Zap} />
-        <StatCard label="Selections" value={selections.length} hint="Company industry profiles" icon={Store} />
-        <StatCard label="Active packs" value={running} hint="Status active" icon={CheckCircle2} />
+        <StatCard
+          label="Installed packs"
+          value={installedCount}
+          hint="Active industry solutions"
+          icon={Boxes}
+        />
+        <StatCard
+          label="Active modules"
+          value={installed.reduce(
+            (n, p) => n + (p.modules_enabled?.length ?? 0),
+            0,
+          )}
+          hint="Across installed packs"
+          icon={Zap}
+        />
+        <StatCard
+          label="Selections"
+          value={selections.length}
+          hint="Company industry profiles"
+          icon={Store}
+        />
+        <StatCard
+          label="Active packs"
+          value={running}
+          hint="Status active"
+          icon={CheckCircle2}
+        />
       </div>
 
       {selections.length > 0 && (
@@ -431,10 +486,20 @@ function OverviewTab({
                 <Th>Status</Th>
               </>
             }
-            empty={selections.length === 0 && <EmptyState title="No selections" description="Choose an industry pack to get started." />}
+            empty={
+              selections.length === 0 && (
+                <EmptyState
+                  title="No selections"
+                  description="Choose an industry pack to get started."
+                />
+              )
+            }
           >
             {selections.map((s) => (
-              <Tr key={`${s.industry_key}-${s.role}`} onClick={() => onOpen(s.industry_key)}>
+              <Tr
+                key={`${s.industry_key}-${s.role}`}
+                onClick={() => onOpen(s.industry_key)}
+              >
                 <Td className="font-medium">{s.industry_key}</Td>
                 <Td>{s.business_type ?? "—"}</Td>
                 <Td>{s.company_size ?? "—"}</Td>
@@ -522,15 +587,23 @@ function OverviewTab({
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="font-semibold text-ink">{p.name}</p>
-                  <p className="mt-0.5 text-xs text-faint">{p.modules.length} modules · {p.workflows.length} workflows</p>
+                  <p className="mt-0.5 text-xs text-faint">
+                    {p.modules.length} modules · {p.workflows.length} workflows
+                  </p>
                 </div>
                 <Badge tone={p.installed ? "success" : "neutral"}>
                   {p.installed ?? "available"}
                 </Badge>
               </div>
-              <p className="mt-2 line-clamp-2 text-xs text-muted">{p.description}</p>
+              <p className="mt-2 line-clamp-2 text-xs text-muted">
+                {p.description}
+              </p>
               <div className="mt-3 flex gap-2">
-                <Button variant="secondary" size="sm" onClick={() => onOpen(p.key)}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => onOpen(p.key)}
+                >
                   View
                 </Button>
                 {canManage && !p.installed && (
@@ -566,14 +639,23 @@ function CatalogTab({
       !search ||
       p.name.toLowerCase().includes(search.toLowerCase()) ||
       p.key.includes(search.toLowerCase()) ||
-      (p.business_types ?? []).some((b) => b.toLowerCase().includes(search.toLowerCase()))
+      (p.business_types ?? []).some((b) =>
+        b.toLowerCase().includes(search.toLowerCase()),
+      ),
   );
 
   return (
     <div className="space-y-4">
-      <Input placeholder="Search packs by name, key or business type…" value={search} onChange={(e) => setSearch(e.target.value)} />
+      <Input
+        placeholder="Search packs by name, key or business type…"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+      />
       {filtered.length === 0 ? (
-        <EmptyState title="No packs match" description="Try a different search term." />
+        <EmptyState
+          title="No packs match"
+          description="Try a different search term."
+        />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((p) => (
@@ -582,7 +664,9 @@ function CatalogTab({
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-soft text-brand">
                   <Boxes className="h-5 w-5" />
                 </div>
-                <Badge tone={p.installed ? "success" : "neutral"}>{p.installed ?? "not installed"}</Badge>
+                <Badge tone={p.installed ? "success" : "neutral"}>
+                  {p.installed ?? "not installed"}
+                </Badge>
               </div>
               <h3 className="mt-3 font-semibold text-ink">{p.name}</h3>
               <p className="mt-1 text-xs text-muted">{p.description}</p>
@@ -592,24 +676,44 @@ function CatalogTab({
                 <Badge tone="brand">{p.ai_models.length} AI models</Badge>
               </div>
               {(p.business_types ?? []).length > 0 && (
-                <p className="mt-2 text-xs text-faint">For {p.business_types.join(", ")}</p>
+                <p className="mt-2 text-xs text-faint">
+                  For {p.business_types.join(", ")}
+                </p>
               )}
               <div className="mt-4 flex flex-1 items-end gap-2">
-                <Button variant="secondary" size="sm" className="flex-1" onClick={() => onOpen(p.key)}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => onOpen(p.key)}
+                >
                   View
                 </Button>
                 {canManage &&
                   (p.installed ? (
-                    <Button variant="ghost" size="sm" className="flex-1" onClick={() => onOpen(p.key)}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => onOpen(p.key)}
+                    >
                       Manage
                     </Button>
                   ) : (
-                    <Button size="sm" className="flex-1" onClick={() => onSelect(p.key)}>
+                    <Button
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => onSelect(p.key)}
+                    >
                       Select
                     </Button>
                   ))}
                 {canManage && !p.installed && (
-                  <Button variant="ghost" size="sm" onClick={() => onInstall(p.key)}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onInstall(p.key)}
+                  >
                     <Plus className="h-4 w-4" />
                   </Button>
                 )}
@@ -629,7 +733,9 @@ function WorkflowsTab({
   installed: InstalledIndustryPack[];
   onOpen: (key: string) => void;
 }) {
-  const [runs, setRuns] = useState<{ pack: string; runs: IndustryWorkflowRun[] }[]>([]);
+  const [runs, setRuns] = useState<
+    { pack: string; runs: IndustryWorkflowRun[] }[]
+  >([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -637,7 +743,10 @@ function WorkflowsTab({
     (async () => {
       try {
         const results = await Promise.all(
-          installed.map(async (p) => ({ pack: p.industry_key, runs: await industryWorkflows(p.industry_key) }))
+          installed.map(async (p) => ({
+            pack: p.industry_key,
+            runs: await industryWorkflows(p.industry_key),
+          })),
         );
         if (!cancelled) setRuns(results);
       } finally {
@@ -686,7 +795,10 @@ function WorkflowsTab({
           <Tr key={`${w.pack}-${w.id}`}>
             <Td className="font-medium">{w.name}</Td>
             <Td>
-              <button onClick={() => onOpen(w.pack)} className="text-brand hover:underline">
+              <button
+                onClick={() => onOpen(w.pack)}
+                className="text-brand hover:underline"
+              >
                 {w.pack}
               </button>
             </Td>
@@ -697,7 +809,10 @@ function WorkflowsTab({
             <Td>
               <div className="flex items-center gap-2">
                 <div className="h-1.5 w-24 overflow-hidden rounded-full bg-line">
-                  <div className="h-full rounded-full bg-brand" style={{ width: `${Math.min(100, w.progress ?? 0)}%` }} />
+                  <div
+                    className="h-full rounded-full bg-brand"
+                    style={{ width: `${Math.min(100, w.progress ?? 0)}%` }}
+                  />
                 </div>
                 <span className="text-xs text-faint">{w.progress ?? 0}%</span>
               </div>
@@ -774,7 +889,10 @@ function PackDetail({
           <span className="flex items-center gap-2">
             <CheckCircle2 className="h-4 w-4" /> {notice}
           </span>
-          <button onClick={() => setNotice(null)} className="text-success/70 hover:text-success">
+          <button
+            onClick={() => setNotice(null)}
+            className="text-success/70 hover:text-success"
+          >
             <XCircle className="h-4 w-4" />
           </button>
         </div>
@@ -784,25 +902,61 @@ function PackDetail({
 
       <div className="mt-5">
         {subTab === "overview" && (
-          <PackOverviewBody pack={pack} summary={summary} canManage={canManage} onChanged={onChanged} notify={notify} />
+          <PackOverviewBody
+            pack={pack}
+            summary={summary}
+            canManage={canManage}
+            onChanged={onChanged}
+            notify={notify}
+          />
         )}
         {subTab === "modules" && (
-          <PackModulesBody industryKey={industryKey} canManage={canManage} notify={notify} onError={setError} />
+          <PackModulesBody
+            industryKey={industryKey}
+            canManage={canManage}
+            notify={notify}
+            onError={setError}
+          />
         )}
         {subTab === "workflows" && (
-          <PackWorkflowsBody industryKey={industryKey} canManage={canManage} notify={notify} onError={setError} />
+          <PackWorkflowsBody
+            industryKey={industryKey}
+            canManage={canManage}
+            notify={notify}
+            onError={setError}
+          />
         )}
         {subTab === "templates" && (
-          <PackTemplatesBody industryKey={industryKey} canManage={canManage} notify={notify} onError={setError} />
+          <PackTemplatesBody
+            industryKey={industryKey}
+            canManage={canManage}
+            notify={notify}
+            onError={setError}
+          />
         )}
         {subTab === "compliance" && (
-          <PackComplianceBody industryKey={industryKey} canManage={canManage} notify={notify} onError={setError} />
+          <PackComplianceBody
+            industryKey={industryKey}
+            canManage={canManage}
+            notify={notify}
+            onError={setError}
+          />
         )}
         {subTab === "ai" && (
-          <PackAIBody industryKey={industryKey} canManage={canManage} notify={notify} onError={setError} />
+          <PackAIBody
+            industryKey={industryKey}
+            canManage={canManage}
+            notify={notify}
+            onError={setError}
+          />
         )}
         {subTab === "analytics" && (
-          <PackAnalyticsBody industryKey={industryKey} canManage={canManage} notify={notify} onError={setError} />
+          <PackAnalyticsBody
+            industryKey={industryKey}
+            canManage={canManage}
+            notify={notify}
+            onError={setError}
+          />
         )}
       </div>
     </div>
@@ -822,8 +976,9 @@ function PackOverviewBody({
   onChanged: () => void;
   notify: (m: string) => void;
 }) {
-  if (!pack) return <Spinner label="Loading pack" />;
   const [busy, setBusy] = useState(false);
+
+  if (!pack) return <Spinner label="Loading pack" />;
 
   return (
     <div className="space-y-5">
@@ -831,34 +986,54 @@ function PackOverviewBody({
         <p className="text-sm text-muted">{summary?.description ?? ""}</p>
         {pack.selection ? (
           <div className="mt-3 flex flex-wrap gap-2">
-            <Badge tone="brand">{pack.selection.business_type ?? "No business type"}</Badge>
-            <Badge tone="brand">{pack.selection.company_size ?? "No size"}</Badge>
+            <Badge tone="brand">
+              {pack.selection.business_type ?? "No business type"}
+            </Badge>
+            <Badge tone="brand">
+              {pack.selection.company_size ?? "No size"}
+            </Badge>
             <Badge tone="brand">{pack.selection.country ?? "No country"}</Badge>
           </div>
         ) : (
-          <p className="mt-3 text-xs text-faint">No company selection recorded yet — select this pack to configure it.</p>
+          <p className="mt-3 text-xs text-faint">
+            No company selection recorded yet — select this pack to configure
+            it.
+          </p>
         )}
       </Card>
 
       <div className="grid gap-4 sm:grid-cols-3">
         <StatCard label="Modules" value={pack.modules.length} icon={Boxes} />
-        <StatCard label="Workflows" value={pack.workflows.length} icon={Workflow} />
+        <StatCard
+          label="Workflows"
+          value={pack.workflows.length}
+          icon={Workflow}
+        />
         <StatCard label="KPIs" value={pack.kpis.length} icon={TrendingUp} />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Card title="Compliance frameworks">
           {pack.compliance.length === 0 ? (
-            <p className="text-sm text-faint">No compliance frameworks in this pack.</p>
+            <p className="text-sm text-faint">
+              No compliance frameworks in this pack.
+            </p>
           ) : (
             <div className="space-y-3">
               {pack.compliance.map((f) => (
-                <div key={`${f.framework}-${f.region}`} className="rounded-lg border border-line p-3">
+                <div
+                  key={`${f.framework}-${f.region}`}
+                  className="rounded-lg border border-line p-3"
+                >
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-ink">{f.framework}</p>
+                    <p className="text-sm font-medium text-ink">
+                      {f.framework}
+                    </p>
                     <Badge tone="brand">{f.region}</Badge>
                   </div>
-                  <p className="mt-1 text-xs text-faint">{f.rules.length} rules</p>
+                  <p className="mt-1 text-xs text-faint">
+                    {f.rules.length} rules
+                  </p>
                 </div>
               ))}
             </div>
@@ -918,7 +1093,10 @@ function PackOverviewBody({
                 onClick={async () => {
                   setBusy(true);
                   try {
-                    await industryActivateWorkflow(pack.industry_key, pack.workflows[0].key);
+                    await industryActivateWorkflow(
+                      pack.industry_key,
+                      pack.workflows[0].key,
+                    );
                     notify(`Workflow "${pack.workflows[0].name}" activated`);
                     onChanged();
                   } catch {
@@ -958,7 +1136,9 @@ function PackModulesBody({
       .then((m) => {
         if (!cancelled) setModules(m);
       })
-      .catch((err) => onError(err instanceof Error ? err.message : "Failed to load modules"));
+      .catch((err) =>
+        onError(err instanceof Error ? err.message : "Failed to load modules"),
+      );
     return () => {
       cancelled = true;
     };
@@ -984,13 +1164,21 @@ function PackModulesBody({
                   onClick={async () => {
                     setBusyKey(m.key);
                     try {
-                      await industryToggleModule(industryKey, m.key, !m.enabled);
+                      await industryToggleModule(
+                        industryKey,
+                        m.key,
+                        !m.enabled,
+                      );
                       setModules((prev) =>
-                        (prev ?? []).map((x) => (x.key === m.key ? { ...x, enabled: !m.enabled } : x))
+                        (prev ?? []).map((x) =>
+                          x.key === m.key ? { ...x, enabled: !m.enabled } : x,
+                        ),
                       );
                       notify(`${m.name} ${m.enabled ? "disabled" : "enabled"}`);
                     } catch (err) {
-                      onError(err instanceof Error ? err.message : "Toggle failed");
+                      onError(
+                        err instanceof Error ? err.message : "Toggle failed",
+                      );
                     } finally {
                       setBusyKey(null);
                     }
@@ -999,7 +1187,9 @@ function PackModulesBody({
                   {m.enabled ? "Enabled" : "Enable"}
                 </Button>
               ) : (
-                <Badge tone={m.enabled ? "success" : "neutral"}>{m.enabled ? "enabled" : "disabled"}</Badge>
+                <Badge tone={m.enabled ? "success" : "neutral"}>
+                  {m.enabled ? "enabled" : "disabled"}
+                </Badge>
               )}
             </div>
             <p className="mt-2 text-xs text-muted">{m.description}</p>
@@ -1065,13 +1255,19 @@ function PackWorkflowsBody({
               <Th></Th>
             </>
           }
-          empty={templates.length === 0 && <EmptyState title="No workflow templates" />}
+          empty={
+            templates.length === 0 && (
+              <EmptyState title="No workflow templates" />
+            )
+          }
         >
           {templates.map((t) => (
             <Tr key={t.key}>
               <Td>
                 <div className="font-medium">{t.name}</div>
-                <div className="text-xs text-faint">{t.description ?? t.key}</div>
+                <div className="text-xs text-faint">
+                  {t.description ?? t.key}
+                </div>
               </Td>
               <Td>{t.steps.length} steps</Td>
               <Td className="text-right">
@@ -1087,7 +1283,11 @@ function PackWorkflowsBody({
                         notify(`Workflow "${t.name}" started`);
                         await load();
                       } catch (err) {
-                        onError(err instanceof Error ? err.message : "Activation failed");
+                        onError(
+                          err instanceof Error
+                            ? err.message
+                            : "Activation failed",
+                        );
                       } finally {
                         setBusy(null);
                       }
@@ -1114,7 +1314,14 @@ function PackWorkflowsBody({
               <Th></Th>
             </>
           }
-          empty={runs.length === 0 && <EmptyState title="No runs yet" description="Start a workflow template above." />}
+          empty={
+            runs.length === 0 && (
+              <EmptyState
+                title="No runs yet"
+                description="Start a workflow template above."
+              />
+            )
+          }
         >
           {runs.map((w) => (
             <Tr key={w.id}>
@@ -1126,7 +1333,10 @@ function PackWorkflowsBody({
               <Td>
                 <div className="flex items-center gap-2">
                   <div className="h-1.5 w-24 overflow-hidden rounded-full bg-line">
-                    <div className="h-full rounded-full bg-brand" style={{ width: `${Math.min(100, w.progress ?? 0)}%` }} />
+                    <div
+                      className="h-full rounded-full bg-brand"
+                      style={{ width: `${Math.min(100, w.progress ?? 0)}%` }}
+                    />
                   </div>
                   <span className="text-xs text-faint">{w.progress ?? 0}%</span>
                 </div>
@@ -1147,7 +1357,11 @@ function PackWorkflowsBody({
                               await industryAdvanceWorkflow(industryKey, w.id);
                               await load();
                             } catch (err) {
-                              onError(err instanceof Error ? err.message : "Advance failed");
+                              onError(
+                                err instanceof Error
+                                  ? err.message
+                                  : "Advance failed",
+                              );
                             } finally {
                               setBusy(null);
                             }
@@ -1160,11 +1374,19 @@ function PackWorkflowsBody({
                           size="sm"
                           onClick={async () => {
                             try {
-                              await industryWorkflowAction(industryKey, w.id, "pause");
+                              await industryWorkflowAction(
+                                industryKey,
+                                w.id,
+                                "pause",
+                              );
                               notify("Workflow paused");
                               await load();
                             } catch (err) {
-                              onError(err instanceof Error ? err.message : "Pause failed");
+                              onError(
+                                err instanceof Error
+                                  ? err.message
+                                  : "Pause failed",
+                              );
                             }
                           }}
                         >
@@ -1178,29 +1400,48 @@ function PackWorkflowsBody({
                         size="sm"
                         onClick={async () => {
                           try {
-                            await industryWorkflowAction(industryKey, w.id, "resume");
+                            await industryWorkflowAction(
+                              industryKey,
+                              w.id,
+                              "resume",
+                            );
                             notify("Workflow resumed");
                             await load();
                           } catch (err) {
-                            onError(err instanceof Error ? err.message : "Resume failed");
+                            onError(
+                              err instanceof Error
+                                ? err.message
+                                : "Resume failed",
+                            );
                           }
                         }}
                       >
                         Resume
                       </Button>
                     )}
-                    {(w.status === "running" || w.status === "active" || w.status === "paused" || w.status === "pending") && (
+                    {(w.status === "running" ||
+                      w.status === "active" ||
+                      w.status === "paused" ||
+                      w.status === "pending") && (
                       <Button
                         variant="ghost"
                         size="sm"
                         className="text-danger"
                         onClick={async () => {
                           try {
-                            await industryWorkflowAction(industryKey, w.id, "cancel");
+                            await industryWorkflowAction(
+                              industryKey,
+                              w.id,
+                              "cancel",
+                            );
                             notify("Workflow cancelled");
                             await load();
                           } catch (err) {
-                            onError(err instanceof Error ? err.message : "Cancel failed");
+                            onError(
+                              err instanceof Error
+                                ? err.message
+                                : "Cancel failed",
+                            );
                           }
                         }}
                       >
@@ -1239,7 +1480,11 @@ function PackTemplatesBody({
       .then((t) => {
         if (!cancelled) setTemplates(t);
       })
-      .catch((err) => onError(err instanceof Error ? err.message : "Failed to load templates"));
+      .catch((err) =>
+        onError(
+          err instanceof Error ? err.message : "Failed to load templates",
+        ),
+      );
     return () => {
       cancelled = true;
     };
@@ -1277,7 +1522,9 @@ function PackTemplatesBody({
             <Tr key={t.key}>
               <Td>
                 <div className="font-medium">{t.name}</div>
-                <div className="text-xs text-faint">{t.description ?? t.key}</div>
+                <div className="text-xs text-faint">
+                  {t.description ?? t.key}
+                </div>
               </Td>
               <Td>
                 <Badge tone="brand">{t.kind}</Badge>
@@ -1296,7 +1543,9 @@ function PackTemplatesBody({
                         await industryApplyTemplate(industryKey, t.key);
                         notify(`Template "${t.name}" applied`);
                       } catch (err) {
-                        onError(err instanceof Error ? err.message : "Apply failed");
+                        onError(
+                          err instanceof Error ? err.message : "Apply failed",
+                        );
                       } finally {
                         setBusyKey(null);
                       }
@@ -1325,7 +1574,10 @@ function PackComplianceBody({
   notify: (m: string) => void;
   onError: (m: string) => void;
 }) {
-  const [data, setData] = useState<{ rules: IndustryComplianceRule[]; posture: IndustryCompliancePosture | null } | null>(null);
+  const [data, setData] = useState<{
+    rules: IndustryComplianceRule[];
+    posture: IndustryCompliancePosture | null;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -1347,11 +1599,22 @@ function PackComplianceBody({
   return (
     <div className="space-y-5">
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <StatCard label="Total controls" value={posture?.total ?? 0} icon={ShieldCheck} />
-        <StatCard label="Passed" value={posture?.passed ?? 0} hint="Compliant controls" />
+        <StatCard
+          label="Total controls"
+          value={posture?.total ?? 0}
+          icon={ShieldCheck}
+        />
+        <StatCard
+          label="Passed"
+          value={posture?.passed ?? 0}
+          hint="Compliant controls"
+        />
         <StatCard label="Warnings" value={posture?.warned ?? 0} />
         <StatCard label="Failed" value={posture?.failed ?? 0} />
-        <StatCard label="Score" value={posture?.score != null ? `${posture.score}%` : "—"} />
+        <StatCard
+          label="Score"
+          value={posture?.score != null ? `${posture.score}%` : "—"}
+        />
       </div>
 
       {canManage && (
@@ -1404,7 +1667,9 @@ function PackComplianceBody({
               </Td>
               <Td>{r.cadence_days}d</Td>
               <Td>
-                <Badge tone={r.enabled ? "success" : "neutral"}>{r.enabled ? "enabled" : "disabled"}</Badge>
+                <Badge tone={r.enabled ? "success" : "neutral"}>
+                  {r.enabled ? "enabled" : "disabled"}
+                </Badge>
               </Td>
             </Tr>
           ))}
@@ -1482,19 +1747,25 @@ function PackAIBody({
           <Badge tone={status.gateway.available ? "success" : "danger"}>
             {status.gateway.available ? "available" : "unavailable"}
           </Badge>
-          <span className="text-sm text-muted">Provider: {status.gateway.provider}</span>
+          <span className="text-sm text-muted">
+            Provider: {status.gateway.provider}
+          </span>
         </div>
       </Card>
 
       <Card title="AI model profiles">
         <div className="grid gap-3 sm:grid-cols-2">
           {status.profiles.map((p) => (
-            <div key={p.model_key} className="rounded-lg border border-line p-4">
+            <div
+              key={p.model_key}
+              className="rounded-lg border border-line p-4"
+            >
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <p className="font-medium text-ink">{p.name}</p>
                   <p className="text-xs text-faint">
-                    {p.provider} · {p.temperature} temp · {p.terminology.length} terms
+                    {p.provider} · {p.temperature} temp · {p.terminology.length}{" "}
+                    terms
                   </p>
                 </div>
                 {canManage ? (
@@ -1503,27 +1774,39 @@ function PackAIBody({
                     size="sm"
                     onClick={async () => {
                       try {
-                        await industryAIToggle(industryKey, p.model_key, !p.enabled);
+                        await industryAIToggle(
+                          industryKey,
+                          p.model_key,
+                          !p.enabled,
+                        );
                         setStatus((prev) =>
                           prev
                             ? {
                                 ...prev,
                                 profiles: prev.profiles.map((x) =>
-                                  x.model_key === p.model_key ? { ...x, enabled: !p.enabled } : x
+                                  x.model_key === p.model_key
+                                    ? { ...x, enabled: !p.enabled }
+                                    : x,
                                 ),
                               }
-                            : prev
+                            : prev,
                         );
-                        notify(`${p.name} ${p.enabled ? "disabled" : "enabled"}`);
+                        notify(
+                          `${p.name} ${p.enabled ? "disabled" : "enabled"}`,
+                        );
                       } catch (err) {
-                        onError(err instanceof Error ? err.message : "Toggle failed");
+                        onError(
+                          err instanceof Error ? err.message : "Toggle failed",
+                        );
                       }
                     }}
                   >
                     {p.enabled ? "Enabled" : "Enable"}
                   </Button>
                 ) : (
-                  <Badge tone={p.enabled ? "success" : "neutral"}>{p.enabled ? "enabled" : "disabled"}</Badge>
+                  <Badge tone={p.enabled ? "success" : "neutral"}>
+                    {p.enabled ? "enabled" : "disabled"}
+                  </Badge>
                 )}
               </div>
               {(p.guardrails ?? []).length > 0 && (
@@ -1566,9 +1849,12 @@ function PackAIBody({
         {answer && (
           <div className="mt-4 rounded-lg border border-line bg-canvas p-4">
             <div className="flex items-center gap-2 text-xs text-faint">
-              <Sparkles className="h-3.5 w-3.5 text-brand" /> Industry AI response
+              <Sparkles className="h-3.5 w-3.5 text-brand" /> Industry AI
+              response
             </div>
-            <p className="mt-2 whitespace-pre-wrap text-sm text-ink">{answer}</p>
+            <p className="mt-2 whitespace-pre-wrap text-sm text-ink">
+              {answer}
+            </p>
           </div>
         )}
       </Card>
@@ -1587,7 +1873,10 @@ function PackAnalyticsBody({
   notify: (m: string) => void;
   onError: (m: string) => void;
 }) {
-  const [dash, setDash] = useState<{ metrics: IndustryMetricCard[]; tracked: number } | null>(null);
+  const [dash, setDash] = useState<{
+    metrics: IndustryMetricCard[];
+    tracked: number;
+  } | null>(null);
   const [kpis, setKpis] = useState<IndustryKPI[]>([]);
   const [metricKey, setMetricKey] = useState("");
   const [value, setValue] = useState("");
@@ -1596,7 +1885,10 @@ function PackAnalyticsBody({
 
   const load = useCallback(async () => {
     try {
-      const [d, k] = await Promise.all([industryAnalytics(industryKey), industryPackOverview(industryKey)]);
+      const [d, k] = await Promise.all([
+        industryAnalytics(industryKey),
+        industryPackOverview(industryKey),
+      ]);
       setDash(d);
       setKpis(k.kpis);
     } catch (err) {
@@ -1611,7 +1903,13 @@ function PackAnalyticsBody({
   if (!dash) return <Spinner label="Loading analytics" />;
 
   const metricTone = (m: IndustryMetricCard) =>
-    m.status === "good" ? "success" : m.status === "warning" ? "warning" : m.status === "critical" ? "danger" : "neutral";
+    m.status === "good"
+      ? "success"
+      : m.status === "warning"
+        ? "warning"
+        : m.status === "critical"
+          ? "danger"
+          : "neutral";
 
   return (
     <div className="space-y-5">
@@ -1624,17 +1922,24 @@ function PackAnalyticsBody({
             </div>
             <p className="mt-1 text-2xl font-semibold tracking-tight text-ink">
               {m.value != null ? `${m.value}` : "—"}
-              {m.unit ? <span className="ml-1 text-sm text-faint">{m.unit}</span> : null}
+              {m.unit ? (
+                <span className="ml-1 text-sm text-faint">{m.unit}</span>
+              ) : null}
             </p>
             <p className="mt-1 text-xs text-muted">
               Benchmark {m.benchmark ?? "—"}
-              {m.delta_pct != null ? ` · ${m.delta_pct > 0 ? "+" : ""}${m.delta_pct}%` : ""}
+              {m.delta_pct != null
+                ? ` · ${m.delta_pct > 0 ? "+" : ""}${m.delta_pct}%`
+                : ""}
             </p>
           </div>
         ))}
         {dash.metrics.length === 0 && (
           <div className="sm:col-span-2 lg:col-span-3">
-            <EmptyState title="No metric data yet" description="Record metrics below to start tracking performance." />
+            <EmptyState
+              title="No metric data yet"
+              description="Record metrics below to start tracking performance."
+            />
           </div>
         )}
       </div>
@@ -1645,18 +1950,28 @@ function PackAnalyticsBody({
             <div className="min-w-44 flex-1">
               <Select
                 label="Metric"
-                options={kpis.map((k) => ({ value: k.key, label: `${k.name} (${k.key})` }))}
+                options={kpis.map((k) => ({
+                  value: k.key,
+                  label: `${k.name} (${k.key})`,
+                }))}
                 value={metricKey}
                 onChange={(e) => setMetricKey(e.target.value)}
               />
             </div>
             <div className="min-w-32">
-              <Input label="Value" type="number" value={value} onChange={(e) => setValue(e.target.value)} />
+              <Input
+                label="Value"
+                type="number"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+              />
             </div>
             <div className="min-w-36">
               <Select
                 label="Period"
-                options={["daily", "weekly", "monthly", "quarterly"].map((p) => ({ value: p, label: p }))}
+                options={["daily", "weekly", "monthly", "quarterly"].map(
+                  (p) => ({ value: p, label: p }),
+                )}
                 value={period}
                 onChange={(e) => setPeriod(e.target.value)}
               />
@@ -1667,7 +1982,11 @@ function PackAnalyticsBody({
               onClick={async () => {
                 setBusy(true);
                 try {
-                  await industryRecordMetrics(industryKey, [{ metric_key: metricKey, value: Number(value) }], period);
+                  await industryRecordMetrics(
+                    industryKey,
+                    [{ metric_key: metricKey, value: Number(value) }],
+                    period,
+                  );
                   notify("Metric recorded");
                   setValue("");
                   await load();

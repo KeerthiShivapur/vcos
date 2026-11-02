@@ -21,10 +21,16 @@ export const KIND_ICONS: Record<string, string> = {
 };
 
 export function kindLabel(kind: string): string {
-  return KIND_LABELS[kind] ?? kind.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  return (
+    KIND_LABELS[kind] ??
+    kind.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+  );
 }
 
-const STATUS_TONES: Record<string, "brand" | "success" | "warning" | "danger" | "neutral"> = {
+const STATUS_TONES: Record<
+  string,
+  "brand" | "success" | "warning" | "danger" | "neutral"
+> = {
   published: "success",
   approved: "success",
   made: "success",
@@ -36,11 +42,19 @@ const STATUS_TONES: Record<string, "brand" | "success" | "warning" | "danger" | 
   archived: "neutral",
 };
 
-export function statusToneFor(status: string): "brand" | "success" | "warning" | "danger" | "neutral" {
+export function statusToneFor(
+  status: string,
+): "brand" | "success" | "warning" | "danger" | "neutral" {
   return STATUS_TONES[status] ?? "neutral";
 }
 
-export function KnowledgeBadge({ status, kind }: { status: string; kind?: string }) {
+export function KnowledgeBadge({
+  status,
+  kind,
+}: {
+  status: string;
+  kind?: string;
+}) {
   return (
     <div className="flex items-center gap-2">
       {kind && <Badge tone="brand">{kindLabel(kind)}</Badge>}

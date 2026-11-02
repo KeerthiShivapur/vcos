@@ -1,0 +1,13 @@
+caller_a: CallerAccess, caller_b: CallerAccess):
+        self.db = db
+        self.caller_a = caller_a
+        self.caller_b = caller_b
+        self.mutation_boundary = CanonicalMutationBoundary()
+        self.results: List[Dict[str, Any]] = []
+        self._test_run_id: Optional[str] = None
+
+    def _unique(self, prefix: str = "") -> str:
+        """Create a unique ID with test run isolation."""
+        base = f"{prefix}{uuid.uuid4().hex[:12]}"
+        if self._test_run_id:
+            return f

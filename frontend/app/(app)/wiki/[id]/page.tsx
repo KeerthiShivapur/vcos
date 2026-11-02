@@ -3,7 +3,14 @@
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { BookOpen, CheckCircle2, ChevronRight, Move, Pencil, Trash2 } from "lucide-react";
+import {
+  BookOpen,
+  CheckCircle2,
+  ChevronRight,
+  Move,
+  Pencil,
+  Trash2,
+} from "lucide-react";
 
 import {
   deleteWikiPage,
@@ -123,7 +130,7 @@ function DetailContent() {
         await updateWikiPage(id, {
           title: editTitle,
           content: editContent,
-        })
+        }),
       );
       toastSuccess("Page updated");
       setShowEdit(false);
@@ -144,11 +151,20 @@ function DetailContent() {
   }
 
   if (loading) {
-    return <div className="flex justify-center py-24"><Spinner label="Loading page" /></div>;
+    return (
+      <div className="flex justify-center py-24">
+        <Spinner label="Loading page" />
+      </div>
+    );
   }
 
   if (error || !page) {
-    return <ErrorState title="Wiki page not found" message={error ?? "It may have been deleted."} />;
+    return (
+      <ErrorState
+        title="Wiki page not found"
+        message={error ?? "It may have been deleted."}
+      />
+    );
   }
 
   const siblings = flatten(tree).filter((n) => n.value !== id);
@@ -164,18 +180,39 @@ function DetailContent() {
             <KnowledgeBadge status={page.status} kind="wiki" />
             {canManage && (
               <>
-                <Button size="sm" variant="ghost" onClick={() => setShowMove(true)}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setShowMove(true)}
+                >
                   <Move className="h-4 w-4" /> Move
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => { setEditTitle(page.title); setEditContent(page.content ?? ""); setShowEdit(true); }}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setEditTitle(page.title);
+                    setEditContent(page.content ?? "");
+                    setShowEdit(true);
+                  }}
+                >
                   <Pencil className="h-4 w-4" /> Edit
                 </Button>
                 {page.status !== "published" && (
-                  <Button size="sm" variant="secondary" onClick={publish} loading={busy}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={publish}
+                    loading={busy}
+                  >
                     <CheckCircle2 className="h-4 w-4" /> Publish
                   </Button>
                 )}
-                <Button size="sm" variant="ghost" onClick={() => setShowDelete(true)}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setShowDelete(true)}
+                >
                   <Trash2 className="h-4 w-4 text-danger" />
                 </Button>
               </>
@@ -187,30 +224,49 @@ function DetailContent() {
       <WatchBar kind="wiki" entityId={page.id} />
 
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-[12px] text-muted">
-        {page.author_name && <span className="flex items-center gap-1.5"><Avatar name={page.author_name} size="xs" /> {page.author_name}</span>}
+        {page.author_name && (
+          <span className="flex items-center gap-1.5">
+            <Avatar name={page.author_name} size="xs" /> {page.author_name}
+          </span>
+        )}
         <span>v{page.version}</span>
         <span>{page.view_count} views</span>
         <Badge tone="neutral">{page.space}</Badge>
         {page.parent_id && (
-          <Link href={`/wiki/${page.parent_id}`} className="flex items-center gap-0.5 font-medium text-brand hover:underline">
+          <Link
+            href={`/wiki/${page.parent_id}`}
+            className="flex items-center gap-0.5 font-medium text-brand hover:underline"
+          >
             <ChevronRight className="h-3.5 w-3.5" /> parent
           </Link>
         )}
-        <span className="ml-auto text-faint">Updated {formatDate(page.updated_at)}</span>
+        <span className="ml-auto text-faint">
+          Updated {formatDate(page.updated_at)}
+        </span>
       </div>
 
       {page.ai_summary && (
         <div className="rounded-lg border border-brand/20 bg-brand-soft/40 p-4">
-          <p className="text-[12px] font-semibold uppercase tracking-wide text-brand">AI summary</p>
-          <p className="mt-1 text-[13px] leading-relaxed text-muted">{page.ai_summary}</p>
+          <p className="text-[12px] font-semibold uppercase tracking-wide text-brand">
+            AI summary
+          </p>
+          <p className="mt-1 text-[13px] leading-relaxed text-muted">
+            {page.ai_summary}
+          </p>
         </div>
       )}
 
       <div className="card p-6">
         {page.content ? (
-          <div className="whitespace-pre-wrap text-[14px] leading-relaxed text-muted">{page.content}</div>
+          <div className="whitespace-pre-wrap text-[14px] leading-relaxed text-muted">
+            {page.content}
+          </div>
         ) : (
-          <EmptyState icon={BookOpen} title="Empty page" description="This page has no content yet." />
+          <EmptyState
+            icon={BookOpen}
+            title="Empty page"
+            description="This page has no content yet."
+          />
         )}
       </div>
 
@@ -221,7 +277,11 @@ function DetailContent() {
           </p>
           <div className="space-y-1.5">
             {children.map((child) => (
-              <Link key={child.id} href={`/wiki/${child.id}`} className="flex items-center justify-between rounded-md px-2 py-1.5 text-[13px] text-ink transition-colors hover:bg-surface">
+              <Link
+                key={child.id}
+                href={`/wiki/${child.id}`}
+                className="flex items-center justify-between rounded-md px-2 py-1.5 text-[13px] text-ink transition-colors hover:bg-surface"
+              >
                 <span className="truncate font-medium">{child.title}</span>
                 <Badge tone="neutral">{child.status}</Badge>
               </Link>
@@ -233,7 +293,12 @@ function DetailContent() {
       <CommentsPanel kind="wiki" entityId={page.id} />
       <VersionHistory kind="wiki" entityId={page.id} />
 
-      <Modal open={showMove} onClose={() => setShowMove(false)} title="Move page" description="Choose a new parent — leaving it empty moves it to the root.">
+      <Modal
+        open={showMove}
+        onClose={() => setShowMove(false)}
+        title="Move page"
+        description="Choose a new parent — leaving it empty moves it to the root."
+      >
         <div className="space-y-4">
           <Select
             value={moveTarget}
@@ -242,30 +307,63 @@ function DetailContent() {
             options={siblings}
           />
           <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setShowMove(false)}>Cancel</Button>
-            <Button onClick={move} loading={busy}>Move page</Button>
+            <Button variant="ghost" onClick={() => setShowMove(false)}>
+              Cancel
+            </Button>
+            <Button onClick={move} loading={busy}>
+              Move page
+            </Button>
           </div>
         </div>
       </Modal>
 
-      <Modal open={showEdit} onClose={() => setShowEdit(false)} title={`Edit — v${page.version}`}>
+      <Modal
+        open={showEdit}
+        onClose={() => setShowEdit(false)}
+        title={`Edit — v${page.version}`}
+      >
         <form onSubmit={saveEdit} className="space-y-4">
-          <Input label="Title" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+          <Input
+            label="Title"
+            value={editTitle}
+            onChange={(e) => setEditTitle(e.target.value)}
+          />
           <div>
             <label className="label">Content</label>
-            <Textarea rows={12} value={editContent} onChange={(e) => setEditContent(e.target.value)} />
+            <Textarea
+              rows={12}
+              value={editContent}
+              onChange={(e) => setEditContent(e.target.value)}
+            />
           </div>
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={() => setShowEdit(false)}>Cancel</Button>
-            <Button type="submit" loading={busy}>Save</Button>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setShowEdit(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" loading={busy}>
+              Save
+            </Button>
           </div>
         </form>
       </Modal>
 
-      <Modal open={showDelete} onClose={() => setShowDelete(false)} title="Delete page?" description="This cannot be undone.">
+      <Modal
+        open={showDelete}
+        onClose={() => setShowDelete(false)}
+        title="Delete page?"
+        description="This cannot be undone."
+      >
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={() => setShowDelete(false)}>Cancel</Button>
-          <Button variant="danger" onClick={remove} loading={busy}>Delete</Button>
+          <Button variant="ghost" onClick={() => setShowDelete(false)}>
+            Cancel
+          </Button>
+          <Button variant="danger" onClick={remove} loading={busy}>
+            Delete
+          </Button>
         </div>
       </Modal>
     </div>

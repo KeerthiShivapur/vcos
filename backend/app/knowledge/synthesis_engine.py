@@ -51,11 +51,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.timeutils import ensure_aware
 from app.intelligence.company_context import CallerAccess, resolve_caller_access
-from app.knowledge.canonical_service import (
-    _AUTHORITY_LABELS,
-    _load_provenance,
-    now_utc,
-)
+from app.core.timeutils import utcnow as now_utc
+import json
+
+def _load_provenance(raw: Optional[str]) -> dict[str, Any]:
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+
+_AUTHORITY_LABELS = {
+    1: "unverified",
+    2: "team_record",
+    3: "documented",
+    4: "authoritative",
+    5: "official",
+}
 from app.models.knowledge import (
     KnowledgeClaim,
     KnowledgeEvidence,

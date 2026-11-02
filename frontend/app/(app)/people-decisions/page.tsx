@@ -41,7 +41,10 @@ import {
 import { PERMISSIONS } from "@/lib/permissions";
 import { timeAgo } from "@/lib/utils";
 
-const LIFECYCLE_TONE: Record<string, "success" | "brand" | "warning" | "danger" | "neutral"> = {
+const LIFECYCLE_TONE: Record<
+  string,
+  "success" | "brand" | "warning" | "danger" | "neutral"
+> = {
   detected: "neutral",
   evaluated: "neutral",
   recommended: "brand",
@@ -120,7 +123,9 @@ export default function PeopleDecisionsPage() {
       setDecisions(res.decisions);
       setTotal(res.total);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load people decisions");
+      setError(
+        err instanceof Error ? err.message : "Unable to load people decisions",
+      );
     } finally {
       if (!opts.silent) setLoading(false);
     }
@@ -139,7 +144,9 @@ export default function PeopleDecisionsPage() {
       const res = await askPeopleDecision(q);
       setBrain(res);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to answer the question");
+      setError(
+        err instanceof Error ? err.message : "Unable to answer the question",
+      );
     } finally {
       setAsking(false);
     }
@@ -163,7 +170,9 @@ export default function PeopleDecisionsPage() {
       setDetail(created);
       await refresh({ silent: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to create the decision");
+      setError(
+        err instanceof Error ? err.message : "Unable to create the decision",
+      );
     } finally {
       setCreating(false);
     }
@@ -175,7 +184,9 @@ export default function PeopleDecisionsPage() {
     try {
       setDetail(await getPeopleDecisionDetail(id));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load decision detail");
+      setError(
+        err instanceof Error ? err.message : "Unable to load decision detail",
+      );
     }
   }
 
@@ -186,7 +197,11 @@ export default function PeopleDecisionsPage() {
       setDetail(updated);
       await refresh({ silent: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to transition the decision");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to transition the decision",
+      );
     }
   }
 
@@ -196,12 +211,16 @@ export default function PeopleDecisionsPage() {
       const updated = await recordPeopleDecisionOutcome(
         detail.id,
         status,
-        status === "successful" ? "recorded as successful from the People Decision Center" : "recorded as unsuccessful from the People Decision Center"
+        status === "successful"
+          ? "recorded as successful from the People Decision Center"
+          : "recorded as unsuccessful from the People Decision Center",
       );
       setDetail(updated);
       await refresh({ silent: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to record the outcome");
+      setError(
+        err instanceof Error ? err.message : "Unable to record the outcome",
+      );
     }
   }
 
@@ -213,7 +232,9 @@ export default function PeopleDecisionsPage() {
       setError(null);
       if (updated.verdict) setError(updated.verdict);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to run the simulation");
+      setError(
+        err instanceof Error ? err.message : "Unable to run the simulation",
+      );
     }
   }
 
@@ -229,23 +250,34 @@ export default function PeopleDecisionsPage() {
             ) : (
               <Users className="h-3.5 w-3.5 text-ink" />
             )}
-            <p className="text-[13px] font-medium text-ink">{candidate.person_label}</p>
-            <Badge tone={ROLE_TONE[candidate.role] ?? "neutral"}>{candidate.role}</Badge>
+            <p className="text-[13px] font-medium text-ink">
+              {candidate.person_label}
+            </p>
+            <Badge tone={ROLE_TONE[candidate.role] ?? "neutral"}>
+              {candidate.role}
+            </Badge>
           </div>
           <p className="text-[11px] text-faint">
-            {(candidate.evidence as { matched?: { length?: number } } | null)?.matched?.length ??
+            {(candidate.evidence as { matched?: { length?: number } } | null)
+              ?.matched?.length ??
               Object.keys(candidate.evidence ?? {}).length}{" "}
             evidence dimension(s)
           </p>
         </div>
         {candidate.rationale && (
-          <p className="mt-1.5 text-[11px] leading-relaxed text-muted">{candidate.rationale}</p>
+          <p className="mt-1.5 text-[11px] leading-relaxed text-muted">
+            {candidate.rationale}
+          </p>
         )}
         {candidate.trade_off && candidate.role === "alternative" && (
-          <p className="mt-1 text-[11px] italic leading-relaxed text-faint">{candidate.trade_off}</p>
+          <p className="mt-1 text-[11px] italic leading-relaxed text-faint">
+            {candidate.trade_off}
+          </p>
         )}
         {candidate.why_not && (
-          <p className="mt-1 text-[11px] leading-relaxed text-faint">why not: {candidate.why_not}</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-faint">
+            why not: {candidate.why_not}
+          </p>
         )}
       </li>
     );
@@ -265,7 +297,7 @@ export default function PeopleDecisionsPage() {
   }
 
   const pending = decisions.filter(
-    (d) => d.lifecycle === "recommended" || d.lifecycle === "reviewed"
+    (d) => d.lifecycle === "recommended" || d.lifecycle === "reviewed",
   ).length;
   const decided = decisions.filter((d) => d.outcome?.status).length;
 
@@ -278,10 +310,26 @@ export default function PeopleDecisionsPage() {
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Decisions" value={loading ? "…" : total} icon={Scale} />
-        <StatCard label="Awaiting human review" value={loading ? "…" : pending} icon={Gavel} />
-        <StatCard label="Outcomes recorded" value={loading ? "…" : decided} icon={BarChart3} />
-        <StatCard label="Simulated runs bounded" value="20 cap" icon={RotateCcw} />
+        <StatCard
+          label="Decisions"
+          value={loading ? "…" : total}
+          icon={Scale}
+        />
+        <StatCard
+          label="Awaiting human review"
+          value={loading ? "…" : pending}
+          icon={Gavel}
+        />
+        <StatCard
+          label="Outcomes recorded"
+          value={loading ? "…" : decided}
+          icon={BarChart3}
+        />
+        <StatCard
+          label="Simulated runs bounded"
+          value="20 cap"
+          icon={RotateCcw}
+        />
       </div>
 
       <Card
@@ -297,7 +345,11 @@ export default function PeopleDecisionsPage() {
             className="flex-1 rounded-lg border border-line bg-surface px-3 py-2 text-[13px] text-ink outline-none focus:border-brand"
           />
           <Button size="sm" onClick={ask} disabled={asking || !question.trim()}>
-            {asking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            {asking ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
             Ask
           </Button>
         </div>
@@ -307,13 +359,21 @@ export default function PeopleDecisionsPage() {
               <Badge tone="brand">{brain.intent}</Badge>
               <Badge tone="neutral">{brain.kind}</Badge>
               <Badge
-                tone={RISK_TONE[brain.decision_type === "capability_gap" ? "low" : "medium"] ?? "neutral"}
+                tone={
+                  RISK_TONE[
+                    brain.decision_type === "capability_gap" ? "low" : "medium"
+                  ] ?? "neutral"
+                }
               >
                 {brain.decision_type}
               </Badge>
-              {brain.scope === "project" && <Badge tone="neutral">scoped</Badge>}
+              {brain.scope === "project" && (
+                <Badge tone="neutral">scoped</Badge>
+              )}
               {brain.context?.context_label && (
-                <span className="text-[11px] text-faint">context: {brain.context.context_label}</span>
+                <span className="text-[11px] text-faint">
+                  context: {brain.context.context_label}
+                </span>
               )}
             </div>
             <p className="rounded-xl border border-brand/30 bg-brand/5 p-3 text-[12px] leading-relaxed text-ink">
@@ -322,7 +382,10 @@ export default function PeopleDecisionsPage() {
             {brain.candidates.length > 0 && (
               <ul className="space-y-1.5">
                 {brain.candidates.map((c) => (
-                  <CandidateRow key={`${c.person_id}-${c.role}`} candidate={c} />
+                  <CandidateRow
+                    key={`${c.person_id}-${c.role}`}
+                    candidate={c}
+                  />
                 ))}
               </ul>
             )}
@@ -333,7 +396,9 @@ export default function PeopleDecisionsPage() {
                 {brain.provenance.constraints ? (
                   <>
                     {" · "}
-                    {((brain.provenance.constraints as string[]) ?? []).join("; ")}
+                    {((brain.provenance.constraints as string[]) ?? []).join(
+                      "; ",
+                    )}
                   </>
                 ) : null}
               </p>
@@ -342,11 +407,16 @@ export default function PeopleDecisionsPage() {
         )}
       </Card>
 
-      <Card title="Create a governed decision" subtitle="The evidence is reasoned over immediately; a human being decides afterwards.">
+      <Card
+        title="Create a governed decision"
+        subtitle="The evidence is reasoned over immediately; a human being decides afterwards."
+      >
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <select
             value={form.decision_type}
-            onChange={(e) => setForm({ ...form, decision_type: e.target.value })}
+            onChange={(e) =>
+              setForm({ ...form, decision_type: e.target.value })
+            }
             className="rounded-lg border border-line bg-surface px-3 py-2 text-[13px] text-ink outline-none focus:border-brand"
           >
             {DECISION_TYPES.map((t) => (
@@ -373,13 +443,27 @@ export default function PeopleDecisionsPage() {
             <input
               type="checkbox"
               checked={form.context_type !== "org"}
-              onChange={(e) => setForm({ ...form, context_type: e.target.checked ? "" : "org" })}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  context_type: e.target.checked ? "" : "org",
+                })
+              }
               className="accent-brand"
             />
-            Anchor to a specific scope context later (project scope requires governance access)
+            Anchor to a specific scope context later (project scope requires
+            governance access)
           </label>
-          <Button size="sm" onClick={create} disabled={creating || !form.objective.trim()}>
-            {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+          <Button
+            size="sm"
+            onClick={create}
+            disabled={creating || !form.objective.trim()}
+          >
+            {creating ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4" />
+            )}
             Reason now
           </Button>
         </div>
@@ -402,23 +486,41 @@ export default function PeopleDecisionsPage() {
         ) : (
           <ul className="space-y-2">
             {decisions.map((d) => (
-              <li key={d.id} className="rounded-xl border border-line/70 bg-elevated p-3">
+              <li
+                key={d.id}
+                className="rounded-xl border border-line/70 bg-elevated p-3"
+              >
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <button type="button" onClick={() => openDecision(d.id)} className="min-w-0 text-left">
-                    <p className="text-[13px] font-medium text-ink hover:text-brand">{d.objective}</p>
+                  <button
+                    type="button"
+                    onClick={() => openDecision(d.id)}
+                    className="min-w-0 text-left"
+                  >
+                    <p className="text-[13px] font-medium text-ink hover:text-brand">
+                      {d.objective}
+                    </p>
                     <p className="truncate text-[11px] text-faint">
-                      {d.decision_type} · {d.risk_tier} risk · {timeAgo(d.created_at)}
-                      {d.context?.context_label ? ` · ${d.context.context_label}` : ""}
+                      {d.decision_type} · {d.risk_tier} risk ·{" "}
+                      {timeAgo(d.created_at)}
+                      {d.context?.context_label
+                        ? ` · ${d.context.context_label}`
+                        : ""}
                     </p>
                   </button>
                   <div className="flex shrink-0 items-center gap-1.5">
-                    <Badge tone={LIFECYCLE_TONE[d.lifecycle] ?? "neutral"}>{d.lifecycle}</Badge>
+                    <Badge tone={LIFECYCLE_TONE[d.lifecycle] ?? "neutral"}>
+                      {d.lifecycle}
+                    </Badge>
                     {d.recommended_person_label && (
                       <span className="text-[12px] font-semibold text-ink">
                         {d.recommended_person_label}
                       </span>
                     )}
-                    <Button variant="ghost" size="sm" onClick={() => openDecision(d.id)}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => openDecision(d.id)}
+                    >
                       <ArrowRight className="h-3.5 w-3.5" />
                     </Button>
                   </div>
@@ -427,17 +529,26 @@ export default function PeopleDecisionsPage() {
                 {detail && detail.id === d.id && (
                   <div className="mt-3 space-y-3 border-t border-line/60 pt-3">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <Badge tone={RISK_TONE[detail.risk_tier] ?? "warning"}>{detail.risk_tier}</Badge>
+                      <Badge tone={RISK_TONE[detail.risk_tier] ?? "warning"}>
+                        {detail.risk_tier}
+                      </Badge>
                       {detail.recommended_person_label && (
                         <Badge tone="success">
-                          <Crown className="mr-1 h-3 w-3" /> {detail.recommended_person_label} ·{" "}
+                          <Crown className="mr-1 h-3 w-3" />{" "}
+                          {detail.recommended_person_label} ·{" "}
                           {(detail.confidence ?? 0).toFixed(2)} confidence
                         </Badge>
                       )}
-                      {detail.outcome?.status && <Badge tone="neutral">outcome: {detail.outcome.status}</Badge>}
+                      {detail.outcome?.status && (
+                        <Badge tone="neutral">
+                          outcome: {detail.outcome.status}
+                        </Badge>
+                      )}
                     </div>
                     <p className="rounded-xl border border-line/70 bg-surface p-3 text-[12px] leading-relaxed text-ink">
-                      {detail.recommendation?.rationale ?? detail.rationale ?? "No recommendation recorded."}
+                      {detail.recommendation?.rationale ??
+                        detail.rationale ??
+                        "No recommendation recorded."}
                     </p>
 
                     {detail.candidates.length > 0 && (
@@ -447,7 +558,10 @@ export default function PeopleDecisionsPage() {
                         </p>
                         <ul className="space-y-1.5">
                           {detail.candidates.map((c) => (
-                            <CandidateRow key={`${c.person_id}-${c.role}`} candidate={c} />
+                            <CandidateRow
+                              key={`${c.person_id}-${c.role}`}
+                              candidate={c}
+                            />
                           ))}
                         </ul>
                       </>
@@ -460,7 +574,10 @@ export default function PeopleDecisionsPage() {
                         </p>
                         <ul className="space-y-1.5">
                           {detail.simulations.slice(0, 5).map((s) => (
-                            <li key={s.id} className="rounded-lg border border-line/70 bg-surface px-3 py-2 text-[11px] text-muted">
+                            <li
+                              key={s.id}
+                              className="rounded-lg border border-line/70 bg-surface px-3 py-2 text-[11px] text-muted"
+                            >
                               {s.person_label} · {s.verdict}
                             </li>
                           ))}
@@ -470,14 +587,23 @@ export default function PeopleDecisionsPage() {
 
                     {detail.audit.length > 0 && (
                       <>
-                        <p className="text-[12px] font-semibold text-ink">Governance trail</p>
+                        <p className="text-[12px] font-semibold text-ink">
+                          Governance trail
+                        </p>
                         <ol className="space-y-1">
                           {detail.audit.map((a, i) => (
-                            <li key={i} className="flex items-center gap-2 text-[11px] text-faint">
+                            <li
+                              key={i}
+                              className="flex items-center gap-2 text-[11px] text-faint"
+                            >
                               <ShieldCheck className="h-3 w-3 shrink-0 text-brand" />
-                              <span className="font-medium text-ink">{a.action}</span>
+                              <span className="font-medium text-ink">
+                                {a.action}
+                              </span>
                               <span className="truncate">{a.note}</span>
-                              <span className="shrink-0">{timeAgo(a.created_at)}</span>
+                              <span className="shrink-0">
+                                {timeAgo(a.created_at)}
+                              </span>
                             </li>
                           ))}
                         </ol>
@@ -486,8 +612,13 @@ export default function PeopleDecisionsPage() {
 
                     {detail.provenance && (
                       <p className="rounded-xl border border-line/70 bg-surface p-3 text-[11px] leading-relaxed text-faint">
-                        <span className="font-semibold text-ink">Provenance</span> ·{" "}
-                        {((detail.provenance.chain as string[]) ?? []).join(" → ")}
+                        <span className="font-semibold text-ink">
+                          Provenance
+                        </span>{" "}
+                        ·{" "}
+                        {((detail.provenance.chain as string[]) ?? []).join(
+                          " → ",
+                        )}
                         {detail.provenance.formula ? (
                           <>
                             {" · "}
@@ -500,23 +631,40 @@ export default function PeopleDecisionsPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       {canManage &&
                         (CAN_ACT[detail.lifecycle] ?? []).map((action) => (
-                          <Button key={action} size="sm" onClick={() => act(action)}>
+                          <Button
+                            key={action}
+                            size="sm"
+                            onClick={() => act(action)}
+                          >
                             {action}
                           </Button>
                         ))}
-                      {canManage && OUTCOME_ABLE.has(detail.lifecycle) && !detail.outcome?.status && (
-                        <>
-                          <Button size="sm" onClick={() => recordOutcome("successful")}>
-                            Record successful
-                          </Button>
-                          <Button size="sm" variant="danger" onClick={() => recordOutcome("unsuccessful")}>
-                            Record unsuccessful
-                          </Button>
-                        </>
-                      )}
-                      {canManage && detail.simulations.length >= 20 && !detail.outcome?.status && (
-                        <Badge tone="warning">simulation budget exhausted (20 runs)</Badge>
-                      )}
+                      {canManage &&
+                        OUTCOME_ABLE.has(detail.lifecycle) &&
+                        !detail.outcome?.status && (
+                          <>
+                            <Button
+                              size="sm"
+                              onClick={() => recordOutcome("successful")}
+                            >
+                              Record successful
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="danger"
+                              onClick={() => recordOutcome("unsuccessful")}
+                            >
+                              Record unsuccessful
+                            </Button>
+                          </>
+                        )}
+                      {canManage &&
+                        detail.simulations.length >= 20 &&
+                        !detail.outcome?.status && (
+                          <Badge tone="warning">
+                            simulation budget exhausted (20 runs)
+                          </Badge>
+                        )}
                     </div>
                   </div>
                 )}
@@ -524,7 +672,12 @@ export default function PeopleDecisionsPage() {
             ))}
           </ul>
         )}
-        {error && <p className="mt-2 rounded-lg border border-danger/30 bg-danger/10 p-2 text-[11px] text-danger"> {error}</p>}
+        {error && (
+          <p className="mt-2 rounded-lg border border-danger/30 bg-danger/10 p-2 text-[11px] text-danger">
+            {" "}
+            {error}
+          </p>
+        )}
       </Card>
     </div>
   );

@@ -1,0 +1,10 @@
+rebuilt_context = await canonical_company_continuity_service.build_universal_context(
+            db=db_session,
+            organization_id=org.id,
+            caller_user_id=str(admin_user.id),
+        )
+        assert rebuilt_context is not None, "Universal context should be rebuildable after restore"
+        
+        # Rebuild Digital Twin / Continuous Twin projections
+        from app.intelligence.canonical_digital_twin_service import canonical_digital_twin_service
+        twin_snapshot = a

@@ -110,47 +110,21 @@ async def test_audit_and_events_recorded(client):
 async def test_workspace_lifecycle(client):
     org = await register_org(client, email="ws@flow.test.co")
 
-    ws = await client.get("/api/v1/workspace", headers=org["headers"])
-    assert ws.status_code == 200
-    assert ws.json()["user_id"] == org["user"]["id"]
+    settings = await client.get("/api/v1/workspace/settings", headers=org["headers"])
+    assert settings.status_code == 200
+    assert settings.json()["shortcuts"] == []
 
     updated = await client.patch(
-        "/api/v1/workspace",
-        json={"daily_goal": "Launch Phase 1", "onboarding_completed": True},
+        "/api/v1/workspace/settings",
+        json={"shortcuts": [{"label": "Phase 1 notes", "href": "/projects"}]},
         headers=org["headers"],
     )
-    assert updated.json()["daily_goal"] == "Launch Phase 1"
+    assert updated.status_code == 200
+    assert updated.json()["shortcuts"] == [{"label": "Phase 1 notes", "href": "/projects"}]
 
-    note = await client.post(
-        "/api/v1/workspace/items",
-        json={"kind": "note", "title": "Phase 1 notes", "content": "Kernel complete"},
-        headers=org["headers"],
-    )
-    assert note.status_code == 201
-
-    bookmark = await client.post(
-        "/api/v1/workspace/items",
-        json={"kind": "bookmark", "title": "API docs", "link": "/docs"},
-        headers=org["headers"],
-    )
-    assert bookmark.status_code == 201
-
-    dash = await client.get("/api/v1/workspace/dashboard", headers=org["headers"])
-    assert dash.status_code == 200
-    assert dash.json()["notes_count"] == 1
-    assert dash.json()["bookmarks_count"] == 1
-
-    pinned = await client.patch(
-        f"/api/v1/workspace/items/{note.json()['id']}",
-        json={"pinned": True},
-        headers=org["headers"],
-    )
-    assert pinned.json()["pinned"] is True
-
-    deleted = await client.delete(
-        f"/api/v1/workspace/items/{bookmark.json()['id']}", headers=org["headers"]
-    )
-    assert deleted.status_code == 200
+    fetched = await client.get("/api/v1/workspace/settings", headers=org["headers"])
+    assert fetched.status_code == 200
+    assert fetched.json()["shortcuts"] == [{"label": "Phase 1 notes", "href": "/projects"}]
 
 
 @pytest.mark.asyncio

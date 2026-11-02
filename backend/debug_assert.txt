@@ -1,0 +1,9 @@
+ession.execute(
+            select(CompanyTimelineEvent)
+            .where(CompanyTimelineEvent.organization_id == org.id)
+        )
+        memory_count = len(memory_events.scalars().all())
+        assert memory_count > 0, "Living Company Memory should have events after restore"
+        logger.info(f"✅ 1. Living Company Memory: {memory_count} timeline events")
+        
+        # 15.2: Ask Compan

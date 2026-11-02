@@ -1,0 +1,11 @@
+_phase_backup_selected(self, db: AsyncSession, context: RestoreContext, restore_op: RestoreOperation) -> Dict[str, Any]:
+        """Phase 1: Verify backup exists and is selectable."""
+        backup = await db.get(BackupManifest, context.backup_id)
+        if not backup:
+            return {"passed": False, "message": f"Backup {context.backup_id} not found", "validation_status": ValidationStatus.FAILED.value}
+        
+        if backup.status not in (BackupStatus.COMPLETED, BackupStatus.VERIFIED):
+            return {"passed": False, "message": f"Backup {context.backup_id} is not completed or verified (status: {backup.status})", "validation_status": ValidationStatus.FAILED.value}
+        
+        # Verify backup belongs to the organization (tenant isolation)
+        if backup.organization_

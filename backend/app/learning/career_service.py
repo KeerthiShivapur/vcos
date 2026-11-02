@@ -72,10 +72,14 @@ class CareerService:
             )
         ).scalar_one_or_none()
 
-    async def list_paths(self, db: AsyncSession, *, organization_id: str, status: str = "published") -> list[CareerPath]:
+    async def list_paths(
+        self, db: AsyncSession, *, organization_id: str, status: str = "published", department: Optional[str] = None
+    ) -> list[CareerPath]:
         query = select(CareerPath).where(CareerPath.organization_id == organization_id)
         if status:
             query = query.where(CareerPath.status == status)
+        if department:
+            query = query.where(CareerPath.department == department)
         query = query.options(selectinload(CareerPath.steps))
         return (await db.execute(query.order_by(CareerPath.title))).scalars().all()
 

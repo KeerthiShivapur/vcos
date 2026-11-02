@@ -1,0 +1,147 @@
+# LiveKit Recorder Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: livekit-recorder
+  namespace: livekit
+  labels:
+    app: livekit-recorder
+    component: recorder
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: livekit-recorder
+  template:
+    metadata:
+      labels:
+        app: livekit-recorder
+        component: recorder
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: livekit-sa
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        runAsNonRoot: true
+      containers:
+        - name: livekit-recorder
+          image: livekit/recorder:v1.5.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9090
+              name: metrics
+              protocol: TCP
+          env:
+            - name: LIVEKIT_RECORDER_CONFIG_FILE
+              value: "/etc/livekit/recorder.yaml"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: livekit-secrets
+                  key: redis-password
+            - name: AWS_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: livekit-secrets
+                  key: aws-access-key
+            - name: AWS_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: livekit-secrets
+                  key: aws-secret-key
+            - name: LIVEKIT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: livekit-secrets
+                  key: api-key
+            - name: LIVEKIT_API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: livekit-secrets
+                  key: api-secret
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "1000m"
+            limits:
+              memory: "4Gi"
+              cpu: "4000m"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/livekit
+              readOnly: true
+            - name: recordings
+              mountPath: /var/lib/livekit/recordings
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9090
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: config
+          configMap:
+            name: livekit-recorder-config
+        - name: recordings
+          persistentVolumeClaim:
+            claimName: livekit-recordings-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: livekit-recorder
+  namespace: livekit
+  labels:
+    app: livekit-recorder
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+  selector:
+    app: livekit-recorder
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: livekit-recorder-config
+  namespace: livekit
+data:
+  recorder.yaml: |
+    # Recorder configuration loaded from config/recorder.yaml
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: livekit-recorder-monitor
+  namespace: livekit
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: livekit-recorder
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+  namespaceSelector:
+    matchNames:
+      - livekit

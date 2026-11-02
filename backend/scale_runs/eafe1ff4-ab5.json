@@ -1,0 +1,37 @@
+{
+  "run_id": "eafe1ff4-ab5",
+  "state": "BLOCKED",
+  "profile_name": "startup",
+  "employee_count": 5,
+  "tenant_count": 1,
+  "environment_type": "external_postgres",
+  "dataset_identity": {
+    "vcos_revision": "cd653b84c2a4",
+    "schema_revision": "unknown",
+    "generator_revision": "1.0",
+    "scale_profile": "startup",
+    "employee_count": 5,
+    "tenant_count": 1,
+    "seed": 42,
+    "density_strategy": "standard",
+    "environment_fingerprint": "a486493b8a2b23f5"
+  },
+  "ownership": {
+    "run_id": "eafe1ff4-ab5",
+    "owns_database": false,
+    "owns_schema": false,
+    "owns_tables": false,
+    "database_name": null,
+    "schema_name": null,
+    "created_tables": [],
+    "temporary_resources": []
+  },
+  "checkpoints": [],
+  "current_phase": "database_health",
+  "started_at": "2026-09-26T02:43:12.786358",
+  "updated_at": "2026-09-26T02:43:14.426676",
+  "completed_at": "2026-09-26T02:43:14.426687",
+  "error": "(sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.DuplicateTableError'>: relation \"uq_ch_exact_once\" already exists\n[SQL: \nCREATE TABLE canonical_company_health (\n\tid VARCHAR(32) NOT NULL, \n\torganization_id VARCHAR(32) NOT NULL, \n\tperiod_label VARCHAR(80) NOT NULL, \n\tcompute_mode VARCHAR(16) NOT NULL, \n\toverall_score INTEGER NOT NULL, \n\toverall_state VARCHAR(16) NOT NULL, \n\tdimensions_json JSON, \n\tdriving_metrics_json JSON, \n\tactive_risks_json JSON, \n\tsummary_narrative TEXT NOT NULL, \n\tprovenance VARCHAR(300) NOT NULL, \n\tsource_event_id VARCHAR(32) NOT NULL, \n\tcomputed_at TIMESTAMP WITH TIME ZONE NOT NULL, \n\tvalid_from TIMESTAMP WITH TIME ZONE NOT NULL, \n\tvalid_to TIMESTAMP WITH TIME ZONE, \n\tcreated_at TIMESTAMP WITH TIME ZONE NOT NULL, \n\tupdated_at TIMESTAMP WITH TIME ZONE NOT NULL, \n\tCONSTRAINT pk_canonical_company_health PRIMARY KEY (id), \n\tCONSTRAINT uq_ch_exact_once UNIQUE (organization_id, period_label, compute_mode, source_event_id), \n\tCONSTRAINT fk_canonical_company_health_organization_id_organizations FOREIGN KEY(organization_id) REFERENCES organizations (id) ON DELETE CASCADE\n)\n\n]\n(Background on this error at: https://sqlalche.me/e/20/f405)",
+  "retry_count": 0,
+  "max_retries": 3
+}

@@ -12,6 +12,7 @@ from typing import Any, Optional
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
@@ -78,6 +79,79 @@ class EnterpriseUser(Base, TimestampMixin):
     passkeys: Mapped[Optional[list[str]]] = mapped_column(JSON, default=list)
     status: Mapped[str] = mapped_column(String(20), default="active")
     last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class ExternalGroup(Base, TimestampMixin):
+    """External group from an identity provider (Entra ID, Okta, Google Workspace, etc.)."""
+    
+    __tablename__ = "external_groups"
+    __table_args__ = (
+        Index("ix_external_groups_org", "organization_id"),
+        Index("ix_external_groups_provider", "identity_provider_id"),
+        UniqueConstraint("identity_provider_id", "external_group_id", name="uq_external_groups_provider_id"),
+    )
+    
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    identity_provider_id: Mapped[str] = mapped_column(
+        ForeignKey("identity_providers.id", ondelete="CASCADE"), nullable=False
+    )
+    external_group_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    members_count: Mapped[int] = mapped_column(Integer, default=0)
+    # Raw data from provider for audit/reconciliation
+    raw_data: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, default=dict)
+    # Sync metadata
+    last_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    sync_status: Mapped[str] = mapped_column(String(20), default="pending")
+
+
+class GroupRoleMapping(Base, TimestampMixin):
+    """Mapping from external group to VCOS role with governance controls."""
+    
+    __tablename__ = "group_role_mappings"
+    __table_args__ = (
+        Index("ix_grm_org", "organization_id"),
+        Index("ix_grm_group", "external_group_id"),
+        Index("ix_grm_role", "role_id"),
+        UniqueConstraint("organization_id", "external_group_id", "role_id", name="uq_group_role_mapping"),
+        CheckConstraint(
+            "mapping_state IN ('pending', 'active', 'revoked', 'expired', 'conflict')",
+            name="ck_grm_state_valid"
+        ),
+    )
+    
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    external_group_id: Mapped[str] = mapped_column(
+        ForeignKey("external_groups.id", ondelete="CASCADE"), nullable=False
+    )
+    role_id: Mapped[str] = mapped_column(
+        ForeignKey("roles.id", ondelete="CASCADE"), nullable=False
+    )
+    # Governance fields
+    mapped_by: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=False
+    )
+    mapping_state: Mapped[str] = mapped_column(String(20), default="pending")
+    # Justification for audit trail
+    justification: Mapped[Optional[str]] = mapped_column(Text)
+    # Optional expiry for temporary access
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # Validation fields
+    tenant_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    group_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Audit fields
+    validated_by: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    validated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    revoked_by: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    revocation_reason: Mapped[Optional[str]] = mapped_column(Text)
 
 
 class Device(Base, TimestampMixin):
@@ -259,28 +333,20 @@ class IntegrationConnection(Base, TimestampMixin):
     connected_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     last_sync_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     error: Mapped[Optional[str]] = mapped_column(Text)
-
-
-class FeatureFlag(Base, TimestampMixin):
-    """Enterprise feature flag with targeting rules."""
-
-    __tablename__ = "feature_flags"
-    __table_args__ = (
-        Index("ix_feature_flags_org", "organization_id"),
-        UniqueConstraint("organization_id", "key", name="uq_feature_flags_org_key"),
-    )
-
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
-    organization_id: Mapped[str] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
-    )
-    key: Mapped[str] = mapped_column(String(100), nullable=False)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text)
-    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
-    # {"users": [...], "roles": [...], "percentage": 100}
-    rules: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, default=dict)
-    updated_by: Mapped[Optional[str]] = mapped_column(String(32))
+    # OAuth2 credentials (encrypted at rest via application layer)
+    access_token: Mapped[Optional[str]] = mapped_column(Text)
+    refresh_token: Mapped[Optional[str]] = mapped_column(Text)
+    token_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    refresh_token_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    oauth_scopes: Mapped[Optional[list[str]]] = mapped_column(JSON, default=list)
+    # OAuth state for CSRF protection during authorization flow
+    oauth_state: Mapped[Optional[str]] = mapped_column(String(64))
+    # Webhook configuration for providers that support push notifications
+    webhook_url: Mapped[Optional[str]] = mapped_column(String(512))
+    webhook_secret: Mapped[Optional[str]] = mapped_column(String(128))
+    webhook_events: Mapped[Optional[list[str]]] = mapped_column(JSON, default=list)
+    webhook_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    webhook_verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
 
 class SecurityEvent(Base, TimestampMixin):

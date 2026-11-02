@@ -52,8 +52,7 @@ class EventService:
             name=name,
             actor_id=actor_id,
             organization_id=organization_id,
-            payload_json=json.dumps(payload, default=str) if payload is not None else None,
-            occurred_at=datetime.now(timezone.utc),
+            payload=payload if payload is not None else {},
         )
         db.add(event)
         if flush:

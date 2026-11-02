@@ -1,0 +1,5 @@
+_test_manipulated_manifest_skip(result, db, organization_id)
+            print("DEBUG ADV: Manipulated manifest test completed")
+            
+            # Test 4: Cross-tenant backup access
+         

@@ -1,0 +1,37 @@
+{
+  "run_id": "0675404e-1ea",
+  "state": "FAILED",
+  "profile_name": "startup",
+  "employee_count": 5,
+  "tenant_count": 1,
+  "environment_type": "external_postgres",
+  "dataset_identity": {
+    "vcos_revision": "cd653b84c2a4",
+    "schema_revision": "unknown",
+    "generator_revision": "1.0",
+    "scale_profile": "startup",
+    "employee_count": 5,
+    "tenant_count": 1,
+    "seed": 42,
+    "density_strategy": "standard",
+    "environment_fingerprint": "a486493b8a2b23f5"
+  },
+  "ownership": {
+    "run_id": "0675404e-1ea",
+    "owns_database": false,
+    "owns_schema": false,
+    "owns_tables": false,
+    "database_name": null,
+    "schema_name": null,
+    "created_tables": [],
+    "temporary_resources": []
+  },
+  "checkpoints": [],
+  "current_phase": "generation",
+  "started_at": "2026-09-25T14:29:12.084845",
+  "updated_at": "2026-09-25T14:29:15.681084",
+  "completed_at": "2026-09-25T14:29:15.681104",
+  "error": "(psycopg2.errors.ForeignKeyViolation) insert or update on table \"roles\" violates foreign key constraint \"fk_roles_organization_id_organizations\"\nDETAIL:  Key (organization_id)=(53613900e83f4cefb4ecf416c150cb05) is not present in table \"organizations\".\n\n[SQL: INSERT INTO roles (id, organization_id, name, code, description, is_system, is_default, created_at, updated_at) VALUES (%(id__0)s, %(organization_id__0)s, %(name__0)s, %(code__0)s, %(description__0)s, %(is_system__0)s, %(is_default__0)s, %(created_at ... 715 characters truncated ... _5)s, %(description__5)s, %(is_system__5)s, %(is_default__5)s, %(created_at__5)s, %(updated_at__5)s)]\n[parameters: {'is_default__0': True, 'code__0': 'admin', 'description__0': 'Full system access', 'is_system__0': True, 'created_at__0': datetime.datetime(2026, 9, 25, 14, 29, 15, 665073, tzinfo=datetime.timezone.utc), 'updated_at__0': datetime.datetime(2026, 9, 25, 14, 29, 15, 665080, tzinfo=datetime.timezone.utc), 'organization_id__0': '53613900e83f4cefb4ecf416c150cb05', 'name__0': 'Administrator', 'id__0': 'eff6a91531924d409f140a86fbee13a7', 'is_default__1': True, 'code__1': 'employee', 'description__1': 'Standard employee access', 'is_system__1': True, 'created_at__1': datetime.datetime(2026, 9, 25, 14, 29, 15, 665083, tzinfo=datetime.timezone.utc), 'updated_at__1': datetime.datetime(2026, 9, 25, 14, 29, 15, 665085, tzinfo=datetime.timezone.utc), 'organization_id__1': '53613900e83f4cefb4ecf416c150cb05', 'name__1': 'Employee', 'id__1': '230b43da3b314b8883cb2fd4b2d13370', 'is_default__2': False, 'code__2': 'manager', 'description__2': 'Team management access', 'is_system__2': True, 'created_at__2': datetime.datetime(2026, 9, 25, 14, 29, 15, 665087, tzinfo=datetime.timezone.utc), 'updated_at__2': datetime.datetime(2026, 9, 25, 14, 29, 15, 665088, tzinfo=datetime.timezone.utc), 'organization_id__2': '53613900e83f4cefb4ecf416c150cb05', 'name__2': 'Manager', 'id__2': 'e7eef1a6019a4dccb209393f524fb517', 'is_default__3': False, 'code__3': 'hr', 'description__3': 'HR management access', 'is_system__3': True, 'created_at__3': datetime.datetime(2026, 9, 25, 14, 29, 15, 665090, tzinfo=datetime.timezone.utc), 'updated_at__3': datetime.datetime(2026, 9, 25, 14, 29, 15, 665092, tzinfo=datetime.timezone.utc), 'organization_id__3': '53613900e83f4cefb4ecf416c150cb05', 'name__3': 'Human Resources', 'id__3': '56ea872be94545b6bcc0010a9279fca5', 'is_default__4': False, 'code__4': 'finance', 'description__4': 'Financial management access', 'is_system__4': True, 'created_at__4': datetime.datetime(2026, 9, 25, 14, 29, 15, 665093, tzinfo=datetime.timezone.utc), 'updated_at__4': datetime.datetime(2026, 9, 25, 14, 29, 15, 665095, tzinfo=datetime.timezone.utc), 'organization_id__4': '53613900e83f4cefb4ecf416c150cb05', 'name__4': 'Finance', 'id__4': '11c6cc71ce3241f9bb8e86f2f9448ac5', 'is_default__5': False, 'code__5': 'viewer', 'description__5': 'Read-only access', 'is_system__5': True, 'created_at__5': datetime.datetime(2026, 9, 25, 14, 29, 15, 665097, tzinfo=datetime.timezone.utc), 'updated_at__5': datetime.datetime(2026, 9, 25, 14, 29, 15, 665098, tzinfo=datetime.timezone.utc), 'organization_id__5': '53613900e83f4cefb4ecf416c150cb05', 'name__5': 'Viewer', 'id__5': '2405d427649b470abb497a76512e1383'}]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)",
+  "retry_count": 0,
+  "max_retries": 3
+}

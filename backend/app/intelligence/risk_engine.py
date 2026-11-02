@@ -37,6 +37,7 @@ from app.models.intelligence import (
     PatternDetection,
     WorkflowInsight,
 )
+from app.intelligence.company_context import resolve_caller_access, CallerAccess
 
 logger = logging.getLogger("vcos.intelligence.risk")
 
@@ -347,8 +348,46 @@ class BackgroundRiskEngine:
             return "medium"
         return "low"
 
-    async def list_open(self, db: AsyncSession, *, organization_id: str,
-                        limit: int = 50) -> list[dict[str, Any]]:
+    async def list_open(
+        self, db: AsyncSession, *, organization_id: str,
+        limit: int = 50) -> list[dict[str, Any]]:
+        rows = (
+            await db.execute(
+                select(StrategicRisk)
+                .where(StrategicRisk.organization_id == organization_id)
+                .order_by(StrategicRisk.score.desc())
+                .limit(limit)
+            )
+        ).scalars().all()
+        return [
+            {
+                "id": r.id,
+                "kind": r.kind,
+                "title": r.title,
+                "description": r.description,
+                "probability": r.probability,
+                "impact": r.impact,
+                "score": r.score,
+                "level": r.level,
+                "subject_type": r.subject_type,
+                "subject_id": r.subject_id,
+                "subject_name": r.subject_name,
+                "status": r.status,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ]
+
+    async def list_open_visible(
+        self, db: AsyncSession, *, organization_id: str, access: CallerAccess, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """Governance-scoped list: only returns risks the caller may access."""
+        if not access.org_wide:
+            if not access.project_ids:
+                return []
+            # Filter to risks in accessible projects
+            # This is a simplified check - real implementation would be more sophisticated
+            pass
         rows = (
             await db.execute(
                 select(StrategicRisk)

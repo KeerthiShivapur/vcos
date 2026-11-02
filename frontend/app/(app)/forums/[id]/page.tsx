@@ -88,7 +88,11 @@ function ForumThreadContent() {
     if (onThread) {
       try {
         const result = await voteThread(onThread.id, value);
-        setThread((prev) => (prev ? { ...prev, my_vote: result.voted, vote_count: result.vote_count } : prev));
+        setThread((prev) =>
+          prev
+            ? { ...prev, my_vote: result.voted, vote_count: result.vote_count }
+            : prev,
+        );
       } catch {
         /* ignore */
       }
@@ -99,7 +103,11 @@ function ForumThreadContent() {
     try {
       const result = await voteForumReply(reply.thread_id, reply.id, value);
       setReplies((prev) =>
-        prev.map((r) => (r.id === reply.id ? { ...r, my_vote: result.voted, vote_count: result.vote_count } : r))
+        prev.map((r) =>
+          r.id === reply.id
+            ? { ...r, my_vote: result.voted, vote_count: result.vote_count }
+            : r,
+        ),
       );
     } catch {
       /* ignore */
@@ -110,7 +118,13 @@ function ForumThreadContent() {
     try {
       const result = await acceptThreadReply(params.id, reply?.id);
       setThread((prev) =>
-        prev ? { ...prev, accepted_reply_id: result.accepted_reply_id, is_resolved: result.is_resolved } : prev
+        prev
+          ? {
+              ...prev,
+              accepted_reply_id: result.accepted_reply_id,
+              is_resolved: result.is_resolved,
+            }
+          : prev,
       );
       await load();
     } catch {
@@ -128,11 +142,21 @@ function ForumThreadContent() {
   }
 
   if (loading) {
-    return <div className="flex justify-center py-24"><Spinner label="Loading thread" /></div>;
+    return (
+      <div className="flex justify-center py-24">
+        <Spinner label="Loading thread" />
+      </div>
+    );
   }
 
   if (error || !thread) {
-    return <ErrorState title="Could not load thread" message={error ?? "Not found"} onRetry={load} />;
+    return (
+      <ErrorState
+        title="Could not load thread"
+        message={error ?? "Not found"}
+        onRetry={load}
+      />
+    );
   }
 
   const iAmAuthor = thread.author_id === myEmployeeId;
@@ -155,11 +179,24 @@ function ForumThreadContent() {
       <div className="flex flex-wrap items-center gap-2">
         <Badge tone="neutral">{thread.category.replace("_", " ")}</Badge>
         {thread.is_pinned && <Badge tone="brand">Pinned</Badge>}
-        <Badge tone={thread.status === "open" ? "success" : thread.status === "resolved" ? "brand" : "neutral"}>
+        <Badge
+          tone={
+            thread.status === "open"
+              ? "success"
+              : thread.status === "resolved"
+                ? "brand"
+                : "neutral"
+          }
+        >
           {thread.status}
         </Badge>
         {thread.tags.map((tag) => (
-          <span key={tag} className="rounded bg-surface-muted px-1.5 py-0.5 text-[11px] text-muted">#{tag}</span>
+          <span
+            key={tag}
+            className="rounded bg-surface-muted px-1.5 py-0.5 text-[11px] text-muted"
+          >
+            #{tag}
+          </span>
         ))}
       </div>
 
@@ -167,27 +204,43 @@ function ForumThreadContent() {
         <div className="flex items-start gap-4">
           <div className="flex flex-col items-center gap-0.5">
             <Button variant="ghost" size="sm" onClick={() => vote(thread, 1)}>
-              <ArrowBigUp className={`h-5 w-5 ${thread.my_vote === 1 ? "fill-brand text-brand" : ""}`} />
+              <ArrowBigUp
+                className={`h-5 w-5 ${thread.my_vote === 1 ? "fill-brand text-brand" : ""}`}
+              />
             </Button>
-            <span className="text-sm font-bold text-ink">{thread.vote_count}</span>
+            <span className="text-sm font-bold text-ink">
+              {thread.vote_count}
+            </span>
             <Button variant="ghost" size="sm" onClick={() => vote(thread, -1)}>
-              <ArrowBigDown className={`h-5 w-5 ${thread.my_vote === -1 ? "fill-brand text-brand" : ""}`} />
+              <ArrowBigDown
+                className={`h-5 w-5 ${thread.my_vote === -1 ? "fill-brand text-brand" : ""}`}
+              />
             </Button>
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <Avatar name={thread.author_name} size="sm" />
-              <span className="text-[13px] font-semibold text-ink">{thread.author_name}</span>
-              <span className="text-[12px] text-faint">{timeAgo(thread.created_at)}</span>
-              <span className="text-[12px] text-faint">· {thread.view_count} views</span>
+              <span className="text-[13px] font-semibold text-ink">
+                {thread.author_name}
+              </span>
+              <span className="text-[12px] text-faint">
+                {timeAgo(thread.created_at)}
+              </span>
+              <span className="text-[12px] text-faint">
+                · {thread.view_count} views
+              </span>
             </div>
-            <p className="mt-3 whitespace-pre-wrap text-[14px] leading-relaxed text-muted">{thread.content}</p>
+            <p className="mt-3 whitespace-pre-wrap text-[14px] leading-relaxed text-muted">
+              {thread.content}
+            </p>
           </div>
         </div>
       </div>
 
       <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-ink">Replies ({replies.length})</h3>
+        <h3 className="text-sm font-semibold text-ink">
+          Replies ({replies.length})
+        </h3>
         {replies.length === 0 ? (
           <div className="rounded-lg border border-dashed border-line p-8 text-center text-[13px] text-faint">
             No replies yet — be the first to respond.
@@ -197,37 +250,73 @@ function ForumThreadContent() {
             <div
               key={reply.id}
               className={`rounded-lg border bg-surface p-4 ${
-                reply.id === thread.accepted_reply_id ? "border-success/50 bg-success/5" : "border-line"
+                reply.id === thread.accepted_reply_id
+                  ? "border-success/50 bg-success/5"
+                  : "border-line"
               }`}
             >
               <div className="flex items-start gap-4">
                 <div className="flex flex-col items-center gap-0.5">
-                  <Button variant="ghost" size="sm" onClick={() => voteReply(reply, 1)}>
-                    <ArrowBigUp className={`h-4 w-4 ${reply.my_vote === 1 ? "fill-brand text-brand" : ""}`} />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => voteReply(reply, 1)}
+                  >
+                    <ArrowBigUp
+                      className={`h-4 w-4 ${reply.my_vote === 1 ? "fill-brand text-brand" : ""}`}
+                    />
                   </Button>
-                  <span className="text-[13px] font-bold text-ink">{reply.vote_count}</span>
-                  <Button variant="ghost" size="sm" onClick={() => voteReply(reply, -1)}>
-                    <ArrowBigDown className={`h-4 w-4 ${reply.my_vote === -1 ? "fill-brand text-brand" : ""}`} />
+                  <span className="text-[13px] font-bold text-ink">
+                    {reply.vote_count}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => voteReply(reply, -1)}
+                  >
+                    <ArrowBigDown
+                      className={`h-4 w-4 ${reply.my_vote === -1 ? "fill-brand text-brand" : ""}`}
+                    />
                   </Button>
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <Avatar name={reply.author_name} size="sm" />
-                    <span className="text-[13px] font-semibold text-ink">{reply.author_name}</span>
-                    <span className="text-[12px] text-faint">{timeAgo(reply.created_at)}</span>
-                    {reply.is_accepted && <Badge tone="success"><Check className="h-3 w-3" /> Accepted</Badge>}
+                    <span className="text-[13px] font-semibold text-ink">
+                      {reply.author_name}
+                    </span>
+                    <span className="text-[12px] text-faint">
+                      {timeAgo(reply.created_at)}
+                    </span>
+                    {reply.is_accepted && (
+                      <Badge tone="success">
+                        <Check className="h-3 w-3" /> Accepted
+                      </Badge>
+                    )}
                     <div className="ml-auto flex gap-2">
                       {iAmAuthor && !reply.is_accepted && (
-                        <Button variant="ghost" size="sm" onClick={() => accept(reply)}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => accept(reply)}
+                        >
                           Accept
                         </Button>
                       )}
                       {reply.author_id === myEmployeeId && (
-                        <Button variant="ghost" size="sm" onClick={() => removeReply(reply)}>Delete</Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeReply(reply)}
+                        >
+                          Delete
+                        </Button>
                       )}
                     </div>
                   </div>
-                  <p className="mt-2 whitespace-pre-wrap text-[13px] leading-relaxed text-muted">{reply.content}</p>
+                  <p className="mt-2 whitespace-pre-wrap text-[13px] leading-relaxed text-muted">
+                    {reply.content}
+                  </p>
                 </div>
               </div>
             </div>
@@ -235,7 +324,9 @@ function ForumThreadContent() {
         )}
 
         {acceptedReply && iAmAuthor && (
-          <Button variant="ghost" size="sm" onClick={() => accept()}>Un-accept answer</Button>
+          <Button variant="ghost" size="sm" onClick={() => accept()}>
+            Un-accept answer
+          </Button>
         )}
       </div>
 

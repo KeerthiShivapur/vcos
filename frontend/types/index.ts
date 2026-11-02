@@ -2,6 +2,44 @@
  * VCOS TypeScript API contracts â mirror of the backend OpenAPI schemas (Phase 1).
  */
 
+import type { CompanyExperienceProfile } from "./company-experience";
+
+export type { CompanyExperienceProfile } from "./company-experience";
+export type { NavigationGroup } from "./company-experience";
+export type { SuggestedProfileOut } from "./company-experience";
+export type { AdaptiveModuleOut } from "./company-experience";
+export type { AdaptiveNavigationGroupOut } from "./company-experience";
+export type { CompanyBrainInsightsOut } from "./company-experience";
+export type { DigitalTwinOverlayOut } from "./company-experience";
+export type { RecommendedActionOut } from "./company-experience";
+export type { AdaptiveExperienceOut } from "./company-experience";
+export type { ProfileTransitionPreviewOut } from "./company-experience";
+export type { ModuleRecommendationOut } from "./company-experience";
+export type { MFAMethod } from "./company-experience";
+export type { TOTPSetupResponse } from "./company-experience";
+export type { IntegrationConnection } from "./company-experience";
+export type { IntegrationConnectionCreate } from "./company-experience";
+export type { IntegrationConnectionUpdate } from "./company-experience";
+export type { IntegrationTestResult } from "./company-experience";
+export type { IntegrationSyncResult } from "./company-experience";
+export type { IntegrationKind } from "./company-experience";
+export type { IntegrationAuthType } from "./company-experience";
+
+export interface SecurityEvent {
+  id: string;
+  organization_id: string;
+  user_id: string | null;
+  event_type: string;
+  severity: string;
+  description: string;
+  metadata_json: Record<string, unknown> | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  created_at: string;
+  resolved_at: string | null;
+  resolved_by: string | null;
+}
+
 export interface Organization {
   id: string;
   name: string;
@@ -17,6 +55,14 @@ export interface Organization {
   domain: string | null;
   brand_primary_color: string;
   created_at: string;
+  experience_profile?: CompanyExperienceProfile;
+  employee_count?: number;
+  organizational_depth?: number;
+  organizational_unit_count?: number;
+  legal_entity_count?: number;
+  geographic_footprint_count?: number;
+  governance_complexity?: string;
+  workflow_complexity?: string;
 }
 
 export interface OrganizationSettings {
@@ -252,11 +298,20 @@ export interface DashboardSummary {
     is_read: boolean;
     created_at: string;
   }[];
+  my_tasks_open_count: number;
+  pending_decisions_count: number;
+  pending_approvals_count: number;
   workspace: {
     id: string;
     daily_goal: string | null;
     onboarding_completed: boolean;
-    items: { id: string; kind: string; title: string; pinned: boolean; created_at: string }[];
+    items: {
+      id: string;
+      kind: string;
+      title: string;
+      pinned: boolean;
+      created_at: string;
+    }[];
   } | null;
 }
 
@@ -566,9 +621,24 @@ export interface OrgIntelligence {
   avg_profile_completion: number;
   online_now: number;
   on_leave: number;
-  recent_joins: { employee_id: string; name: string; designation: string | null; employee_number: string; joining_date: string | null }[];
-  recent_transfers: { employee_id: string; title: string; description: string | null; occurred_at: string }[];
-  department_distribution: { department_id: string; name: string; count: number }[];
+  recent_joins: {
+    employee_id: string;
+    name: string;
+    designation: string | null;
+    employee_number: string;
+    joining_date: string | null;
+  }[];
+  recent_transfers: {
+    employee_id: string;
+    title: string;
+    description: string | null;
+    occurred_at: string;
+  }[];
+  department_distribution: {
+    department_id: string;
+    name: string;
+    count: number;
+  }[];
   team_distribution: { team_id: string; name: string; count: number }[];
   location_distribution: { location_id: string; name: string; count: number }[];
   skill_distribution: { skill_id: string; name: string; count: number }[];
@@ -768,9 +838,25 @@ export interface Task {
   progress: number;
   tags: string[] | null;
   ai_summary: string | null;
-  dependencies: { id: string; depends_on_task_id: string; depends_on_title: string; kind: string }[] | null;
-  blocking_tasks: { id: string; task_id: string; title: string; status: string }[] | null;
-  blocked_by: { id: string; task_id: string; title: string; status: string; kind: string }[] | null;
+  dependencies:
+    | {
+        id: string;
+        depends_on_task_id: string;
+        depends_on_title: string;
+        kind: string;
+      }[]
+    | null;
+  blocking_tasks:
+    { id: string; task_id: string; title: string; status: string }[] | null;
+  blocked_by:
+    | {
+        id: string;
+        task_id: string;
+        title: string;
+        status: string;
+        kind: string;
+      }[]
+    | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -862,12 +948,50 @@ export interface KeyResult {
   updated_at: string | null;
 }
 
+export type MeetingType =
+  | "standard"
+  | "standup"
+  | "planning"
+  | "review"
+  | "one_on_one"
+  | "town_hall"
+  | "webinar"
+  | "conference"
+  | "board"
+  | "interview"
+  | "sales"
+  | "support"
+  | "training"
+  | "workshop";
+
+export type MeetingStatus =
+  | "draft"
+  | "scheduled"
+  | "waiting"
+  | "active"
+  | "paused"
+  | "ended"
+  | "cancelled";
+
+export type MeetingScale =
+  "small" | "team" | "department" | "town_hall" | "webinar" | "conference";
+
+export type ParticipantRole =
+  "host" | "co_host" | "presenter" | "participant" | "guest" | "observer";
+
+export type ParticipantStatus =
+  "invited" | "pending" | "joining" | "joined" | "left" | "reconnecting";
+
+export type RecordingStatus =
+  "pending" | "recording" | "processing" | "completed" | "failed" | "expired";
+
 export interface Meeting {
   id: string;
   title: string;
   description: string | null;
-  meeting_type: string;
-  status: string;
+  meeting_type: MeetingType;
+  scale: MeetingScale;
+  status: MeetingStatus;
   organizer_id: string | null;
   organizer_name: string | null;
   project_id: string | null;
@@ -887,6 +1011,40 @@ export interface Meeting {
   ai_summary: string | null;
   created_at: string | null;
   updated_at: string | null;
+
+  // Extended fields for native meetings (kept for backward compatibility)
+  scheduled_start?: string | null;
+  scheduled_end?: string | null;
+  actual_start?: string | null;
+  actual_end?: string | null;
+  agenda?: string[];
+  materials?: any[];
+  settings?: Record<string, any>;
+  recording_enabled?: boolean;
+  transcription_enabled?: boolean;
+  wait_room_enabled?: boolean;
+  chat_enabled?: boolean;
+  reactions_enabled?: boolean;
+  screen_share_enabled?: boolean;
+  require_approval?: boolean;
+  allow_external_guests?: boolean;
+  password_protected?: boolean;
+  password_hash?: string | null;
+  recording_id?: string | null;
+  recording_url?: string | null;
+  recording_status?: string | null;
+  transcription_url?: string | null;
+  transcription_status?: string | null;
+  current_presentation_id?: string | null;
+  presentation_state?: Record<string, any>;
+  decisions?: any[];
+  action_items?: any[];
+  summary?: string | null;
+  summary_generated_at?: string | null;
+  created_by?: string | null;
+  started_by?: string | null;
+  ended_by?: string | null;
+  scheduled_duration_minutes?: number | null;
 }
 
 export interface MeetingRoom {
@@ -910,24 +1068,41 @@ export interface MeetingRoom {
 
 export interface MeetingParticipant {
   id: string;
-  session_id: string;
-  employee_id: string;
-  name: string | null;
-  designation: string | null;
-  avatar_url: string | null;
-  role: string;
-  status: string;
-  device: string | null;
-  mic_enabled: boolean;
-  camera_enabled: boolean;
+  meeting_id: string;
+  user_id?: string | null;
+  email?: string | null;
+  display_name?: string | null;
+  avatar_url?: string | null;
+  role: ParticipantRole;
+  status: ParticipantStatus;
+  duration_seconds: number;
+  audio_enabled: boolean;
+  video_enabled: boolean;
   screen_sharing: boolean;
-  is_present: boolean;
-  joined_at: string | null;
-  left_at: string | null;
-  last_active_at: string | null;
-  speaking_seconds: number;
-  messages_count: number;
+  hand_raised: boolean;
+  joined_at?: string | null;
+  left_at?: string | null;
   raised_hand: boolean;
+
+  // Extended fields for backend compatibility
+  session_id?: string;
+  employee_id?: string;
+  name?: string | null;
+  designation?: string | null;
+  avatar_url?: string | null;
+  role?: string;
+  status?: string;
+  device?: string | null;
+  mic_enabled?: boolean;
+  camera_enabled?: boolean;
+  screen_sharing?: boolean;
+  is_present?: boolean;
+  joined_at?: string | null;
+  left_at?: string | null;
+  last_active_at?: string | null;
+  speaking_seconds?: number;
+  messages_count?: number;
+  raised_hand?: boolean;
 }
 
 export interface MeetingSession {
@@ -1085,6 +1260,20 @@ export interface MeetingRecording {
   meeting_status?: string | null;
 }
 
+export interface Material {
+  id: string;
+  meeting_id: string;
+  title: string;
+  description: string | null;
+  url: string;
+  type: string;
+  size_bytes: number | null;
+  mime_type: string | null;
+  created_by: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
 export interface MeetingDecision {
   id: string;
   meeting_id: string;
@@ -1151,7 +1340,12 @@ export interface MeetingAnalyticsOverview {
   recordings: number;
   cross_team_pairs: number;
   meetings_per_week: Record<string, number>;
-  recent: { id: string; title: string; status: string; created_at: string | null }[];
+  recent: {
+    id: string;
+    title: string;
+    status: string;
+    created_at: string | null;
+  }[];
 }
 
 export interface LiveServerEvent {
@@ -1159,7 +1353,6 @@ export interface LiveServerEvent {
   ts: number;
   data: Record<string, unknown>;
 }
-
 
 export interface CalendarEvent {
   id: string;
@@ -1330,7 +1523,12 @@ export interface MyWork {
   workload: Workload;
   upcoming_meetings: number;
   goals: { id: string; name: string; status: string; progress: number }[];
-  today_tasks: { id: string; title: string; status: string; due_date: string | null }[];
+  today_tasks: {
+    id: string;
+    title: string;
+    status: string;
+    due_date: string | null;
+  }[];
 }
 
 export interface OrganizationLoad {
@@ -1657,18 +1855,47 @@ export interface KnowledgeAnalytics {
   avg_quality_score: number;
   growth_30d: Record<string, number>;
   growth_series: { date: string; count: number }[];
-  top_viewed: { id: string; kind: string; title: string; url: string; views: number }[];
+  top_viewed: {
+    id: string;
+    kind: string;
+    title: string;
+    url: string;
+    views: number;
+  }[];
   top_contributors: { employee_id: string; name: string; count: number }[];
   category_coverage: Record<string, unknown>[];
   department_health: Record<string, unknown>[];
-  outdated: { id: string; type: string; title: string; status: string; url: string; updated_at: string | null }[];
-  review_backlog: { id: string; kind: string; title: string; url: string; status: string }[];
+  outdated: {
+    id: string;
+    type: string;
+    title: string;
+    status: string;
+    url: string;
+    updated_at: string | null;
+  }[];
+  review_backlog: {
+    id: string;
+    kind: string;
+    title: string;
+    url: string;
+    status: string;
+  }[];
   quality_distribution: Record<string, number>;
   expert_distribution: Record<string, unknown>[];
   search_trends: Record<string, unknown>[];
-  duplicates: { entity_type: string; entity_id: string; duplicate_of: string }[];
+  duplicates: {
+    entity_type: string;
+    entity_id: string;
+    duplicate_of: string;
+  }[];
   coverage: { projects_with_knowledge: number };
-  quality_lowest: { id: string; entity_type: string; entity_id: string; score: number; issues: string[] }[];
+  quality_lowest: {
+    id: string;
+    entity_type: string;
+    entity_id: string;
+    score: number;
+    issues: string[];
+  }[];
 }
 
 export interface WikiTreeNode {
@@ -1917,7 +2144,12 @@ export interface Poll {
 export interface PollResult {
   poll_id: string;
   vote_count: number;
-  options: { option_id: string; text: string; vote_count: number; percentage: number }[];
+  options: {
+    option_id: string;
+    text: string;
+    vote_count: number;
+    percentage: number;
+  }[];
 }
 
 export interface CommunityEvent {
@@ -1939,7 +2171,12 @@ export interface CommunityEvent {
   team_based: boolean;
   registration_count: number;
   registered: boolean;
-  my_registration: { id: string; team_name: string | null; role: string; status: string } | null;
+  my_registration: {
+    id: string;
+    team_name: string | null;
+    role: string;
+    status: string;
+  } | null;
   created_at: string;
   updated_at: string;
 }
@@ -2014,7 +2251,13 @@ export interface CommunityAnalytics {
     polls: number;
     events: number;
   };
-  top_communities: { community_id: string; name: string; type: string; member_count: number; post_count: number }[];
+  top_communities: {
+    community_id: string;
+    name: string;
+    type: string;
+    member_count: number;
+    post_count: number;
+  }[];
   top_contributors: { employee_id: string; name: string; score: number }[];
   activity_trend: {
     date: string;
@@ -2039,7 +2282,6 @@ export const POST_REACTIONS = [
   "love",
   "insightful",
 ] as const;
-
 
 // Slice 4D.1 - Canonical Company Intelligence & Evidence Layer
 
@@ -2263,7 +2505,12 @@ export interface BrainEvidenceResponse {
   source: BrainRelatedEntity & Record<string, unknown>;
   evidence: BrainEvidenceLink[];
   related_entities: BrainRelatedEntity[];
-  links: { patterns: number; insights: number; memories: number; knowledge: number };
+  links: {
+    patterns: number;
+    insights: number;
+    memories: number;
+    knowledge: number;
+  };
   limit: number;
   generated_at: string;
 }
@@ -2288,15 +2535,30 @@ export interface BrainAttentionItem {
 export interface BrainUnifiedOverview {
   attention: BrainAttentionItem[];
   recent_intelligence: {
-    insights: { count: number; latest: Record<string, unknown>[]; truncated: boolean };
-    patterns: { count: number; latest: Record<string, unknown>[]; truncated: boolean };
-    memories: { count: number; latest: Record<string, unknown>[]; truncated: boolean };
+    insights: {
+      count: number;
+      latest: Record<string, unknown>[];
+      truncated: boolean;
+    };
+    patterns: {
+      count: number;
+      latest: Record<string, unknown>[];
+      truncated: boolean;
+    };
+    memories: {
+      count: number;
+      latest: Record<string, unknown>[];
+      truncated: boolean;
+    };
   };
   scope: { org_wide: boolean };
   generated_at: string;
-  metrics?: { brain_query?: string; brain_query_duration_ms?: number; sources_consulted?: number };
+  metrics?: {
+    brain_query?: string;
+    brain_query_duration_ms?: number;
+    sources_consulted?: number;
+  };
 }
-
 
 // Slice 4D.2 - Semantic Company Knowledge Intelligence
 
@@ -2333,7 +2595,6 @@ export interface BrainKnowledgeSearchResponse {
   provider: string | null;
   truncated: boolean;
 }
-
 
 // Slice 4D.3 - Organizational Memory Automation
 
@@ -2495,105 +2756,109 @@ export interface BrainPatternEvidenceResponse {
 
 export interface BrainPatternHistoryResponse {
   pattern_id: string;
-  history: Array<{ event_id: string; event_name: string; occurred_at: string | null }>;
+  history: Array<{
+    event_id: string;
+    event_name: string;
+    occurred_at: string | null;
+  }>;
   first_seen: string | null;
   last_seen: string | null;
   occurrence_count: number;
 }
 
 export interface BrainPatternRelatedResponse {
-    pattern_id: string;
-    related: Array<BrainPattern & { relation: string }>;
-  }
+  pattern_id: string;
+  related: Array<BrainPattern & { relation: string }>;
+}
 
-  export type InsightType =
-    | "execution_bottleneck"
-    | "decision_bottleneck"
-    | "ownership_ambiguity"
-    | "knowledge_gap"
-    | "communication_breakdown"
-    | "organizational_bottleneck"
-    | "governance_bottleneck"
-    | "repeated_organizational_issue"
-    | "cross_domain_risk";
+export type InsightType =
+  | "execution_bottleneck"
+  | "decision_bottleneck"
+  | "ownership_ambiguity"
+  | "knowledge_gap"
+  | "communication_breakdown"
+  | "organizational_bottleneck"
+  | "governance_bottleneck"
+  | "repeated_organizational_issue"
+  | "cross_domain_risk";
 
-  export type InsightSeverity = "info" | "warning" | "critical";
-  export type InsightStatus = "active" | "faded" | "resolved";
+export type InsightSeverity = "info" | "warning" | "critical";
+export type InsightStatus = "active" | "faded" | "resolved";
 
-  export interface BrainInsightEvidenceItem {
-    type: string;
-    id: string;
-    title?: string;
-    relationship?: string;
+export interface BrainInsightEvidenceItem {
+  type: string;
+  id: string;
+  title?: string;
+  relationship?: string;
+  occurred_at?: string | null;
+  meta?: Record<string, unknown>;
+}
+
+export interface BrainInsight {
+  id: string;
+  insight_type: InsightType;
+  key?: string | null;
+  domain: string;
+  severity: InsightSeverity;
+  title: string;
+  claim?: string | null;
+  summary?: string | null;
+  confidence: number;
+  confidence_components: {
+    occurrence_strength?: number;
+    evidence_completeness?: number;
+    pattern_confidence?: number;
+    memory_corroboration?: number;
+    recency?: number;
+    weights?: Record<string, number>;
+  };
+  evidence: BrainInsightEvidenceItem[];
+  relationships: Array<Record<string, unknown>>;
+  supporting_pattern_ids: string[];
+  supporting_memory_ids: string[];
+  scope_type: string;
+  scope_id?: string | null;
+  auth_project_id?: string | null;
+  status: InsightStatus;
+  affected_entities: Array<{ type: string; id: string; title?: string }>;
+  first_observed_at?: string | null;
+  last_observed_at?: string | null;
+}
+
+export interface BrainInsightsListResponse {
+  insights: BrainInsight[];
+  limit: number;
+  truncated: boolean;
+  org_wide: boolean;
+}
+
+export interface BrainInsightEvidenceResponse {
+  insight_id: string;
+  insight_type: string;
+  evidence: BrainInsightEvidenceItem[];
+  supporting_pattern_ids: string[];
+  supporting_memory_ids: string[];
+}
+
+export interface BrainInsightHistoryResponse {
+  insight_id: string;
+  history: Array<{
+    event_id: string;
+    event_name: string;
+    relationship: string;
     occurred_at?: string | null;
-    meta?: Record<string, unknown>;
-  }
+  }>;
+  first_observed_at?: string | null;
+  last_observed_at?: string | null;
+  status: InsightStatus;
+}
 
-  export interface BrainInsight {
-    id: string;
-    insight_type: InsightType;
-    key?: string | null;
-    domain: string;
-    severity: InsightSeverity;
-    title: string;
-    claim?: string | null;
-    summary?: string | null;
-    confidence: number;
-    confidence_components: {
-      occurrence_strength?: number;
-      evidence_completeness?: number;
-      pattern_confidence?: number;
-      memory_corroboration?: number;
-      recency?: number;
-      weights?: Record<string, number>;
-    };
-    evidence: BrainInsightEvidenceItem[];
-    relationships: Array<Record<string, unknown>>;
-    supporting_pattern_ids: string[];
-    supporting_memory_ids: string[];
-    scope_type: string;
-    scope_id?: string | null;
-    auth_project_id?: string | null;
-    status: InsightStatus;
-    affected_entities: Array<{ type: string; id: string; title?: string }>;
-    first_observed_at?: string | null;
-    last_observed_at?: string | null;
-  }
+export interface BrainInsightRelatedResponse {
+  insight_id: string;
+  related: Array<BrainInsight & { relation: string }>;
+}
 
-  export interface BrainInsightsListResponse {
-    insights: BrainInsight[];
-    limit: number;
-    truncated: boolean;
-    org_wide: boolean;
-  }
-
-  export interface BrainInsightEvidenceResponse {
-    insight_id: string;
-    insight_type: string;
-    evidence: BrainInsightEvidenceItem[];
-    supporting_pattern_ids: string[];
-    supporting_memory_ids: string[];
-  }
-
-  export interface BrainInsightHistoryResponse {
-    insight_id: string;
-    history: Array<{
-      event_id: string;
-      event_name: string;
-      relationship: string;
-      occurred_at?: string | null;
-    }>;
-    first_observed_at?: string | null;
-    last_observed_at?: string | null;
-    status: InsightStatus;
-  }
-
-  export interface BrainInsightRelatedResponse {
-    insight_id: string;
-    related: Array<BrainInsight & { relation: string }>;
-  }
-
-  export interface BrainGraphRelationshipNode {
+export interface BrainGraphRelationshipNode {
   type: string;
   id: string;
 }
@@ -2661,7 +2926,12 @@ export interface KnowledgeInsightDetailResponse extends KnowledgeIntelInsight {
     entities: Array<Record<string, unknown>>;
     source_event: string | null;
   };
-  audit: Array<{ action: string; actor_id: string; note: string | null; at: string }>;
+  audit: Array<{
+    action: string;
+    actor_id: string;
+    note: string | null;
+    at: string;
+  }>;
 }
 
 export interface KnowledgeInsightActionResponse {
@@ -2805,7 +3075,12 @@ export interface KnowledgeRecommendationLifecycleResponse {
   status: string;
   task_id: string | null;
   decision_id: string | null;
-  audit: Array<{ action: string; at: string; actor_id: string; note: string | null }>;
+  audit: Array<{
+    action: string;
+    at: string;
+    actor_id: string;
+    note: string | null;
+  }>;
 }
 
 export interface KnowledgeStateAtResponse {
@@ -2897,7 +3172,10 @@ export interface KnowledgeImpactResponse {
       { count: number; entities: Array<{ id: string; relations: string[] }> }
     >;
   };
-  dependent_knowledge: { total: number; claims: Array<Record<string, unknown>> };
+  dependent_knowledge: {
+    total: number;
+    claims: Array<Record<string, unknown>>;
+  };
   scope: "org" | "project";
 }
 
@@ -2942,7 +3220,8 @@ export interface KnowledgeQueryResponse {
 
 export interface CompanyAction {
   id: string;
-  action_type: "task" | "decision" | "communication" | "knowledge" | "meeting" | "project";
+  action_type:
+    "task" | "decision" | "communication" | "knowledge" | "meeting" | "project";
   title: string;
   description: string | null;
   state: string;
@@ -3012,7 +3291,10 @@ export interface CompanyActionEvent {
   created_at: string;
 }
 
-export interface CompanyActionDetailResponse extends Omit<CompanyAction, "dependencies"> {
+export interface CompanyActionDetailResponse extends Omit<
+  CompanyAction,
+  "dependencies"
+> {
   events: CompanyActionEvent[];
   dependencies: Array<{
     id: string;
@@ -3068,4 +3350,361 @@ export interface CompanyActionOutcomeIntelligence {
     effectiveness: number;
     measured_at: string;
   }>;
+}
+
+// ---------------------------------------------------------------------------
+// Gate 25 — Universal Company Workspace + Virtual Office Operating Fabric
+// ---------------------------------------------------------------------------
+
+// My Day - Employee Daily Operating Surface
+export interface MyDayUser {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+}
+
+export interface MyDayMeeting {
+  id: string;
+  title: string;
+  start_at: string | null;
+  end_at: string | null;
+  location: string | null;
+  meeting_code: string;
+}
+
+export interface MyDayCommitment {
+  id: string;
+  title: string;
+  due_at: string | null;
+  state: string;
+}
+
+export interface MyDayTask {
+  id: string;
+  title: string;
+  status: string;
+  due_at: string | null;
+  project_id: string | null;
+}
+
+export interface MyDayBlockedWork {
+  id: string;
+  title: string;
+  blocked_reason: string | null;
+}
+
+export interface MyDayApproval {
+  id: string;
+  title: string;
+  action_type: string;
+}
+
+export interface MyDayAttentionSignal {
+  type: string;
+  message: string;
+}
+
+export interface MyDayCapacityContext {
+  utilization: number;
+  allocated_hours: number;
+  meeting_hours: number;
+  capacity_hours: number;
+}
+
+export interface MyDayRelevantChange {
+  description: string | null;
+  timestamp: string | null;
+}
+
+export interface MyDay {
+  date: string;
+  user: MyDayUser;
+  meetings: MyDayMeeting[];
+  commitments: MyDayCommitment[];
+  tasks: MyDayTask[];
+  blocked_work: MyDayBlockedWork[];
+  approvals: MyDayApproval[];
+  important_communications: any[];
+  attention_signals: MyDayAttentionSignal[];
+  capacity_context: MyDayCapacityContext;
+  relevant_changes: MyDayRelevantChange[];
+}
+
+// Company Home - Executive/Company-Wide Operating Surface
+export interface CompanyHomeOrganization {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+export interface CompanyHomeStrategy {
+  goals_count: number;
+  objectives_count: number;
+}
+
+export interface CompanyHomeExecution {
+  active_projects: number;
+  active_commitments: number;
+  completion_rate: number;
+}
+
+export interface CompanyHomeCustomers {
+  total: number;
+  at_risk: number;
+  new_this_month: number;
+}
+
+export interface CompanyHomeFinancialState {
+  revenue: number;
+  expenses: number;
+  cash_position: number;
+}
+
+export interface CompanyHomeOperations {
+  processes_healthy: number;
+  processes_degraded: number;
+}
+
+export interface CompanyHomePeople {
+  total_employees: number;
+  capacity_utilization: number;
+  open_roles: number;
+}
+
+export interface CompanyHomeCapacity {
+  utilization: number;
+  bottlenecks: any[];
+}
+
+export interface CompanyHomeResources {
+  allocated: number;
+  available: number;
+}
+
+export interface CompanyHomeProcurement {
+  pending_pos: number;
+  vendor_risks: number;
+}
+
+export interface CompanyHomeRisk {
+  id: string;
+  title: string;
+  severity: string;
+  status: string;
+}
+
+export interface CompanyHomePrediction {
+  id: string;
+  title: string;
+  confidence: number;
+}
+
+export interface CompanyHomeDecision {
+  id: string;
+  title: string;
+  state: string;
+}
+
+export interface CompanyHome {
+  organization: CompanyHomeOrganization;
+  strategy: CompanyHomeStrategy;
+  objectives: any[];
+  execution: CompanyHomeExecution;
+  customers: CompanyHomeCustomers;
+  financial_state: CompanyHomeFinancialState;
+  operations: CompanyHomeOperations;
+  people: CompanyHomePeople;
+  capacity: CompanyHomeCapacity;
+  resources: CompanyHomeResources;
+  procurement: CompanyHomeProcurement;
+  risks: CompanyHomeRisk[];
+  predictions: CompanyHomePrediction[];
+  decisions: CompanyHomeDecision[];
+  company_brain: any;
+}
+
+// Manager Workspace - Team Projection
+export interface ManagerTeam {
+  id: string;
+  name: string;
+  description: string | null;
+}
+
+export interface ManagerPerson {
+  id: string;
+  name: string;
+  role: string;
+  email: string;
+}
+
+export interface ManagerWorkspace {
+  team: ManagerTeam;
+  people: ManagerPerson[];
+  capacity: any;
+  responsibilities: any[];
+  commitments: any[];
+  projects: any[];
+  tasks: any[];
+  dependencies: any[];
+  bottlenecks: any[];
+  communication: any;
+  risks: any[];
+  performance_context: any;
+}
+
+// Universal Search
+export interface UniversalSearchResult {
+  id: string;
+  type: string;
+  title: string;
+  subtitle: string | null;
+  description: string | null;
+  metadata: Record<string, any>;
+  score: number;
+  deep_link: string;
+}
+
+export interface UniversalSearchResponse {
+  query: string;
+  results: UniversalSearchResult[];
+  total: number;
+  took_ms: number;
+}
+
+// Universal Command
+export interface CommandRequest {
+  command: string;
+  context?: Record<string, any>;
+}
+
+export interface CommandResponse {
+  intent: string;
+  interpretation: string;
+  actions: Array<{ type: string; params: Record<string, any> }>;
+  requires_authorization: boolean;
+  confirmation_required: boolean;
+  result?: Record<string, any>;
+}
+
+// Deep Link
+export interface DeepLinkResolveRequest {
+  path: string;
+  params?: Record<string, any>;
+}
+
+export interface DeepLinkResolveResponse {
+  target_type: string;
+  target_id: string | null;
+  target_url: string;
+  canonical_data: Record<string, any> | null;
+}
+
+// Notifications
+export interface NotificationCenterNotification {
+  id: string;
+  type: string;
+  title: string;
+  body: string | null;
+  priority: string;
+  is_read: boolean;
+  created_at: string | null;
+  link: string | null;
+}
+
+export interface NotificationCenterResponse {
+  notifications: NotificationCenterNotification[];
+  unread_count: number;
+  grouped: Record<string, NotificationCenterNotification[]>;
+}
+
+// Workspace Settings / Personalization
+export interface WorkspaceSettingsPinnedItem {
+  type: string;
+  id: string;
+  label: string;
+}
+
+export interface WorkspaceSettingsShortcut {
+  key: string;
+  label: string;
+  href: string;
+}
+
+export interface WorkspaceSettingsNotificationPreferences {
+  [key: string]: {
+    enabled: boolean;
+    channels: string[];
+  };
+}
+
+export interface WorkspaceSettingsFavoriteView {
+  name: string;
+  href: string;
+  filters: Record<string, any>;
+}
+
+export interface WorkspaceSettings {
+  pinned_items: WorkspaceSettingsPinnedItem[];
+  shortcuts: WorkspaceSettingsShortcut[];
+  navigation_arrangement: Record<string, any>;
+  dashboard_arrangement: Record<string, any>;
+  notification_preferences: WorkspaceSettingsNotificationPreferences;
+  favorite_views: WorkspaceSettingsFavoriteView[];
+  theme: string;
+  locale: string;
+}
+
+// Joy & Break Games
+export interface GameSession {
+  id: string;
+  game_id: string;
+  state: Record<string, any>;
+  completed_at: string | null;
+  final_score: number | null;
+  started_at: string;
+}
+
+// Virtual Office
+export interface WorkspaceSession {
+  id: string;
+  active: boolean;
+  context_type: string | null;
+  context_id: string | null;
+  virtual_location: string | null;
+  device_type: string;
+  platform: string | null;
+  app_version: string | null;
+  last_activity_at: string;
+  connected_at: string;
+  disconnected_at: string | null;
+}
+
+export interface VirtualOfficeFloor {
+  id: string;
+  name: string;
+  description: string | null;
+  layout_json: Record<string, any> | null;
+  background_url: string | null;
+  is_default: boolean;
+  capacity: number;
+  access_level: string;
+  allowed_departments: string[];
+  allowed_teams: string[];
+}
+
+export interface VirtualOfficeRoom {
+  id: string;
+  floor_id: string;
+  name: string;
+  description: string | null;
+  room_type: string;
+  capacity: number;
+  icon: string;
+  color: string;
+  requires_booking: boolean;
+  auto_release_minutes: number;
+  has_screen: boolean;
+  has_whiteboard: boolean;
+  has_video_conf: boolean;
 }

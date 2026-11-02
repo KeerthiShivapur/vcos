@@ -20,7 +20,7 @@ from app.models.customer import Customer
 from app.models.employee import Employee
 from app.models.finance import Budget
 from app.models.project import Project
-from app.models.simulation import SimulationRun, SIMULATION_STATUSES
+from app.models.simulation import SimulationRun, SimulationRunStatus as SIMULATION_STATUSES
 
 SIMULATION_DOMAINS = (
     "budget", "infrastructure", "knowledge", "hiring", "projects",

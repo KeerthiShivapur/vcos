@@ -1,0 +1,9 @@
+anifest table")
+        result = await db_session.execute(delete(BackupManifest))
+        logger.info("Delete executed, rowcount: {}".format(result.rowcount))
+        await db_session.flush()
+        await db_session.commit()  # Ensure cleanup is committed
+        logger.info("Cleanup committed, deleted old backups")
+        
+        # Verify cleanup worked
+        remaining = await db_session.exe

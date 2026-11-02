@@ -1,88 +1,122 @@
-"""Phase 19 — Predictive intelligence (predictions, history, models)."""
+"""Prediction models."""
 
-from typing import Any, Optional
+from datetime import datetime
+from typing import Optional, List
+from sqlalchemy import DateTime, ForeignKey, String, Text, JSON, Boolean, Index, UniqueConstraint, Float
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Index, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
-
-from app.db.database import Base
-from app.models.organization import TimestampMixin, gen_uuid
-
-PREDICTION_KINDS = (
-    "project_failure", "employee_burnout", "customer_churn", "budget_overrun",
-    "knowledge_loss", "missed_deadline", "hiring_need", "infrastructure_growth",
-    "compliance_risk", "innovation_decline", "attrition", "skill_gap",
-    "capacity_bottleneck",
-)
-PREDICTION_STATUSES = ("open", "acknowledged", "dismissed", "validated", "resolved")
-
-
-class Prediction(Base, TimestampMixin):
-    """A forward-looking organizational prediction with evidence."""
-
-    __tablename__ = "predictions"
-    __table_args__ = (
-        Index("ix_predictions_org_kind", "organization_id", "kind"),
-        Index("ix_predictions_org_status", "organization_id", "status"),
-    )
-
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
-    organization_id: Mapped[str] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
-    )
-    kind: Mapped[str] = mapped_column(String(40), nullable=False)
-    title: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text)
-    probability: Mapped[float] = mapped_column(Float, default=0.5)
-    impact: Mapped[str] = mapped_column(String(20), default="medium")
-    level: Mapped[str] = mapped_column(String(20), default="medium")
-    horizon_days: Mapped[int] = mapped_column(default=30)
-    subject_type: Mapped[Optional[str]] = mapped_column(String(40))
-    subject_id: Mapped[Optional[str]] = mapped_column(String(32))
-    signals: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(JSON, default=list)
-    status: Mapped[str] = mapped_column(String(20), default="open")
-    source_event: Mapped[Optional[str]] = mapped_column(String(120))
-    due_at: Mapped[Optional[Any]] = mapped_column(DateTime(timezone=True))
-
-
-class PredictionHistory(Base, TimestampMixin):
-    """Validated outcomes of past predictions (prediction -> outcome)."""
-
-    __tablename__ = "prediction_history"
-    __table_args__ = (
-        Index("ix_pred_history_org_pred", "organization_id", "prediction_id"),
-    )
-
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
-    organization_id: Mapped[str] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
-    )
-    prediction_id: Mapped[str] = mapped_column(
-        ForeignKey("predictions.id", ondelete="CASCADE"), nullable=False
-    )
-    kind: Mapped[str] = mapped_column(String(40), nullable=False)
-    outcome: Mapped[bool] = mapped_column(nullable=False)  # True = prediction came true
-    accuracy: Mapped[float] = mapped_column(Float, default=0.0)
-    notes: Mapped[Optional[str]] = mapped_column(Text)
-    validated_at: Mapped[Optional[Any]] = mapped_column(DateTime(timezone=True))
+from app.models.base import Base, TimestampMixin, gen_uuid
 
 
 class PredictionModel(Base, TimestampMixin):
-    """Registered prediction model per kind with measured accuracy."""
-
     __tablename__ = "prediction_models"
-    __table_args__ = (
-        Index("ix_pred_models_org_kind", "organization_id", "kind"),
-    )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
     organization_id: Mapped[str] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    kind: Mapped[str] = mapped_column(String(40), nullable=False)
-    name: Mapped[str] = mapped_column(String(120), nullable=False)
-    version: Mapped[str] = mapped_column(String(20), default="1.0")
-    params: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, default=dict)
-    accuracy: Mapped[float] = mapped_column(Float, default=0.0)
-    predictions_count: Mapped[int] = mapped_column(default=0)
-    last_trained_at: Mapped[Optional[Any]] = mapped_column(DateTime(timezone=True))
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    model_type: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
+    algorithm: Mapped[str] = mapped_column(String(100), nullable=False)
+    version: Mapped[str] = mapped_column(String(50), default="1.0", nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    features: Mapped[List[str]] = mapped_column(JSON, default=list)
+    target: Mapped[str] = mapped_column(String(100), nullable=False)
+    hyperparameters: Mapped[dict] = mapped_column(JSON, default=dict)
+    metrics: Mapped[dict] = mapped_column(JSON, default=dict)
+    training_data_period_start: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    training_data_period_end: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_deployed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    deployed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    predictionmodel_metadata: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+
+    __table_args__ = (
+        Index("ix_prediction_models_org_type", "organization_id", "model_type"),
+        Index("ix_prediction_models_org_active", "organization_id", "is_active"),
+    )
+
+
+class Prediction(Base, TimestampMixin):
+    __tablename__ = "predictions"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    model_id: Mapped[str] = mapped_column(
+        ForeignKey("prediction_models.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    entity_type: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
+    entity_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    prediction_type: Mapped[str] = mapped_column(String(60), nullable=False)
+    predicted_value: Mapped[float] = mapped_column(default=0.0, nullable=False)
+    confidence: Mapped[float] = mapped_column(default=0.0, nullable=False)
+    probability_distribution: Mapped[Optional[dict]] = mapped_column(JSON)
+    features: Mapped[dict] = mapped_column(JSON, default=dict)
+    actual_value: Mapped[Optional[float]] = mapped_column(default=None)
+    is_correct: Mapped[Optional[bool]] = mapped_column(default=None)
+    evaluated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    predictionmodel_metadata: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+
+    __table_args__ = (
+        Index("ix_predictions_org_model", "organization_id", "model_id"),
+        Index("ix_predictions_org_entity", "organization_id", "entity_type", "entity_id"),
+        Index("ix_predictions_org_created", "organization_id", "created_at"),
+    )
+
+
+class PredictionHistory(Base, TimestampMixin):
+    __tablename__ = "prediction_history"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    model_id: Mapped[str] = mapped_column(
+        ForeignKey("prediction_models.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    prediction_id: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    action: Mapped[str] = mapped_column(String(40), nullable=False)  # created, evaluated, retrained, deprecated
+    old_value: Mapped[Optional[float]] = mapped_column(default=None)
+    new_value: Mapped[Optional[float]] = mapped_column(default=None)
+    predictionmodel_metadata: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+
+    __table_args__ = (
+        Index("ix_prediction_history_org_model", "organization_id", "model_id"),
+        Index("ix_prediction_history_org_prediction", "organization_id", "prediction_id"),
+    )
+
+
+PREDICTION_KINDS = (
+    "revenue",
+    "cost",
+    "demand",
+    "churn",
+    "conversion",
+    "retention",
+    "growth",
+    "anomaly",
+    "risk",
+    "opportunity",
+    "capacity",
+    "performance",
+    "quality",
+    "satisfaction",
+    "engagement",
+    "revenue_forecast",
+    "cost_forecast",
+    "demand_forecast",
+    "capacity_forecast",
+)
+
+PREDICTION_STATUSES = (
+    "pending",
+    "completed",
+    "evaluated",
+    "correct",
+    "incorrect",
+    "partial",
+    "expired",
+    "cancelled",
+)

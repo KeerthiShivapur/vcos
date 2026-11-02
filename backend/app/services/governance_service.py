@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.timeutils import utcnow
 from app.models.enterprise import AccessGrant
 from app.models.governance import ApprovalPolicy, GovernanceScope
-from app.models.role import Permission, RolePermission, UserRole
+from app.models.role import Permission, RolePermission, UserRoleModel
 
 MAX_SCOPE_DEPTH = 32
 SWEEP_BATCH_LIMIT = 5000
@@ -102,7 +102,7 @@ class GovernanceService:
         if children:
             raise GovernanceError("Scope has child scopes and cannot be deleted")
         assignments = (
-            await db.execute(select(UserRole.id).where(UserRole.scope_id == scope_id).limit(1))
+            await db.execute(select(UserRoleModel.id).where(UserRoleModel.scope_id == scope_id).limit(1))
         ).scalars().first()
         if assignments:
             raise GovernanceError("Scope has role assignments and cannot be deleted")
@@ -151,11 +151,11 @@ class GovernanceService:
         rows = await db.execute(
             select(Permission.code)
             .join(RolePermission, RolePermission.permission_id == Permission.id)
-            .join(UserRole, UserRole.role_id == RolePermission.role_id)
+            .join(UserRoleModel, UserRoleModel.role_id == RolePermission.role_id)
             .where(
-                UserRole.user_id == user_id,
-                UserRole.organization_id == organization_id,
-                UserRole.scope_id.in_(scope_ids),
+                UserRoleModel.user_id == user_id,
+                UserRoleModel.organization_id == organization_id,
+                UserRoleModel.scope_id.in_(scope_ids),
             )
         )
         return set(rows.scalars().all())
@@ -234,15 +234,15 @@ class GovernanceService:
         user_id: Optional[str] = None,
         scope_id: Optional[str] = None,
         role_id: Optional[str] = None,
-    ) -> list[UserRole]:
-        stmt = select(UserRole).where(UserRole.organization_id == organization_id)
+    ) -> list[UserRoleModel]:
+        stmt = select(UserRoleModel).where(UserRoleModel.organization_id == organization_id)
         if user_id:
-            stmt = stmt.where(UserRole.user_id == user_id)
+            stmt = stmt.where(UserRoleModel.user_id == user_id)
         if scope_id:
-            stmt = stmt.where(UserRole.scope_id == scope_id)
+            stmt = stmt.where(UserRoleModel.scope_id == scope_id)
         if role_id:
-            stmt = stmt.where(UserRole.role_id == role_id)
-        rows = await db.execute(stmt.order_by(UserRole.created_at.desc()).limit(500))
+            stmt = stmt.where(UserRoleModel.role_id == role_id)
+        rows = await db.execute(stmt.order_by(UserRoleModel.created_at.desc()).limit(500))
         return list(rows.scalars().all())
 
     async def assign_role_at_scope(
@@ -254,7 +254,7 @@ class GovernanceService:
         user_id: str,
         role_id: str,
         scope_id: Optional[str] = None,
-    ) -> UserRole:
+    ) -> UserRoleModel:
         """Assign a role to a user at a scope (null scope = org-wide).
 
         No privilege escalation: the actor must already hold every permission
@@ -283,7 +283,7 @@ class GovernanceService:
             raise GovernanceError(
                 f"You cannot assign this role: you do not hold {sorted(missing)[0]} at that scope"
             )
-        assignment = UserRole(
+        assignment = UserRoleModel(
             user_id=user_id,
             role_id=role_id,
             organization_id=organization_id,
@@ -295,8 +295,8 @@ class GovernanceService:
 
     async def remove_assignment(
         self, db: AsyncSession, *, organization_id: str, assignment_id: str
-    ) -> UserRole:
-        assignment = await db.get(UserRole, assignment_id)
+    ) -> UserRoleModel:
+        assignment = await db.get(UserRoleModel, assignment_id)
         if assignment is None or assignment.organization_id != organization_id:
             raise GovernanceError("Assignment not found")
         await db.delete(assignment)

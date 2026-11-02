@@ -1,54 +1,114 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useAuth } from "./useAuth";
 
-import { api } from "@/lib/api";
-import { notificationChannel } from "@/lib/websocket";
-import type { Notification, NotificationStats } from "@/types";
-import { useAuth } from "@/hooks/useAuth";
-
-export interface NotificationsState {
-  unread: number;
-  stats: NotificationStats | null;
-  recent: Notification[];
-  refresh: () => Promise<void>;
-  markAllRead: () => Promise<void>;
+interface Notification {
+  id: string;
+  type: string;
+  title: string;
+  body: string;
+  data?: Record<string, any>;
+  read: boolean;
+  createdAt: number;
 }
 
-export function useNotifications(): NotificationsState {
-  const { ready } = useAuth();
-  const [unread, setUnread] = useState(0);
-  const [stats, setStats] = useState<NotificationStats | null>(null);
-  const [recent, setRecent] = useState<Notification[]>([]);
+interface UseNotificationsReturn {
+  notifications: Notification[];
+  unreadCount: number;
+  loading: boolean;
+  error: string | null;
+  markAsRead: (id: string) => Promise<void>;
+  markAllAsRead: () => Promise<void>;
+  deleteNotification: (id: string) => Promise<void>;
+  refresh: () => Promise<void>;
+}
 
-  const refresh = useCallback(async () => {
-    if (!ready) return;
+export function useNotifications(): UseNotificationsReturn {
+  const { accessToken } = useAuth();
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchNotifications = useCallback(async () => {
     try {
-      const [statsData, listData] = await Promise.all([
-        api<NotificationStats>("/notifications/stats"),
-        api<{ items: Notification[] }>("/notifications?page_size=8"),
-      ]);
-      setStats(statsData);
-      setUnread(statsData.total_unread);
-      setRecent(listData.items);
-    } catch {
-      /* transient */
+      setLoading(true);
+      const response = await fetch("/api/v1/notifications", {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("access_token")}`,
+        },
+      });
+
+      if (!response.ok) throw new Error("Failed to fetch notifications");
+      const data = await response.json();
+      setNotifications(data.notifications || []);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to load notifications",
+      );
+    } finally {
+      setLoading(false);
     }
-  }, [ready]);
+  }, []);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    fetchNotifications();
+  }, []);
 
-  useEffect(() => {
-    const unsubscribe = notificationChannel.subscribe(() => void refresh());
-    return unsubscribe;
-  }, [refresh]);
+  const markAsRead = useCallback(async (id: string) => {
+    try {
+      await fetch(`/api/v1/notifications/${id}/read`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("access_token")}`,
+        },
+      });
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
+      );
+    } catch (error) {
+      console.error("Failed to mark notification as read:", error);
+    }
+  }, []);
 
-  const markAllRead = useCallback(async () => {
-    await api<{ message: string }>("/notifications/read", { method: "POST", body: { ids: null } });
-    await refresh();
-  }, [refresh]);
+  const markAllAsRead = useCallback(async () => {
+    try {
+      await fetch("/api/v1/notifications/read-all", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("access_token")}`,
+        },
+      });
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    } catch (error) {
+      console.error("Failed to mark all as read:", error);
+    }
+  }, []);
 
-  return { unread, stats, recent, refresh, markAllRead };
+  const deleteNotification = useCallback(async (id: string) => {
+    try {
+      await fetch(`/api/v1/notifications/${id}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("access_token")}`,
+        },
+      });
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+    } catch (error) {
+      console.error("Failed to delete notification:", error);
+    }
+  }, []);
+
+  const unreadCount = notifications.filter((n) => !n.read).length;
+
+  return {
+    notifications,
+    unreadCount,
+    loading,
+    error: null,
+    markAsRead,
+    markAllAsRead,
+    deleteNotification,
+    refresh: () => Promise.resolve(),
+  };
 }

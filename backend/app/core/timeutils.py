@@ -1,32 +1,18 @@
-"""Timezone-safe datetime helpers.
-
-PostgreSQL returns timezone-aware datetimes; SQLite returns naive UTC.
-Every comparison goes through these helpers so behavior is identical on
-both backends.
-"""
-
 from datetime import datetime, timezone
 
 
 def utcnow() -> datetime:
+    """Return current UTC datetime."""
     return datetime.now(timezone.utc)
 
 
-def utcnow_naive() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+def is_expired(dt: datetime) -> bool:
+    """Check if datetime is expired (in the past)."""
+    return ensure_aware(dt) < utcnow()
 
 
-def ensure_aware(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value
-
-
-def ensure_naive(value: datetime) -> datetime:
-    if value.tzinfo is not None:
-        return value.astimezone(timezone.utc).replace(tzinfo=None)
-    return value
-
-
-def is_expired(value: datetime) -> bool:
-    return ensure_aware(value) < utcnow()
+def ensure_aware(dt: datetime) -> datetime:
+    """Ensure datetime is timezone-aware (UTC)."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)

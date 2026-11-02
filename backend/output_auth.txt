@@ -1,0 +1,61 @@
+class CompanyAuthorization(Base, TimestampMixin):
+    """
+    Canonical Company Authorization — a governed permit that bridges Decision
+    Intelligence to Commitment/Execution.
+    
+    Key principles:
+    - Governance-first: policy evaluated before authorization granted
+    - Decision ≠ Authorization ≠ Commitment ≠ Execution (explicit boundaries)
+    - Pure provenance: does not change lifecycle, policy, routing, or governance semantics
+    - Policy-bound: references ApprovalPolicy and GovernanceScope
+    - Temporal: valid_from/valid_until with supersession chain
+    - Contradiction-preserving: evidence, patterns, lessons tracked
+    - Exact-once: fingerprint-based deduplication
+    
+    State machine:
+    requested -> approved / conditional / rejected
+    approved -> superseded (by new authorization)
+    
+    Does NOT duplicate:
+    - CompanyDecision: decision = the reasoning; authorization = the governance permit
+    - CompanyCommitment: authorization = permit; commitment = execution mandate
+    - ApprovalPolicy: policy = rules; authorization = permit instance
+    """
+
+    __tablename__ = "company_authorizations"
+    __table_args__ = (
+        Index("ix_ca_org_state", "organization_id", "state"),
+        Index("ix_ca_org_type", "organization_id", "authorization_type"),
+        Index("ix_ca_org_scope", "organization_id", "scope_type", "scope_id"),
+        Index("ix_ca_org_decision", "organization_id", "decision_id"),
+        Index("ix_ca_org_commitment", "organization_id", "commitment_id"),
+        Index("ix_ca_org_policy", "organization_id", "policy_id"),
+        Index("ix_ca_org_fingerprint", "organization_id", "fingerprint"),
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_ca_exact_once",
+        ),
+        CheckConstraint(
+            "state IN ('requested', 'approved', 'conditional', 'rejected', 'superseded')",
+            name="ck_ca_state_valid",
+        ),
+        CheckConstraint(
+            "authorization_type IN ('full', 'partial', 'conditional')",
+            name="ck_ca_type_valid",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+
+    # Authorization identity
+    authorization_type: Mapped[str] = mapped_column(String(20), default="full", nullable=False)  # full | partial | conditional
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    rationale: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Scope
+    scope_type: Mapped[str] = mapped_column(String(20), default="company", nullable=False)  # company | department | team | project | initiative | objective | role | person
+    scope_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)

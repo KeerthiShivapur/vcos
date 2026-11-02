@@ -48,6 +48,10 @@ from app.models.finance import Budget
 from app.models.goal import Goal
 from app.models.governance import ApprovalPolicy, GovernanceScope
 from app.models.knowledge import Decision
+from app.models.company_operating import CompanyDecision, CompanyDecisionContradiction
+from app.models.execution_strategy import CompanyGoal, CompanyCommitment, CompanyAuthorization, ObjectiveContradiction
+from app.models.autonomy import AutonomyProposal
+from app.models.company_actions import CompanyAction
 from app.models.project import Project
 from app.models.task import Task
 from app.services.governance_service import governance_service
@@ -98,12 +102,19 @@ _EVIDENCE_META: dict[str, dict[str, Any]] = {
     "goal": {"source": "goals", "url": "/goals/{}"},
     "budget": {"source": "budgets", "url": "/finance/budgets/{}"},
     "employee": {"source": "employees", "url": "/people/{}"},
+    "commitment": {"source": "commitments", "url": "/commitments/{}"},
+    "authorization": {"source": "authorizations", "url": "/authorizations/{}"},
+    "action": {"source": "actions", "url": "/actions/{}"},
     # Slice 4D.2 — knowledge evidence (urls follow the knowledge entity routes)
     "document": {"source": "documents", "url": "/documents/{}"},
     "wiki": {"source": "wiki_pages", "url": "/wiki/{}"},
     "policy": {"source": "policies", "url": "/policies/{}"},
     "sop": {"source": "sops", "url": "/sops/{}"},
     "template": {"source": "templates", "url": "/templates/{}"},
+    # Contradiction kinds for Gate 6-E
+    "decision_contradiction": {"source": "company_decision_contradictions", "url": "/contradictions/decision/{}"},
+    "objective_contradiction": {"source": "objective_contradictions", "url": "/contradictions/objective/{}"},
+    "autonomy_proposal": {"source": "autonomy_proposals", "url": "/autonomy/proposals/{}"},
 }
 
 _INTENT_KEYWORDS: dict[str, tuple[str, ...]] = {
@@ -117,6 +128,8 @@ _INTENT_KEYWORDS: dict[str, tuple[str, ...]] = {
     "goal": ("goal", "goals", "objective", "objectives", "okr", "okrs", "target", "key result"),
     "budget": ("budget", "budgets", "finance", "financial", "spend", "spending", "cost", "costs", "expense"),
     "employee": ("employee", "employees", "who", "people", "person", "member", "staff", "colleague", "team"),
+    "commitment": ("commitment", "commitments", "mandate", "mandates", "execution", "governed"),
+    "action": ("action", "actions", "task", "tasks", "execute", "execute"),
     # Slice 4D.2 — knowledge intent so /brain/answer can cite knowledge evidence
     "knowledge": (
         "document", "documents", "wiki", "wikis", "wiki page",
@@ -184,6 +197,19 @@ class CallerAccess:
     # conversation ids the caller is a member of (empty -> not resolvable)
     member_conversation_ids: frozenset[str] = frozenset()
     links: dict[str, str] = field(default_factory=dict)  # entity_id -> scope_id
+
+    @property
+    def permissions(self) -> frozenset[str]:
+        """Return empty frozenset - permissions are computed async via governance_service."""
+        return frozenset()
+
+    async def get_permissions(self, db: AsyncSession) -> frozenset[str]:
+        """Get effective permissions for this caller (async)."""
+        from app.services.governance_service import governance_service
+        codes = await governance_service.effective_permission_codes(
+            db, organization_id=self.organization_id, user_id=self.user_id
+        )
+        return frozenset(codes)
 
 
 async def _load_scope_tree(db: AsyncSession, organization_id: str) -> list[GovernanceScope]:
@@ -840,7 +866,12 @@ async def build_context(
     limit: int = DEFAULT_CONTEXT_LIMIT,
 ) -> dict[str, Any]:
     """Governance-scoped context for a question (the canonical entry point).
-
+    
+    Optimized version using batched queries to eliminate N+1 query pattern.
+    Reduces ~14+ independent queries to ~4-5 batched queries while preserving
+    all canonical semantics: tenant isolation, governance, authorization,
+    scope inheritance, temporal truth, provenance, epistemic boundaries.
+    
     Returns a bounded context::
 
         {
@@ -852,67 +883,17 @@ async def build_context(
           "truncated": bool,
         }
     """
-    if not query.strip():
-        query = "company overview"
-    access = await resolve_caller_access(
-        db, organization_id=organization_id, user=user
+    from app.intelligence.company_context_optimized_v2 import build_context_optimized
+    
+    return await build_context_optimized(
+        db=db,
+        user=user,
+        query=query,
+        organization_id=organization_id,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        limit=limit,
     )
-    intent = classify_query(query)
-    evidence: list[dict[str, Any]] = []
-    extra_links: list[dict[str, Any]] = []
-    mentions: dict[str, list[str]] = {}
-    for etype, needles_words in intent.items():
-        needles = tokens(" ".join(needles_words)) or tokens(query)
-        items = await _MATCHERS[etype](
-            db, access, needles, with_recent=True
-        )
-        for item in items:
-            mentions.setdefault(item["type"], []).append(item["id"])
-        evidence.extend(items)
-
-    if entity_type and entity_id:
-        direct = await _direct_evidence(
-            db, access, entity_type=entity_type, entity_id=entity_id
-        )
-        for item in direct:
-            mentions.setdefault(item["type"], []).append(item["id"])
-        evidence = direct + evidence
-
-    for item in evidence:
-        if item["type"] == "task" and item["relation"] == "matched":
-            extra_links.append(
-                {"source": ("task", item["id"]), "target": ("project", item["project_id"]), "kind": "belongs_to"}
-            )
-        if item["type"] == "decision" and item["relation"] == "matched":
-            extra_links.append(
-                {"source": ("decision", item["id"]), "target": ("project", item["project_id"]), "kind": "belongs_to"}
-            )
-        if item["type"] == "message" and item["relation"] == "matched":
-            extra_links.append(
-                {"source": ("message", item["id"]), "target": ("conversation", item["conversation_id"]), "kind": "belongs_to"}
-            )
-        if item["type"] == "budget" and item["relation"] == "matched":
-            extra_links.append(
-                {"source": ("budget", item["id"]), "target": ("project", item["project_id"]), "kind": "belongs_to"}
-            )
-        if item["type"] == "goal" and item["relation"] == "matched":
-            extra_links.append(
-                {"source": ("goal", item["id"]), "target": ("project", item["project_id"]), "kind": "belongs_to"}
-            )
-    evidence = evidence[:limit]
-    truncated = len(evidence) >= limit
-    relations = _relations(evidence, extra_links)
-    scope_ids = sorted(
-        set(access.visible_scope_ids) | set(access.ancestry_scope_ids) | set(access.anchored_scope_ids)
-    )
-    return {
-        "scope_ids": scope_ids,
-        "org_wide": access.org_wide,
-        "evidence": evidence,
-        "relations": relations,
-        "entity_mentions": mentions,
-        "truncated": truncated,
-    }
 
 
 async def resolve_accessible_ids(
@@ -938,22 +919,28 @@ async def resolve_accessible_ids(
         )
     elif access.org_wide:
         model_map = {
-            "project": Project, "task": Task, "decision": Decision,
+            "project": Project, "task": Task, "decision": CompanyDecision,
             "conversation": Conversation, "message": Message,
             "scope": GovernanceScope, "approval_policy": ApprovalPolicy,
-            "goal": Goal, "budget": Budget, "employee": Employee,
+            "goal": CompanyGoal, "budget": Budget, "employee": Employee,
+            "commitment": CompanyCommitment,
+            "authorization": CompanyAuthorization,
+            "action": CompanyAction,
+            "autonomy_proposal": AutonomyProposal,
+            # Contradiction kinds for Gate 6-E
+            "decision_contradiction": CompanyDecisionContradiction,
+            "objective_contradiction": ObjectiveContradiction,
         }
-        for _kind in KNOWLEDGE_EVIDENCE_KINDS:
-            model_map[_kind] = getattr(
-                __import__("app.models.knowledge", fromlist=[_KNOWLEDGE_MODELS[_kind]]),
-                _KNOWLEDGE_MODELS[_kind],
-            )
-        model = model_map[kind]
+        model = model_map.get(kind)
+        if model is None:
+            return []
+        # For decision kind, use id field (primary key); for others use id
+        id_column = model.id
         rows = (
             await db.execute(
-                select(model.id).where(
+                select(id_column).where(
                     model.organization_id == organization_id,
-                    model.id.in_(ids),
+                    id_column.in_(ids),
                 )
             )
         ).scalars().all()

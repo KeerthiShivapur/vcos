@@ -21,7 +21,9 @@ export function NotificationBell() {
       trigger={(open) => (
         <span
           className={`relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
-            open ? "bg-canvas text-ink" : "text-muted hover:bg-canvas hover:text-ink"
+            open
+              ? "bg-canvas text-ink"
+              : "text-muted hover:bg-canvas hover:text-ink"
           }`}
         >
           <Bell className="h-4.5 w-4.5 h-[18px] w-[18px]" />
@@ -48,7 +50,10 @@ export function NotificationBell() {
           </div>
           <div className="max-h-[340px] overflow-y-auto">
             {recent.length === 0 && (
-              <EmptyState title="No notifications" description="You're all caught up." />
+              <EmptyState
+                title="No notifications"
+                description="You're all caught up."
+              />
             )}
             {recent.map((notification: Notification) => (
               <button
@@ -60,18 +65,30 @@ export function NotificationBell() {
                 className="flex w-full items-start gap-3 border-b border-line px-4 py-3 text-left transition-colors last:border-0 hover:bg-canvas"
               >
                 <span className="mt-0.5">
-                  <Badge tone={notification.is_read ? "neutral" : statusTone(notification.type)}>
+                  <Badge
+                    tone={
+                      notification.is_read
+                        ? "neutral"
+                        : statusTone(notification.type)
+                    }
+                  >
                     {notification.type}
                   </Badge>
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className={`block truncate text-[13px] font-medium text-ink ${notification.is_read ? "font-normal text-muted" : ""}`}>
+                  <span
+                    className={`block truncate text-[13px] font-medium text-ink ${notification.is_read ? "font-normal text-muted" : ""}`}
+                  >
                     {notification.title}
                   </span>
                   {notification.body && (
-                    <span className="mt-0.5 line-clamp-2 block text-xs text-faint">{notification.body}</span>
+                    <span className="mt-0.5 line-clamp-2 block text-xs text-faint">
+                      {notification.body}
+                    </span>
                   )}
-                  <span className="mt-1 block text-[10px] text-faint">{timeAgo(notification.created_at)}</span>
+                  <span className="mt-1 block text-[10px] text-faint">
+                    {timeAgo(notification.created_at)}
+                  </span>
                 </span>
               </button>
             ))}

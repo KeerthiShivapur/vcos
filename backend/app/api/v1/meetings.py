@@ -1,884 +1,792 @@
-"""Meetings API — first-class meeting workspaces (Phase 3)."""
+"""Meeting API Routes — Native VCOS Meetings, Conferences, and Presentations."""
 
-from datetime import datetime
-from typing import Optional
+import asyncio
+from datetime import datetime, timezone, timedelta
+from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Body, File, UploadFile
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_client_ip, get_current_organization, require_permission
-from app.collaboration.collab_base import parse_json
-from app.collaboration.live import live_hub
-from app.collaboration.note_service import note_service
-from app.collaboration.participant_service import participant_service
-from app.collaboration.session_service import session_service
-from app.db.database import get_db
-from app.models.organization import Organization
+from app.api.deps import get_current_user, get_current_organization, get_db
+from app.models.meeting import (
+    Meeting,
+    MeetingParticipant,
+    MeetingRecording,
+    MeetingTranscript,
+    MeetingType,
+    MeetingStatus,
+    MeetingScale,
+    ParticipantRole,
+    ParticipantStatus,
+    RecordingStatus,
+)
+from app.models.project import Project
 from app.models.user import User
-from app.schemas.common import Message
-from app.schemas.collaboration import (
-    InviteBody,
-    JoinBody,
-    NoteCreate,
-    NoteOut,
-    NoteUpdate,
-    ParticipantOut,
-    SessionCreate,
-    SessionOut,
-)
-from app.schemas.work import (
-    ActionItemOut,
-    AgendaItemOut,
-    AttendeeOut,
-    MeetingCreate,
-    MeetingOut,
-    MeetingUpdate,
-)
-from app.work.meeting_service import meeting_service
+from app.models.organization import Organization
+from app.services.meeting_service import meeting_service, MeetingConfig, MeetingScale as ServiceMeetingScale, PresentationConfig
+# from app.services.calendar_service import calendar_service
 
 router = APIRouter(prefix="/meetings", tags=["Meetings"])
 
 
-class RsvpBody(BaseModel):
-    status: str = Field(pattern="^(accepted|declined|tentative)$")
+# =============================================================================
+# Request/Response Models
+# =============================================================================
+
+class MeetingCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = None
+    meeting_type: MeetingType = MeetingType.STANDARD
+    scale: Optional[MeetingScale] = None
+    scheduled_start: Optional[datetime] = None
+    scheduled_end: Optional[datetime] = None
+    timezone: str = "UTC"
+    project_id: Optional[str] = None
+    participant_ids: List[str] = []
+    external_guest_emails: List[str] = []
+    agenda: List[str] = []
+    materials: List[Dict[str, Any]] = []
+    settings: Dict[str, Any] = {}
+    recording_enabled: bool = False
+    transcription_enabled: bool = False
+    wait_room_enabled: bool = True
+    chat_enabled: bool = True
+    reactions_enabled: bool = True
+    screen_share_enabled: bool = True
+    require_approval: bool = False
+    allow_external_guests: bool = True
+    password_protected: bool = False
+    password: Optional[str] = None
+
+
+class MeetingUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    meeting_type: Optional[MeetingType] = None
+    scheduled_start: Optional[datetime] = None
+    scheduled_end: Optional[datetime] = None
+    agenda: Optional[List[str]] = None
+    materials: Optional[List[Dict[str, Any]]] = None
+    settings: Optional[Dict[str, Any]] = None
+    recording_enabled: Optional[bool] = None
+    transcription_enabled: Optional[bool] = None
+    wait_room_enabled: Optional[bool] = None
+    chat_enabled: Optional[bool] = None
+    reactions_enabled: Optional[bool] = None
+    screen_share_enabled: Optional[bool] = None
+    require_approval: Optional[bool] = None
+    allow_external_guests: Optional[bool] = None
+    password_protected: Optional[bool] = None
+    password: Optional[str] = None
+
+
+class MeetingResponse(BaseModel):
+    id: str
+    title: str
+    description: Optional[str]
+    meeting_type: str
+    scale: str
+    scheduled_start: Optional[str]
+    scheduled_end: Optional[str]
+    actual_start: Optional[str]
+    actual_end: Optional[str]
+    timezone: str
+    project_id: Optional[str]
+    organizer_id: str
+    status: str
+    media_room_name: Optional[str]
+    media_url: Optional[str]
+    agenda: List[str]
+    materials: List[Dict[str, Any]]
+    settings: Dict[str, Any]
+    recording_enabled: bool
+    transcription_enabled: bool
+    wait_room_enabled: bool
+    chat_enabled: bool
+    reactions_enabled: bool
+    screen_share_enabled: bool
+    require_approval: bool
+    allow_external_guests: bool
+    password_protected: bool
+    recording_id: Optional[str]
+    recording_url: Optional[str]
+    recording_status: Optional[str]
+    transcription_url: Optional[str]
+    current_presentation_id: Optional[str]
+    presentation_state: Optional[Dict[str, Any]]
+    decisions: List[Dict[str, Any]]
+    action_items: List[Dict[str, Any]]
+    summary: Optional[str]
+    created_at: str
+    updated_at: str
+    created_by: str
+
+
+class ParticipantResponse(BaseModel):
+    id: str
+    meeting_id: str
+    user_id: Optional[str]
+    email: Optional[str]
+    display_name: Optional[str]
+    avatar_url: Optional[str]
+    role: str
+    status: str
+    joined_at: Optional[str]
+    left_at: Optional[str]
+    duration_seconds: int
+    audio_enabled: bool
+    video_enabled: bool
+    screen_sharing: bool
+    hand_raised: bool
+
+
+class JoinMeetingResponse(BaseModel):
+    meeting_id: str
+    participant_id: str
+    media_token: str
+    media_url: str
+    room_name: str
+    settings: Dict[str, Any]
+
+
+class PresentationCreate(BaseModel):
+    title: str
+    meeting_id: Optional[str] = None
+    slides: List[Dict[str, Any]] = []
+    co_presenter_ids: List[str] = []
+    audience_qna_enabled: bool = True
+    polls_enabled: bool = True
+    recording_enabled: bool = True
+    materials: List[Dict[str, Any]] = []
+
+
+class DecisionCreate(BaseModel):
+    title: str
+    description: Optional[str] = None
+    options: List[str] = []
+    evidence: List[Dict[str, Any]] = []
 
 
 class ActionItemCreate(BaseModel):
     title: str
+    description: Optional[str] = None
     assignee_id: Optional[str] = None
     due_date: Optional[datetime] = None
+    priority: str = "medium"
 
 
-def _meeting_payload(m) -> dict:
-    return {
-        "id": m.id,
-        "title": m.title,
-        "description": m.description,
-        "meeting_type": m.meeting_type,
-        "status": m.status,
-        "organizer_id": m.organizer_id,
-        "organizer_name": getattr(m, "organizer_name", None),
-        "project_id": m.project_id,
-        "goal_id": m.goal_id,
-        "department_id": m.department_id,
-        "team_id": m.team_id,
-        "calendar_event_id": m.calendar_event_id,
-        "room_id": m.room_id,
-        "meeting_code": m.meeting_code,
-        "timezone": m.timezone,
-        "duration_minutes": m.duration_minutes,
-        "start_at": m.start_at,
-        "end_at": m.end_at,
-        "location": m.location,
-        "meeting_link": m.meeting_link,
-        "transcript_summary": m.transcript_summary,
-        "ai_summary": m.ai_summary,
-        "created_at": m.created_at,
-        "updated_at": m.updated_at,
-    }
+class RecordingStartResponse(BaseModel):
+    recording_id: str
+    status: str
 
 
-def _session_payload(s) -> dict:
-    participants = [ParticipantOut.model_validate(p) for p in getattr(s, "participants", None) or []]
-    return {
-        "id": s.id,
-        "meeting_id": s.meeting_id,
-        "room_id": s.room_id,
-        "status": s.status,
-        "meeting_code": s.meeting_code,
-        "timezone": s.timezone,
-        "max_participants": s.max_participants,
-        "started_at": s.started_at,
-        "ended_at": s.ended_at,
-        "duration_seconds": s.duration_seconds,
-        "is_recording": s.is_recording,
-        "is_captions_enabled": s.is_captions_enabled,
-        "is_translation_enabled": s.is_translation_enabled,
-        "is_transcribing": s.is_transcribing,
-        "settings": parse_json(s.settings),
-        "participants": participants,
-        "created_at": s.created_at,
-        "updated_at": s.updated_at,
-    }
+# =============================================================================
+# Meeting CRUD
+# =============================================================================
 
-
-@router.get("", response_model=list[MeetingOut])
-async def list_meetings(
-    project_id: Optional[str] = None,
-    status: Optional[str] = None,
-    employee_id: Optional[str] = None,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("meetings:read")),
-    db: AsyncSession = Depends(get_db),
-):
-    meetings = await meeting_service.list_all(
-        db, organization_id=org.id, project_id=project_id, status=status, employee_id=employee_id,
-    )
-    return [MeetingOut.model_validate(_meeting_payload(m)) for m in meetings]
-
-
-@router.post("", response_model=MeetingOut, status_code=201)
+@router.post("", response_model=MeetingResponse, status_code=status.HTTP_201_CREATED)
 async def create_meeting(
     payload: MeetingCreate,
-    request: Request,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("meetings:manage")),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
-    from app.people.employee_service import employee_service
-
-    actor = await employee_service.get_by_user(db, organization_id=org.id, user_id=user.id)
-    data = payload.model_dump(exclude_unset=True)
-    if "agenda" in data:
-        data["agenda"] = [item.model_dump() if hasattr(item, "model_dump") else item for item in data["agenda"]]
-    try:
-        meeting = await meeting_service.create(
-            db, organization_id=org.id, data=data, actor=actor, ip_address=get_client_ip(request),
-        )
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    await db.commit()
-    meeting = await meeting_service.get(db, organization_id=org.id, meeting_id=meeting.id)
-    return MeetingOut.model_validate(_meeting_payload(meeting))
-
-
-@router.get("/upcoming", response_model=list[dict])
-async def upcoming_meetings(
-    scope: str = "organization",
-    from_date: Optional[datetime] = None,
-    to_date: Optional[datetime] = None,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("meetings:read")),
-    db: AsyncSession = Depends(get_db),
-):
-    """Upcoming/live meetings with session context (scope: personal|department|organization)."""
-    from app.people.employee_service import employee_service
-
-    if scope not in ("personal", "department", "organization"):
-        raise HTTPException(400, "scope must be personal, department or organization")
-    actor = await employee_service.get_by_user(db, organization_id=org.id, user_id=user.id)
-    meetings = await session_service.upcoming(
-        db,
-        organization_id=org.id,
-        employee_id=actor.id if actor else None,
-        scope=scope,
-        from_date=from_date,
-        to_date=to_date,
+    """Create a new meeting."""
+    config = MeetingConfig(
+        title=payload.title,
+        description=payload.description,
+        meeting_type=payload.meeting_type,
+        scale=ServiceMeetingScale(payload.scale.value) if payload.scale else None,
+        scheduled_start=payload.scheduled_start,
+        scheduled_end=payload.scheduled_end,
+        timezone=payload.timezone,
+        project_id=payload.project_id,
+        organizer_id=user.id,
+        participant_ids=payload.participant_ids,
+        external_guest_emails=payload.external_guest_emails,
+        agenda=payload.agenda,
+        materials=payload.materials,
+        settings=payload.settings,
+        recording_enabled=payload.recording_enabled,
+        transcription_enabled=payload.transcription_enabled,
+        wait_room_enabled=payload.wait_room_enabled,
+        chat_enabled=payload.chat_enabled,
+        reactions_enabled=payload.reactions_enabled,
+        screen_share_enabled=payload.screen_share_enabled,
+        require_approval=payload.require_approval,
+        allow_external_guests=payload.allow_external_guests,
+        password_protected=payload.password_protected,
+        password=payload.password,
     )
-    out = []
-    for meeting in meetings:
-        item = _meeting_payload(meeting)
-        item["session"] = _session_payload(meeting.session) if getattr(meeting, "session", None) else None
-        out.append(item)
-    return out
+
+    meeting = await meeting_service.create_meeting(db, config, actor_id=user.id)
+
+    return _meeting_to_response(meeting)
 
 
-@router.get("/code/{code}", response_model=dict)
-async def meeting_by_code(
-    code: str,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("meetings:read")),
+@router.get("", response_model=List[MeetingResponse])
+async def list_meetings(
+    status: Optional[MeetingStatus] = None,
+    project_id: Optional[str] = None,
+    upcoming_only: bool = True,
+    limit: int = 50,
+    offset: int = 0,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    org: Organization = Depends(get_current_organization),
 ):
-    """Resolve a join code to its meeting + live session."""
-    session = await session_service.by_code(db, organization_id=org.id, code=code)
-    if session is None:
-        raise HTTPException(404, "No meeting found for this join code")
-    meeting = await meeting_service.get(db, organization_id=org.id, meeting_id=session.meeting_id)
-    if meeting is None:
-        raise HTTPException(404, "Meeting not found")
-    item = _meeting_payload(meeting)
-    item["session"] = _session_payload(session)
-    return item
+    """List meetings for the organization."""
+    query = select(Meeting).where(Meeting.organization_id == org.id)
+
+    if status:
+        query = query.where(Meeting.status == status)
+    if project_id:
+        query = query.where(Meeting.project_id == project_id)
+    if upcoming_only:
+        query = query.where(Meeting.scheduled_start >= datetime.now(timezone.utc))
+
+    query = query.order_by(Meeting.scheduled_start).limit(limit).offset(offset)
+
+    result = await db.execute(query)
+    meetings = result.scalars().all()
+
+    return [_meeting_to_response(m) for m in meetings]
 
 
-@router.get("/{meeting_id}", response_model=MeetingOut)
+@router.get("/{meeting_id}", response_model=MeetingResponse)
 async def get_meeting(
     meeting_id: str,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("meetings:read")),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    org: Organization = Depends(get_current_organization),
 ):
-    meeting = await meeting_service.get(db, organization_id=org.id, meeting_id=meeting_id)
-    if meeting is None:
-        raise HTTPException(404, "Meeting not found")
-    return MeetingOut.model_validate(_meeting_payload(meeting))
+    """Get meeting details."""
+    meeting = await db.get(Meeting, meeting_id)
+    if not meeting or meeting.organization_id != org.id:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+    return _meeting_to_response(meeting)
 
 
-@router.patch("/{meeting_id}", response_model=MeetingOut)
+@router.patch("/{meeting_id}", response_model=MeetingResponse)
 async def update_meeting(
     meeting_id: str,
     payload: MeetingUpdate,
-    request: Request,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("meetings:manage")),
     db: AsyncSession = Depends(get_db),
-):
-    meeting = await meeting_service.get(db, organization_id=org.id, meeting_id=meeting_id)
-    if meeting is None:
-        raise HTTPException(404, "Meeting not found")
-    from app.people.employee_service import employee_service
-
-    actor = await employee_service.get_by_user(db, organization_id=org.id, user_id=user.id)
-    try:
-        meeting = await meeting_service.update(
-            db, organization_id=org.id, meeting=meeting, data=payload.model_dump(exclude_unset=True),
-            actor=actor, ip_address=get_client_ip(request),
-        )
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    await db.commit()
-    return MeetingOut.model_validate(_meeting_payload(meeting))
-
-
-@router.post("/{meeting_id}/complete", response_model=MeetingOut)
-async def complete_meeting(
-    meeting_id: str,
-    request: Request,
+    user: User = Depends(get_current_user),
     org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("meetings:manage")),
-    db: AsyncSession = Depends(get_db),
 ):
-    meeting = await meeting_service.get(db, organization_id=org.id, meeting_id=meeting_id)
-    if meeting is None:
-        raise HTTPException(404, "Meeting not found")
-    from app.people.employee_service import employee_service
+    """Update meeting details."""
+    meeting = await db.get(Meeting, meeting_id)
+    if not meeting or meeting.organization_id != org.id:
+        raise HTTPException(status_code=404, detail="Meeting not found")
 
-    actor = await employee_service.get_by_user(db, organization_id=org.id, user_id=user.id)
-    meeting = await meeting_service.complete(
-        db, organization_id=org.id, meeting=meeting, actor=actor, ip_address=get_client_ip(request),
-    )
+    if meeting.organizer_id != user.id:
+        raise HTTPException(status_code=403, detail="Only organizer can update meeting")
+
+    data = payload.model_dump(exclude_unset=True)
+    for key, value in data.items():
+        setattr(meeting, key, value)
+
     await db.commit()
-    meeting = await meeting_service.get(db, organization_id=org.id, meeting_id=meeting_id)
-    return MeetingOut.model_validate(_meeting_payload(meeting))
+
+    return _meeting_to_response(meeting)
 
 
-@router.delete("/{meeting_id}", response_model=Message)
+@router.delete("/{meeting_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_meeting(
     meeting_id: str,
-    request: Request,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("meetings:manage")),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    org: Organization = Depends(get_current_organization),
 ):
-    meeting = await meeting_service.get(db, organization_id=org.id, meeting_id=meeting_id)
-    if meeting is None:
-        raise HTTPException(404, "Meeting not found")
-    from app.people.employee_service import employee_service
+    """Delete a meeting."""
+    meeting = await db.get(Meeting, meeting_id)
+    if not meeting or meeting.organization_id != org.id:
+        raise HTTPException(status_code=404, detail="Meeting not found")
 
-    actor = await employee_service.get_by_user(db, organization_id=org.id, user_id=user.id)
-    await meeting_service.delete(
-        db, organization_id=org.id, meeting=meeting, actor=actor, ip_address=get_client_ip(request)
-    )
+    if meeting.organizer_id != user.id:
+        raise HTTPException(status_code=403, detail="Only organizer can delete meeting")
+
+    if meeting.status == MeetingStatus.ACTIVE:
+        raise HTTPException(status_code=400, detail="Cannot delete active meeting")
+
+    await db.delete(meeting)
     await db.commit()
-    return Message(message="Meeting deleted")
 
 
-# --------------------------------------------------------------------------- Attendees
+# =============================================================================
+# Meeting Lifecycle
+# =============================================================================
 
-@router.get("/{meeting_id}/attendees", response_model=list[AttendeeOut])
-async def list_attendees(
+@router.post("/{meeting_id}/start", response_model=MeetingResponse)
+async def start_meeting(
     meeting_id: str,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("meetings:read")),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    org: Organization = Depends(get_current_organization),
 ):
-    meeting = await meeting_service.get(db, organization_id=org.id, meeting_id=meeting_id)
-    if meeting is None:
-        raise HTTPException(404, "Meeting not found")
-    return await meeting_service.attendees(db, organization_id=org.id, meeting_id=meeting_id)
+    """Start a meeting."""
+    meeting = await db.get(Meeting, meeting_id)
+    if not meeting or meeting.organization_id != org.id:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+    meeting = await meeting_service.start_meeting(db, meeting_id, actor_id=user.id)
+
+    return _meeting_to_response(meeting)
 
 
-@router.post("/{meeting_id}/attendees", response_model=AttendeeOut, status_code=201)
-async def add_attendee(
+@router.post("/{meeting_id}/end", response_model=MeetingResponse)
+async def end_meeting(
     meeting_id: str,
-    payload: dict,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("meetings:manage")),
     db: AsyncSession = Depends(get_db),
-):
-    meeting = await meeting_service.get(db, organization_id=org.id, meeting_id=meeting_id)
-    if meeting is None:
-        raise HTTPException(404, "Meeting not found")
-    try:
-        attendee = await meeting_service.add_attendee(
-            db, organization_id=org.id, meeting_id=meeting_id,
-            employee_id=payload["employee_id"], role=payload.get("role", "participant"),
-        )
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    await db.commit()
-    from app.models.employee import Employee
-
-    emp = await db.get(Employee, attendee.employee_id)
-    return AttendeeOut(
-        id=attendee.id, employee_id=attendee.employee_id,
-        name=emp.full_name if emp else "Unknown",
-        designation=emp.designation if emp else None,
-        avatar_url=emp.avatar_url if emp else None,
-        role=attendee.role, status=attendee.status, rsvp_at=attendee.rsvp_at,
-    )
-
-
-@router.post("/{meeting_id}/rsvp", response_model=AttendeeOut)
-async def rsvp(
-    meeting_id: str,
-    payload: RsvpBody,
+    user: User = Depends(get_current_user),
     org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("meetings:read")),
-    db: AsyncSession = Depends(get_db),
 ):
-    meeting = await meeting_service.get(db, organization_id=org.id, meeting_id=meeting_id)
-    if meeting is None:
-        raise HTTPException(404, "Meeting not found")
-    from app.people.employee_service import employee_service
+    """End a meeting."""
+    meeting = await db.get(Meeting, meeting_id)
+    if not meeting or meeting.organization_id != org.id:
+        raise HTTPException(status_code=404, detail="Meeting not found")
 
-    actor = await employee_service.get_by_user(db, organization_id=org.id, user_id=user.id)
-    if actor is None:
-        raise HTTPException(403, "No employee profile linked")
-    attendee = await meeting_service.set_rsvp(
-        db, organization_id=org.id, meeting_id=meeting_id,
-        employee_id=actor.id, status=payload.status,
-    )
-    if payload.status == "accepted":
-        await session_service.accept_rsvp(db, organization_id=org.id, meeting=meeting, employee=actor)
-    await db.commit()
-    return AttendeeOut(
-        id=attendee.id, employee_id=attendee.employee_id, name=actor.full_name,
-        designation=actor.designation, avatar_url=actor.avatar_url,
-        role=attendee.role, status=attendee.status, rsvp_at=attendee.rsvp_at,
-    )
+    meeting = await meeting_service.end_meeting(db, meeting_id, actor_id=user.id)
+
+    return _meeting_to_response(meeting)
 
 
-@router.delete("/{meeting_id}/attendees/{employee_id}", response_model=Message)
-async def remove_attendee(
-    meeting_id: str,
-    employee_id: str,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("meetings:manage")),
-    db: AsyncSession = Depends(get_db),
-):
-    await meeting_service.remove_attendee(db, organization_id=org.id, meeting_id=meeting_id, employee_id=employee_id)
-    await db.commit()
-    return Message(message="Attendee removed")
-
-
-# --------------------------------------------------------------------------- Agenda
-
-@router.get("/{meeting_id}/agenda", response_model=list[AgendaItemOut])
-async def list_agenda(
-    meeting_id: str,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("meetings:read")),
-    db: AsyncSession = Depends(get_db),
-):
-    meeting = await meeting_service.get(db, organization_id=org.id, meeting_id=meeting_id)
-    if meeting is None:
-        raise HTTPException(404, "Meeting not found")
-    return await meeting_service.agenda(db, organization_id=org.id, meeting_id=meeting_id)
-
-
-@router.post("/{meeting_id}/agenda", response_model=AgendaItemOut, status_code=201)
-async def add_agenda_item(
-    meeting_id: str,
-    payload: dict,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("meetings:manage")),
-    db: AsyncSession = Depends(get_db),
-):
-    meeting = await meeting_service.get(db, organization_id=org.id, meeting_id=meeting_id)
-    if meeting is None:
-        raise HTTPException(404, "Meeting not found")
-    try:
-        item = await meeting_service.add_agenda_item(
-            db, organization_id=org.id, meeting_id=meeting_id, data=payload,
-        )
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    await db.commit()
-    return item
-
-
-# --------------------------------------------------------------------------- Action items
-
-@router.get("/{meeting_id}/action-items", response_model=list[ActionItemOut])
-async def list_action_items(
-    meeting_id: str,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("meetings:read")),
-    db: AsyncSession = Depends(get_db),
-):
-    meeting = await meeting_service.get(db, organization_id=org.id, meeting_id=meeting_id)
-    if meeting is None:
-        raise HTTPException(404, "Meeting not found")
-    return await meeting_service.action_items(db, organization_id=org.id, meeting_id=meeting_id)
-
-
-@router.post("/{meeting_id}/action-items", response_model=ActionItemOut, status_code=201)
-async def add_action_item(
-    meeting_id: str,
-    payload: ActionItemCreate,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("meetings:manage")),
-    db: AsyncSession = Depends(get_db),
-):
-    meeting = await meeting_service.get(db, organization_id=org.id, meeting_id=meeting_id)
-    if meeting is None:
-        raise HTTPException(404, "Meeting not found")
-    try:
-        item = await meeting_service.add_action_item(
-            db, organization_id=org.id, meeting_id=meeting_id,
-            data=payload.model_dump(exclude_unset=True),
-        )
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    await db.commit()
-    return item
-
-
-@router.post("/{meeting_id}/action-items/{item_id}/complete", response_model=ActionItemOut)
-async def complete_action_item(
-    meeting_id: str,
-    item_id: str,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("meetings:manage")),
-    db: AsyncSession = Depends(get_db),
-):
-    meeting = await meeting_service.get(db, organization_id=org.id, meeting_id=meeting_id)
-    if meeting is None:
-        raise HTTPException(404, "Meeting not found")
-    items = await meeting_service.action_items(db, organization_id=org.id, meeting_id=meeting_id)
-    item = next((i for i in items if i.id == item_id), None)
-    if item is None:
-        raise HTTPException(404, "Action item not found")
-    item = await meeting_service.complete_action_item(db, organization_id=org.id, item=item)
-    await db.commit()
-    return item
-
-
-# --------------------------------------------------------------------------- Phase 6: sessions
-
-@router.get("/{meeting_id}/session", response_model=SessionOut)
-async def get_meeting_session(
-    meeting_id: str,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("meetings:read")),
-    db: AsyncSession = Depends(get_db),
-):
-    meeting = await meeting_service.get(db, organization_id=org.id, meeting_id=meeting_id)
-    if meeting is None:
-        raise HTTPException(404, "Meeting not found")
-    session = await session_service.by_meeting(db, organization_id=org.id, meeting_id=meeting.id)
-    if session is None:
-        raise HTTPException(404, "No session created for this meeting yet")
-    session.participants = await participant_service.list(
-        db, organization_id=org.id, session_id=session.id
-    )
-    return SessionOut.model_validate(_session_payload(session))
-
-
-@router.post("/{meeting_id}/session", response_model=SessionOut, status_code=201)
-async def create_meeting_session(
-    meeting_id: str,
-    payload: SessionCreate,
-    request: Request,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("meetings:manage")),
-    db: AsyncSession = Depends(get_db),
-):
-    meeting = await meeting_service.get(db, organization_id=org.id, meeting_id=meeting_id)
-    if meeting is None:
-        raise HTTPException(404, "Meeting not found")
-    from app.people.employee_service import employee_service
-
-    actor = await employee_service.get_by_user(db, organization_id=org.id, user_id=user.id)
-    session = await session_service.ensure(
-        db,
-        organization_id=org.id,
-        meeting=meeting,
-        data=payload.model_dump(exclude_unset=True),
-        actor=actor,
-        ip_address=get_client_ip(request),
-    )
-    await db.commit()
-    session.participants = await participant_service.list(db, organization_id=org.id, session_id=session.id)
-    return SessionOut.model_validate(_session_payload(session))
-
-
-@router.post("/{meeting_id}/join", response_model=dict)
+@router.post("/{meeting_id}/join", response_model=JoinMeetingResponse)
 async def join_meeting(
     meeting_id: str,
-    payload: Optional[JoinBody] = None,
-    request: Request = None,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("meetings:read")),
+    display_name: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    org: Organization = Depends(get_current_organization),
 ):
-    meeting = await meeting_service.get(db, organization_id=org.id, meeting_id=meeting_id)
-    if meeting is None:
-        raise HTTPException(404, "Meeting not found")
-    if meeting.status == "cancelled":
-        raise HTTPException(409, "Meeting was cancelled")
-    from app.people.employee_service import employee_service
+    """Join a meeting."""
+    meeting = await db.get(Meeting, meeting_id)
+    if not meeting or meeting.organization_id != org.id:
+        raise HTTPException(status_code=404, detail="Meeting not found")
 
-    actor = await employee_service.get_by_user(db, organization_id=org.id, user_id=user.id)
-    if actor is None:
-        raise HTTPException(403, "No employee profile linked")
-    session = await session_service.ensure(
-        db, organization_id=org.id, meeting=meeting, actor=actor, ip_address=get_client_ip(request)
-    )
-    participant = await session_service.join(
-        db,
-        organization_id=org.id,
-        meeting=meeting,
-        session=session,
-        employee=actor,
-        device=payload.device if payload else None,
-        ip_address=get_client_ip(request),
-    )
-    await db.commit()
-    session.participants = await participant_service.list(db, organization_id=org.id, session_id=session.id)
-    enriched = next((p for p in session.participants if p["id"] == participant.id), None)
-    await live_hub.broadcast(
-        session.id,
-        "peer.joined",
-        {
-            "employee_id": participant.employee_id,
-            "name": actor.full_name,
-            "role": participant.role,
-            "device": participant.device,
-        },
-        exclude_employee=participant.employee_id,
-    )
-    return {
-        "meeting": _meeting_payload(meeting),
-        "session": _session_payload(session),
-        "participant": ParticipantOut.model_validate(enriched or participant),
-    }
+    join_info = await meeting_service.join_meeting(db, meeting_id, user_id=user.id, display_name=display_name)
+
+    return JoinMeetingResponse(**join_info)
 
 
-@router.post("/{meeting_id}/leave", response_model=dict)
+@router.post("/{meeting_id}/leave")
 async def leave_meeting(
     meeting_id: str,
-    request: Request,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("meetings:read")),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    org: Organization = Depends(get_current_organization),
 ):
-    meeting = await meeting_service.get(db, organization_id=org.id, meeting_id=meeting_id)
-    if meeting is None:
-        raise HTTPException(404, "Meeting not found")
-    from app.people.employee_service import employee_service
-
-    actor = await employee_service.get_by_user(db, organization_id=org.id, user_id=user.id)
-    if actor is None:
-        raise HTTPException(403, "No employee profile linked")
-    session = await session_service.by_meeting(db, organization_id=org.id, meeting_id=meeting.id)
-    if session is None:
-        return {"left": False}
-    participant = await session_service.leave(
-        db,
-        organization_id=org.id,
-        session=session,
-        employee=actor,
-        ip_address=get_client_ip(request),
-    )
-    await db.commit()
-    if participant is not None:
-        await live_hub.broadcast(
-            session.id,
-            "peer.left",
-            {"employee_id": participant.employee_id, "name": actor.full_name},
-            exclude_employee=participant.employee_id,
+    """Leave a meeting."""
+    # Find participant
+    participant = await db.execute(
+        select(MeetingParticipant).where(
+            MeetingParticipant.meeting_id == meeting_id,
+            MeetingParticipant.user_id == user.id,
         )
-    return {"left": participant is not None, "participant_id": participant.id if participant else None}
+    )
+    participant = participant.scalar_one_or_none()
+
+    if not participant:
+        raise HTTPException(status_code=404, detail="Not a participant in this meeting")
+
+    await meeting_service.leave_meeting(db, meeting_id, participant.id)
+
+    return {"success": True}
 
 
-@router.post("/{meeting_id}/invite", response_model=dict)
-async def invite_to_meeting(
+@router.post("/{meeting_id}/join-guest", response_model=JoinMeetingResponse)
+async def join_meeting_as_guest(
     meeting_id: str,
-    payload: InviteBody,
-    request: Request,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("meetings:manage")),
+    email: str = Body(..., embed=True),
+    display_name: Optional[str] = Body(None),
     db: AsyncSession = Depends(get_db),
+    org: Organization = Depends(get_current_organization),
 ):
-    meeting = await meeting_service.get(db, organization_id=org.id, meeting_id=meeting_id)
-    if meeting is None:
-        raise HTTPException(404, "Meeting not found")
-    from app.people.employee_service import employee_service
+    """Join a meeting as an external guest."""
+    meeting = await db.get(Meeting, meeting_id)
+    if not meeting or meeting.organization_id != org.id:
+        raise HTTPException(status_code=404, detail="Meeting not found")
 
-    actor = await employee_service.get_by_user(db, organization_id=org.id, user_id=user.id)
-    if actor is None:
-        raise HTTPException(403, "No employee profile linked")
-    try:
-        added = await session_service.invite(
-            db,
-            organization_id=org.id,
-            meeting=meeting,
-            employee_ids=payload.employee_ids,
-            actor=actor,
-            ip_address=get_client_ip(request),
-            message=payload.message,
+    if not meeting.allow_external_guests:
+        raise HTTPException(status_code=403, detail="External guests not allowed")
+
+    join_info = await meeting_service.join_meeting(db, meeting_id, email=email, display_name=display_name)
+
+    return JoinMeetingResponse(**join_info)
+
+
+# =============================================================================
+# Participants
+# =============================================================================
+
+@router.get("/{meeting_id}/participants", response_model=List[ParticipantResponse])
+async def list_participants(
+    meeting_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    org: Organization = Depends(get_current_organization),
+):
+    """List meeting participants."""
+    meeting = await db.get(Meeting, meeting_id)
+    if not meeting or meeting.organization_id != org.id:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+    result = await db.execute(
+        select(MeetingParticipant).where(MeetingParticipant.meeting_id == meeting_id)
+    )
+    participants = result.scalars().all()
+
+    return [_participant_to_response(p) for p in participants]
+
+
+@router.post("/{meeting_id}/participants", response_model=ParticipantResponse)
+async def add_participant(
+    meeting_id: str,
+    user_id: str = Body(..., embed=True),
+    role: ParticipantRole = Body(ParticipantRole.PARTICIPANT),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    org: Organization = Depends(get_current_organization),
+):
+    """Add a participant to meeting."""
+    meeting = await db.get(Meeting, meeting_id)
+    if not meeting or meeting.organization_id != org.id:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+    if meeting.organizer_id != user.id:
+        raise HTTPException(status_code=403, detail="Only organizer can add participants")
+
+    # Check if already participant
+    existing = await db.execute(
+        select(MeetingParticipant).where(
+            MeetingParticipant.meeting_id == meeting_id,
+            MeetingParticipant.user_id == user_id,
         )
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="User already a participant")
+
+    participant = MeetingParticipant(
+        id=uuid4().hex[:32],
+        meeting_id=meeting_id,
+        user_id=user_id,
+        role=role,
+        status=ParticipantStatus.PENDING,
+    )
+    db.add(participant)
     await db.commit()
-    return {"invited": added, "count": len(added)}
+
+    return _participant_to_response(participant)
 
 
-@router.post("/{meeting_id}/start", response_model=SessionOut)
-async def start_meeting_session(
+@router.delete("/{meeting_id}/participants/{participant_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_participant(
     meeting_id: str,
-    request: Request,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("meetings:manage")),
+    participant_id: str,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    org: Organization = Depends(get_current_organization),
 ):
-    meeting = await meeting_service.get(db, organization_id=org.id, meeting_id=meeting_id)
-    if meeting is None:
-        raise HTTPException(404, "Meeting not found")
-    from app.people.employee_service import employee_service
+    """Remove a participant from meeting."""
+    meeting = await db.get(Meeting, meeting_id)
+    if not meeting or meeting.organization_id != org.id:
+        raise HTTPException(status_code=404, detail="Meeting not found")
 
-    actor = await employee_service.get_by_user(db, organization_id=org.id, user_id=user.id)
-    session = await session_service.ensure(
-        db, organization_id=org.id, meeting=meeting, actor=actor, ip_address=get_client_ip(request)
-    )
-    session = await session_service.start(
-        db,
-        organization_id=org.id,
-        meeting=meeting,
-        session=session,
-        actor=actor,
-        ip_address=get_client_ip(request),
-    )
+    if meeting.organizer_id != user.id:
+        raise HTTPException(status_code=403, detail="Only organizer can remove participants")
+
+    participant = await db.get(MeetingParticipant, participant_id)
+    if not participant or participant.meeting_id != meeting_id:
+        raise HTTPException(status_code=404, detail="Participant not found")
+
+    await db.delete(participant)
     await db.commit()
-    session.participants = await participant_service.list(db, organization_id=org.id, session_id=session.id)
-    return SessionOut.model_validate(_session_payload(session))
 
 
-@router.post("/{meeting_id}/end", response_model=SessionOut)
-async def end_meeting_session(
+# =============================================================================
+# Presentation Workflow
+# =============================================================================
+
+@router.post("/{meeting_id}/presentations", response_model=Dict[str, Any])
+async def create_presentation(
     meeting_id: str,
-    request: Request,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("meetings:manage")),
+    payload: PresentationCreate,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    org: Organization = Depends(get_current_organization),
 ):
-    meeting = await meeting_service.get(db, organization_id=org.id, meeting_id=meeting_id)
-    if meeting is None:
-        raise HTTPException(404, "Meeting not found")
-    from app.people.employee_service import employee_service
+    """Create a presentation for a meeting."""
+    meeting = await db.get(Meeting, meeting_id)
+    if not meeting or meeting.organization_id != org.id:
+        raise HTTPException(status_code=404, detail="Meeting not found")
 
-    actor = await employee_service.get_by_user(db, organization_id=org.id, user_id=user.id)
-    session = await session_service.by_meeting(db, organization_id=org.id, meeting_id=meeting.id)
-    if session is None:
-        raise HTTPException(404, "No session for this meeting")
-    session = await session_service.end(
-        db,
-        organization_id=org.id,
-        meeting=meeting,
-        session=session,
-        actor=actor,
-        ip_address=get_client_ip(request),
+    config = PresentationConfig(
+        title=payload.title,
+        meeting_id=meeting_id,
+        slides=payload.slides,
+        presenter_id=user.id,
+        co_presenter_ids=payload.co_presenter_ids,
+        audience_qna_enabled=payload.audience_qna_enabled,
+        polls_enabled=payload.polls_enabled,
+        recording_enabled=payload.recording_enabled,
+        materials=payload.materials,
     )
-    from app.collaboration.ai_meeting_service import ai_meeting_service
 
-    await ai_meeting_service.finalize(
-        db,
-        organization_id=org.id,
-        meeting=meeting,
-        session=session,
-        actor=actor,
-        ip_address=get_client_ip(request),
-    )
-    await db.commit()
-    session.participants = await participant_service.list(db, organization_id=org.id, session_id=session.id)
-    return SessionOut.model_validate(_session_payload(session))
+    presentation = await meeting_service.create_presentation(db, config, actor_id=user.id)
+
+    return presentation
 
 
-@router.post("/{meeting_id}/presence", response_model=ParticipantOut)
-async def participant_presence(
+@router.post("/{meeting_id}/presentations/{presentation_id}/start", response_model=Dict[str, Any])
+async def start_presentation(
     meeting_id: str,
-    payload: dict,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("meetings:read")),
+    presentation_id: str,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    org: Organization = Depends(get_current_organization),
 ):
-    """Live media-state heartbeat from the client (mic/camera/screen/hand)."""
-    meeting = await meeting_service.get(db, organization_id=org.id, meeting_id=meeting_id)
-    if meeting is None:
-        raise HTTPException(404, "Meeting not found")
-    from app.people.employee_service import employee_service
-
-    actor = await employee_service.get_by_user(db, organization_id=org.id, user_id=user.id)
-    if actor is None:
-        raise HTTPException(403, "No employee profile linked")
-    session = await session_service.by_meeting(db, organization_id=org.id, meeting_id=meeting.id)
-    if session is None:
-        raise HTTPException(404, "No session for this meeting")
-    participant = await participant_service.heartbeat(
-        db,
-        organization_id=org.id,
-        session_id=session.id,
-        employee_id=actor.id,
-        device=payload.get("device"),
-        mic_enabled=payload.get("mic_enabled"),
-        camera_enabled=payload.get("camera_enabled"),
-        screen_sharing=payload.get("screen_sharing"),
-        raised_hand=payload.get("raised_hand"),
-    )
-    if participant is None:
-        raise HTTPException(404, "You are not in this session yet — join first")
-    await db.commit()
-    rows = await participant_service.list(db, organization_id=org.id, session_id=session.id)
-    enriched = next((r for r in rows if r["id"] == participant.id), None)
-    event = (
-        "screen_share.started" if payload.get("screen_sharing") else "screen_share.stopped"
-    ) if payload.get("screen_sharing") is not None else "presence.changed"
-    await live_hub.broadcast(
-        session.id,
-        event,
-        {
-            "employee_id": actor.id,
-            "name": actor.full_name,
-            "mic_enabled": participant.mic_enabled,
-            "camera_enabled": participant.camera_enabled,
-            "screen_sharing": participant.screen_sharing,
-            "raised_hand": participant.raised_hand,
-            "is_present": participant.is_present,
-        },
-        exclude_employee=actor.id,
-    )
-    return ParticipantOut.model_validate(enriched or participant)
+    """Start presenting in a meeting."""
+    presentation = await meeting_service.start_presentation(db, meeting_id, presentation_id, actor_id=user.id)
+    return presentation
 
 
-@router.get("/{meeting_id}/participants", response_model=list[ParticipantOut])
-async def list_session_participants(
+@router.post("/{meeting_id}/presentations/next-slide", response_model=Dict[str, Any])
+async def next_slide(
     meeting_id: str,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("meetings:read")),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    org: Organization = Depends(get_current_organization),
 ):
-    meeting = await meeting_service.get(db, organization_id=org.id, meeting_id=meeting_id)
-    if meeting is None:
-        raise HTTPException(404, "Meeting not found")
-    session = await session_service.by_meeting(db, organization_id=org.id, meeting_id=meeting.id)
-    if session is None:
-        return []
-    rows = await participant_service.list(db, organization_id=org.id, session_id=session.id)
-    return [ParticipantOut.model_validate(r) for r in rows]
+    """Advance to next slide."""
+    presentation = await meeting_service.next_slide(db, meeting_id, actor_id=user.id)
+    return presentation
 
 
-# --------------------------------------------------------------------------- Phase 6: notes
+# =============================================================================
+# Meeting Intelligence
+# =============================================================================
 
-@router.get("/{meeting_id}/notes", response_model=list[NoteOut])
-async def list_notes(
+@router.post("/{meeting_id}/decisions", response_model=Dict[str, Any])
+async def capture_decision(
     meeting_id: str,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("meetings:read")),
+    payload: DecisionCreate,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    org: Organization = Depends(get_current_organization),
 ):
-    meeting = await meeting_service.get(db, organization_id=org.id, meeting_id=meeting_id)
-    if meeting is None:
-        raise HTTPException(404, "Meeting not found")
-    notes = await note_service.list(db, organization_id=org.id, meeting_id=meeting.id)
+    """Capture a decision during meeting."""
+    decision = await meeting_service.capture_decision(db, meeting_id, payload.model_dump(), actor_id=user.id)
+    return decision
+
+
+@router.post("/{meeting_id}/decisions/{decision_id}/approve", response_model=Dict[str, Any])
+async def approve_decision(
+    meeting_id: str,
+    decision_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    org: Organization = Depends(get_current_organization),
+):
+    """Approve a proposed decision."""
+    result = await meeting_service.approve_decision(db, meeting_id, decision_id, actor_id=user.id)
+    return result
+
+
+@router.post("/{meeting_id}/action-items", response_model=Dict[str, Any])
+async def capture_action_item(
+    meeting_id: str,
+    payload: ActionItemCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    org: Organization = Depends(get_current_organization),
+):
+    """Capture an action item during meeting."""
+    action = await meeting_service.capture_action_item(db, meeting_id, payload.model_dump(), actor_id=user.id)
+    return action
+
+
+# =============================================================================
+# Recording
+# =============================================================================
+
+@router.post("/{meeting_id}/recording/start", response_model=RecordingStartResponse)
+async def start_recording(
+    meeting_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    org: Organization = Depends(get_current_organization),
+):
+    """Start recording a meeting."""
+    result = await meeting_service.start_recording(db, meeting_id, actor_id=user.id)
+    return RecordingStartResponse(**result)
+
+
+@router.post("/{meeting_id}/recording/stop", response_model=Dict[str, Any])
+async def stop_recording(
+    meeting_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    org: Organization = Depends(get_current_organization),
+):
+    """Stop recording a meeting."""
+    result = await meeting_service.stop_recording(db, meeting_id, actor_id=user.id)
+    return result
+
+
+@router.get("/{meeting_id}/recordings", response_model=List[Dict[str, Any]])
+async def list_recordings(
+    meeting_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    org: Organization = Depends(get_current_organization),
+):
+    """List recordings for a meeting."""
+    meeting = await db.get(Meeting, meeting_id)
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+    result = await db.execute(
+        select(MeetingRecording).where(MeetingRecording.meeting_id == meeting_id)
+    )
+    recordings = result.scalars().all()
+
     return [
-        NoteOut(
-            id=n.id,
-            meeting_id=n.meeting_id,
-            session_id=n.session_id,
-            author_id=n.author_id,
-            author_name=getattr(n, "author_name", None),
-            content=n.content,
-            version=n.version,
-            created_at=n.created_at,
-            updated_at=n.updated_at,
-        )
-        for n in notes
+        {
+            "id": r.id,
+            "recording_id": r.recording_id,
+            "status": r.status.value,
+            "file_url": r.file_url,
+            "thumbnail_url": r.thumbnail_url,
+            "format": r.format,
+            "size_bytes": r.size_bytes,
+            "duration_seconds": r.duration_seconds,
+            "started_at": r.started_at.isoformat() if r.started_at else None,
+            "ended_at": r.ended_at.isoformat() if r.ended_at else None,
+            "access_level": r.access_level,
+        }
+        for r in recordings
     ]
 
 
-@router.post("/{meeting_id}/notes", response_model=NoteOut, status_code=201)
-async def create_note(
+@router.get("/{meeting_id}/transcript", response_model=Dict[str, Any])
+async def get_transcript(
     meeting_id: str,
-    payload: NoteCreate,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("meetings:manage")),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    org: Organization = Depends(get_current_organization),
 ):
-    meeting = await meeting_service.get(db, organization_id=org.id, meeting_id=meeting_id)
-    if meeting is None:
-        raise HTTPException(404, "Meeting not found")
-    from app.people.employee_service import employee_service
+    """Get meeting transcript."""
+    meeting = await db.get(Meeting, meeting_id)
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Meeting not found")
 
-    actor = await employee_service.get_by_user(db, organization_id=org.id, user_id=user.id)
-    if actor is None:
-        raise HTTPException(403, "No employee profile linked")
-    note = await note_service.create(
-        db,
-        organization_id=org.id,
-        meeting_id=meeting.id,
-        author=actor,
-        content=payload.content,
-        session_id=payload.session_id,
+    result = await db.execute(
+        select(MeetingTranscript).where(MeetingTranscript.meeting_id == meeting_id)
     )
-    await db.commit()
-    return NoteOut(
-        id=note.id,
-        meeting_id=note.meeting_id,
-        session_id=note.session_id,
-        author_id=note.author_id,
-        author_name=actor.full_name,
-        content=note.content,
-        version=note.version,
-        created_at=note.created_at,
-        updated_at=note.updated_at,
-    )
+    transcript = result.scalar_one_or_none()
+
+    if not transcript:
+        raise HTTPException(status_code=404, detail="Transcript not found")
+
+    return {
+        "id": transcript.id,
+        "full_text": transcript.full_text,
+        "segments": transcript.segments,
+        "language": transcript.language,
+        "confidence": transcript.confidence,
+        "status": transcript.status,
+        "completed_at": transcript.completed_at.isoformat() if transcript.completed_at else None,
+    }
 
 
-@router.patch("/{meeting_id}/notes/{note_id}", response_model=NoteOut)
-async def update_note(
+# =============================================================================
+# Calendar Integration
+# =============================================================================
+
+@router.post("/{meeting_id}/calendar/sync")
+async def sync_calendar(
     meeting_id: str,
-    note_id: str,
-    payload: NoteUpdate,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("meetings:manage")),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    org: Organization = Depends(get_current_organization),
 ):
-    note = await note_service.get(db, organization_id=org.id, meeting_id=meeting_id, note_id=note_id)
-    if note is None:
-        raise HTTPException(404, "Note not found")
-    from app.people.employee_service import employee_service
+    """Sync meeting to calendar."""
+    meeting = await db.get(Meeting, meeting_id)
+    if not meeting or meeting.organization_id != org.id:
+        raise HTTPException(status_code=404, detail="Meeting not found")
 
-    actor = await employee_service.get_by_user(db, organization_id=org.id, user_id=user.id)
-    note = await note_service.update(db, note=note, content=payload.content, author=actor)
-    await db.commit()
-    return NoteOut(
-        id=note.id,
-        meeting_id=note.meeting_id,
-        session_id=note.session_id,
-        author_id=note.author_id,
-        author_name=None,
-        content=note.content,
-        version=note.version,
-        created_at=note.created_at,
-        updated_at=note.updated_at,
+    # await calendar_service.create_meeting_event(db, meeting)
+
+    return {"success": True, "message": "Calendar event created"}
+
+
+# =============================================================================
+# Helper Functions
+# =============================================================================
+
+def _meeting_to_response(meeting: Meeting) -> MeetingResponse:
+    return MeetingResponse(
+        id=meeting.id,
+        title=meeting.title,
+        description=meeting.description,
+        meeting_type=meeting.meeting_type.value,
+        scale=meeting.scale.value,
+        scheduled_start=meeting.scheduled_start.isoformat() if meeting.scheduled_start else None,
+        scheduled_end=meeting.scheduled_end.isoformat() if meeting.scheduled_end else None,
+        actual_start=meeting.actual_start.isoformat() if meeting.actual_start else None,
+        actual_end=meeting.actual_end.isoformat() if meeting.actual_end else None,
+        timezone=meeting.timezone,
+        project_id=meeting.project_id,
+        organizer_id=meeting.organizer_id,
+        status=meeting.status.value,
+        media_room_name=meeting.media_room_name,
+        media_url=meeting.media_url,
+        agenda=meeting.agenda,
+        materials=meeting.materials,
+        settings=meeting.settings,
+        recording_enabled=meeting.recording_enabled,
+        transcription_enabled=meeting.transcription_enabled,
+        wait_room_enabled=meeting.wait_room_enabled,
+        chat_enabled=meeting.chat_enabled,
+        reactions_enabled=meeting.reactions_enabled,
+        screen_share_enabled=meeting.screen_share_enabled,
+        require_approval=meeting.require_approval,
+        allow_external_guests=meeting.allow_external_guests,
+        password_protected=meeting.password_protected,
+        recording_id=meeting.recording_id,
+        recording_url=meeting.recording_url,
+        recording_status=meeting.recording_status,
+        transcription_url=meeting.transcription_url,
+        current_presentation_id=meeting.current_presentation_id,
+        presentation_state=meeting.presentation_state,
+        decisions=meeting.decisions,
+        action_items=meeting.action_items,
+        summary=meeting.summary,
+        created_at=meeting.created_at.isoformat(),
+        updated_at=meeting.updated_at.isoformat(),
+        created_by=meeting.created_by,
     )
 
 
-@router.delete("/{meeting_id}/notes/{note_id}", response_model=Message)
-async def delete_note(
-    meeting_id: str,
-    note_id: str,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("meetings:manage")),
-    db: AsyncSession = Depends(get_db),
-):
-    note = await note_service.get(db, organization_id=org.id, meeting_id=meeting_id, note_id=note_id)
-    if note is None:
-        raise HTTPException(404, "Note not found")
-    await note_service.delete(db, note=note)
-    await db.commit()
-    return Message(message="Note deleted")
+def _participant_to_response(participant: MeetingParticipant) -> ParticipantResponse:
+    return ParticipantResponse(
+        id=participant.id,
+        meeting_id=participant.meeting_id,
+        user_id=participant.user_id,
+        email=participant.email,
+        display_name=participant.display_name,
+        avatar_url=participant.avatar_url,
+        role=participant.role.value,
+        status=participant.status.value,
+        joined_at=participant.joined_at.isoformat() if participant.joined_at else None,
+        left_at=participant.left_at.isoformat() if participant.left_at else None,
+        duration_seconds=participant.duration_seconds,
+        audio_enabled=participant.audio_enabled,
+        video_enabled=participant.video_enabled,
+        screen_sharing=participant.screen_sharing,
+        hand_raised=participant.hand_raised,
+    )

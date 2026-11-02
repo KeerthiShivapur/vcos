@@ -5,7 +5,7 @@ goals/key results, meetings, calendar events, approvals, risks, workload.
 """
 
 from datetime import date, datetime
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -508,6 +508,64 @@ class AgendaItemOut(ORMModel):
     notes: Optional[str] = None
 
 
+
+
+class MeetingAgendaItemCreate(BaseModel):
+    title: str
+    description: Optional[str] = None
+    duration_minutes: Optional[int] = None
+
+
+class MeetingAgendaItemOut(ORMModel):
+    id: str
+    meeting_id: str
+    title: str
+    description: Optional[str] = None
+    sort_order: int
+    duration_minutes: Optional[int] = None
+    valid_from: datetime
+    valid_to: Optional[datetime] = None
+    version: int
+    fingerprint: str
+    supersedes_id: Optional[str] = None
+    superseded_by_id: Optional[str] = None
+    source_event_id: Optional[str] = None
+    actor_id: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class MeetingActionItemCreate(BaseModel):
+    title: str
+    description: Optional[str] = None
+    assignee_id: Optional[str] = None
+    due_date: Optional[datetime] = None
+
+
+class MeetingActionItemOut(ORMModel):
+    id: str
+    meeting_id: str
+    title: str
+    description: Optional[str] = None
+    assignee_id: Optional[str] = None
+    assignee_name: Optional[str] = None
+    due_date: Optional[datetime] = None
+    status: str
+    completed_at: Optional[datetime] = None
+    valid_from: datetime
+    valid_to: Optional[datetime] = None
+    version: int
+    fingerprint: str
+    supersedes_id: Optional[str] = None
+    superseded_by_id: Optional[str] = None
+    source_event_id: Optional[str] = None
+    actor_id: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+
+
 class ActionItemOut(ORMModel):
     id: str
     meeting_id: str
@@ -661,5 +719,109 @@ class RiskOut(ORMModel):
     mitigation: Optional[str] = None
     due_at: Optional[datetime] = None
     detected_from: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+# --------------------------------------------------------------------------- Canonical Communication (Gate 8.2)
+
+class CanonicalCommunicationThreadCreate(BaseModel):
+    thread_type: str = Field(default="general", pattern="^(dm|group|channel|meeting|decision|commitment|announcement)$")
+    title: Optional[str] = None
+    description: Optional[str] = None
+    context_references: Optional[Dict[str, Optional[str]]] = None
+    scope_type: str = Field(default="company", pattern="^(company|department|team|project)$")
+    scope_id: Optional[str] = None
+    source_event_id: Optional[str] = None
+
+
+class CanonicalCommunicationThreadUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = Field(default=None, pattern="^(active|archived|locked)$")
+    scope_type: Optional[str] = Field(default=None, pattern="^(company|department|team|project)$")
+    scope_id: Optional[str] = None
+    expected_version: Optional[int] = None
+
+
+class CanonicalCommunicationThreadOut(ORMModel):
+    id: str
+    organization_id: str
+    thread_type: str
+    title: Optional[str] = None
+    description: Optional[str] = None
+    objective_id: Optional[str] = None
+    commitment_id: Optional[str] = None
+    responsibility_id: Optional[str] = None
+    decision_id: Optional[str] = None
+    project_id: Optional[str] = None
+    meeting_id: Optional[str] = None
+    scope_type: str
+    scope_id: Optional[str] = None
+    status: str
+    valid_from: datetime
+    valid_to: Optional[datetime] = None
+    version: int
+    fingerprint: str
+    supersedes_id: Optional[str] = None
+    thread_metadata: Optional[dict] = None
+    source_event_id: Optional[str] = None
+    actor_id: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class CanonicalCommunicationThreadMemberCreate(BaseModel):
+    employee_id: str
+    role: str = Field(default="participant", pattern="^(owner|moderator|participant|observer)$")
+
+
+class CanonicalCommunicationThreadMemberOut(ORMModel):
+    id: str
+    organization_id: str
+    thread_id: str
+    employee_id: str
+    role: str
+    joined_at: datetime
+    left_at: Optional[datetime] = None
+    valid_from: datetime
+    valid_to: Optional[datetime] = None
+
+
+class CanonicalMessageCreate(BaseModel):
+    content: str
+    message_type: str = Field(default="text", pattern="^(text|system|decision_proposal|commitment_proposal|action_proposal|meeting_note|decision_record|commitment_record|action_record)$")
+    reply_to: Optional[str] = None
+    context_references: Optional[Dict[str, Optional[str]]] = None
+    source_event_id: Optional[str] = None
+
+
+class CanonicalMessageOut(ORMModel):
+    id: str
+    organization_id: str
+    thread_id: str
+    sender_id: Optional[str] = None
+    content: Optional[str] = None
+    message_type: str
+    reply_to: Optional[str] = None
+    decision_id: Optional[str] = None
+    commitment_id: Optional[str] = None
+    action_id: Optional[str] = None
+    objective_id: Optional[str] = None
+    responsibility_id: Optional[str] = None
+    attachments: Optional[list] = None
+    mentions: Optional[list] = None
+    valid_from: datetime
+    valid_to: Optional[datetime] = None
+    version: int
+    fingerprint: str
+    supersedes_id: Optional[str] = None
+    edited: bool
+    edited_at: Optional[datetime] = None
+    deleted: bool
+    deleted_at: Optional[datetime] = None
+    reaction_count: int
+    source_event_id: Optional[str] = None
+    actor_id: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

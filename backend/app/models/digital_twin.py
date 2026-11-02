@@ -193,7 +193,7 @@ class OptimizationAction(Base, TimestampMixin):
     """
 
     __tablename__ = "optimization_history"
-    __table_args__ = (Index("ix_optimization_history_org", "organization_id"),)
+    __table_args__ = (Index("ix_optimization_history_org", "organization_id"), {"extend_existing": True})
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
     organization_id: Mapped[str] = mapped_column(

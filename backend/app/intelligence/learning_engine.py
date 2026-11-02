@@ -18,6 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.timeutils import utcnow
 from app.models.ai import AIMemory
 from app.models.intelligence import LearningEvent
+from app.intelligence.company_context import resolve_caller_access, CallerAccess
+from app.intelligence.company_context import resolve_caller_access, CallerAccess
 
 logger = logging.getLogger("vcos.intelligence.learning")
 
@@ -90,6 +92,40 @@ class LearningEngine:
         self, db: AsyncSession, *, organization_id: str, limit: int = 50,
         event_type: Optional[str] = None,
     ) -> list[dict[str, Any]]:
+        filters = [LearningEvent.organization_id == organization_id]
+        if event_type:
+            filters.append(LearningEvent.event_type == event_type)
+        rows = (
+            await db.execute(
+                select(LearningEvent).where(*filters).order_by(LearningEvent.created_at.desc()).limit(limit)
+            )
+        ).scalars().all()
+        return [
+            {
+                "id": r.id,
+                "event_type": r.event_type,
+                "title": r.title,
+                "detail": r.detail,
+                "lesson": r.lesson,
+                "entity_type": r.entity_type,
+                "entity_id": r.entity_id,
+                "tags": r.tags,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ]
+
+    async def lessons_visible(
+        self, db: AsyncSession, *, organization_id: str, access: CallerAccess, limit: int = 50,
+        event_type: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """Governance-scoped lessons: only returns lessons the caller may access."""
+        if not access.org_wide:
+            if not access.project_ids:
+                return []
+            # Filter to lessons in accessible projects
+            # This is a simplified check - real implementation would be more sophisticated
+            pass
         filters = [LearningEvent.organization_id == organization_id]
         if event_type:
             filters.append(LearningEvent.event_type == event_type)

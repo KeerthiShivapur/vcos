@@ -1,6 +1,12 @@
 "use client";
 
-import { AlertTriangle, CircleGauge, Loader2, RefreshCw, SearchCheck } from "lucide-react";
+import {
+  AlertTriangle,
+  CircleGauge,
+  Loader2,
+  RefreshCw,
+  SearchCheck,
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
@@ -22,7 +28,10 @@ import {
 import { PERMISSIONS } from "@/lib/permissions";
 import { timeAgo } from "@/lib/utils";
 
-const SIGNAL_KIND_TONE: Record<string, "neutral" | "warning" | "brand" | "success" | "danger"> = {
+const SIGNAL_KIND_TONE: Record<
+  string,
+  "neutral" | "warning" | "brand" | "success" | "danger"
+> = {
   gap: "danger",
   mismatch: "warning",
   single_point: "warning",
@@ -48,7 +57,10 @@ export default function OwnershipPage() {
   const [summary, setSummary] = useState<OwnershipSummary | null>(null);
   const [signals, setSignals] = useState<OwnershipSignalRow[]>([]);
   const [signalsTotal, setSignalsTotal] = useState(0);
-  const [dryRun, setDryRun] = useState<{ would_scan: number; note: string } | null>(null);
+  const [dryRun, setDryRun] = useState<{
+    would_scan: number;
+    note: string;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,7 +77,9 @@ export default function OwnershipPage() {
       setSignals(sig.signals);
       setSignalsTotal(sig.total);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load ownership posture");
+      setError(
+        err instanceof Error ? err.message : "Unable to load ownership posture",
+      );
     } finally {
       if (!signal.silent) setLoading(false);
     }
@@ -81,7 +95,9 @@ export default function OwnershipPage() {
       const res = await brainOwnershipDryRun();
       setDryRun({ would_scan: res.would_scan, note: res.note });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to preview analysis");
+      setError(
+        err instanceof Error ? err.message : "Unable to preview analysis",
+      );
     }
   }
 
@@ -90,7 +106,10 @@ export default function OwnershipPage() {
     setError(null);
     try {
       const res = await runOwnershipAnalysis();
-      setDryRun({ would_scan: 0, note: `Batch written: ${res.signals_written} advisory signal(s) — responsibilities never changed.` });
+      setDryRun({
+        would_scan: 0,
+        note: `Batch written: ${res.signals_written} advisory signal(s) — responsibilities never changed.`,
+      });
       await refresh({ silent: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to run analysis");
@@ -113,7 +132,11 @@ export default function OwnershipPage() {
   if (error && !summary && signals.length === 0 && !loading) {
     return (
       <div className="space-y-6">
-        <PageHeader title="Ownership & responsibility" breadcrumb="Brain" description="Who is responsible for what — declared, temporal, evidence-backed. Analysis is advisory only and never changes a responsibility." />
+        <PageHeader
+          title="Ownership & responsibility"
+          breadcrumb="Brain"
+          description="Who is responsible for what — declared, temporal, evidence-backed. Analysis is advisory only and never changes a responsibility."
+        />
         <ErrorState title="Could not load ownership posture" message={error} />
       </div>
     );
@@ -133,10 +156,26 @@ export default function OwnershipPage() {
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Active responsibilities" value={summary?.active_relationships ?? (loading ? "…" : 0)} icon={CircleGauge} />
-        <StatCard label="Open signals" value={loading ? "…" : signalsTotal} icon={AlertTriangle} />
-        <StatCard label="Gaps" value={summary?.open_signals?.gap ?? 0} icon={AlertTriangle} />
-        <StatCard label="Mismatches" value={summary?.open_signals?.mismatch ?? 0} icon={AlertTriangle} />
+        <StatCard
+          label="Active responsibilities"
+          value={summary?.active_relationships ?? (loading ? "…" : 0)}
+          icon={CircleGauge}
+        />
+        <StatCard
+          label="Open signals"
+          value={loading ? "…" : signalsTotal}
+          icon={AlertTriangle}
+        />
+        <StatCard
+          label="Gaps"
+          value={summary?.open_signals?.gap ?? 0}
+          icon={AlertTriangle}
+        />
+        <StatCard
+          label="Mismatches"
+          value={summary?.open_signals?.mismatch ?? 0}
+          icon={AlertTriangle}
+        />
       </div>
 
       <Card
@@ -145,7 +184,11 @@ export default function OwnershipPage() {
         actions={
           canManage ? (
             <Button size="sm" onClick={runAnalysis} disabled={running}>
-              {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              {running ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
               Run bounded batch
             </Button>
           ) : undefined
@@ -156,8 +199,10 @@ export default function OwnershipPage() {
             {dryRun.would_scan > 0 ? (
               <>
                 Next bounded batch would scan{" "}
-                <span className="font-semibold text-ink">{dryRun.would_scan}</span> active
-                responsibility window(s). {dryRun.note}
+                <span className="font-semibold text-ink">
+                  {dryRun.would_scan}
+                </span>{" "}
+                active responsibility window(s). {dryRun.note}
               </>
             ) : (
               dryRun.note
@@ -165,13 +210,16 @@ export default function OwnershipPage() {
           </p>
         ) : (
           <p className="text-[12px] text-faint">
-            No analysis run in this session. Preview what the next bounded batch would surface, or run it to write
-            advisory signals.
+            No analysis run in this session. Preview what the next bounded batch
+            would surface, or run it to write advisory signals.
           </p>
         )}
       </Card>
 
-      <Card title="Open signals" subtitle={`${signalsTotal} advisory signal(s) awaiting acknowledgement.`}>
+      <Card
+        title="Open signals"
+        subtitle={`${signalsTotal} advisory signal(s) awaiting acknowledgement.`}
+      >
         {loading ? (
           <div className="flex items-center gap-2 py-6 text-[12px] text-faint">
             <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading signals
@@ -185,7 +233,10 @@ export default function OwnershipPage() {
         ) : (
           <ul className="space-y-2">
             {signals.map((signal) => (
-              <li key={signal.id} className="flex items-start justify-between gap-3 rounded-xl border border-line/70 bg-elevated p-3">
+              <li
+                key={signal.id}
+                className="flex items-start justify-between gap-3 rounded-xl border border-line/70 bg-elevated p-3"
+              >
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-1.5">
                     <Badge tone={SIGNAL_KIND_TONE[signal.kind] ?? "neutral"}>
@@ -193,14 +244,25 @@ export default function OwnershipPage() {
                     </Badge>
                     <Badge tone="neutral">{signal.severity}</Badge>
                     <span className="text-[12px] font-medium text-ink">
-                      {signal.object_name} <span className="font-normal text-faint">({signal.object_type})</span>
+                      {signal.object_name}{" "}
+                      <span className="font-normal text-faint">
+                        ({signal.object_type})
+                      </span>
                     </span>
                   </div>
-                  <p className="mt-1 text-[12px] leading-relaxed text-muted">{signal.detail}</p>
-                  <p className="mt-1 text-[11px] text-faint">raised {timeAgo(signal.created_at)}</p>
+                  <p className="mt-1 text-[12px] leading-relaxed text-muted">
+                    {signal.detail}
+                  </p>
+                  <p className="mt-1 text-[11px] text-faint">
+                    raised {timeAgo(signal.created_at)}
+                  </p>
                 </div>
                 {canManage && (
-                  <Button variant="ghost" size="sm" onClick={() => resolve(signal.id)}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => resolve(signal.id)}
+                  >
                     Acknowledge
                   </Button>
                 )}

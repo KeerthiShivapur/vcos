@@ -16,7 +16,11 @@ import { useAuth } from "@/hooks/useAuth";
 import { toastError, toastSuccess } from "@/components/ui/Toaster";
 
 function slugify(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 100);
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 100);
 }
 
 function RegisterForm() {
@@ -43,20 +47,23 @@ function RegisterForm() {
 
   useEffect(() => {
     if (orgName && !slug) setSlug(slugify(orgName));
-    else if (orgName) setSlug((current) => (current === slugify(orgName) ? current : current || slugify(orgName)));
+    else if (orgName)
+      setSlug((current) =>
+        current === slugify(orgName) ? current : current || slugify(orgName),
+      );
     // keep manual edits; auto-fill only when slug untouched
   }, [orgName]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const title = useMemo(
     () => (isInvite ? "Join your company" : "Start your company"),
-    [isInvite]
+    [isInvite],
   );
   const subtitle = useMemo(
     () =>
       isInvite
         ? "You were invited to an organization on VCOS. Set up your account to begin."
         : "Register your organization. Invite employees, create structure, start working.",
-    [isInvite]
+    [isInvite],
   );
 
   async function handleSubmit(event: React.FormEvent) {
@@ -73,7 +80,11 @@ function RegisterForm() {
     setLoading(true);
     try {
       if (isInvite) {
-        await registerFromInvite({ token: inviteToken, full_name: fullName, password });
+        await registerFromInvite({
+          token: inviteToken,
+          full_name: fullName,
+          password,
+        });
         toastSuccess("Welcome aboard", "Your VCOS account is ready.");
       } else {
         if (!slug) {
@@ -92,10 +103,13 @@ function RegisterForm() {
           email,
           password,
         });
-        toastSuccess("Your company is live", "Nova — your VCOS headquarters is ready.");
+        toastSuccess(
+          "Your company is live",
+          "Nova — your VCOS headquarters is ready.",
+        );
       }
       await refreshProfile();
-      router.replace("/home");
+      router.replace("/onboarding");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to register");
     } finally {
@@ -108,7 +122,11 @@ function RegisterForm() {
       <div className="w-full max-w-md">
         <div className="mb-8 flex flex-col items-center text-center">
           <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-brand text-white shadow-popover">
-            {isInvite ? <UserPlus className="h-6 w-6" /> : <Sparkles className="h-6 w-6" />}
+            {isInvite ? (
+              <UserPlus className="h-6 w-6" />
+            ) : (
+              <Sparkles className="h-6 w-6" />
+            )}
           </div>
           <h1 className="text-xl font-bold tracking-tight text-ink">{title}</h1>
           <p className="mt-1 max-w-sm text-sm text-muted">{subtitle}</p>
@@ -146,8 +164,20 @@ function RegisterForm() {
                   onChange={(e) => setSlug(slugify(e.target.value))}
                 />
                 <div className="grid grid-cols-2 gap-3">
-                  <Input label="Industry" name="industry" placeholder="Software" value={industry} onChange={(e) => setIndustry(e.target.value)} />
-                  <Input label="Country" name="country" placeholder="United States" value={country} onChange={(e) => setCountry(e.target.value)} />
+                  <Input
+                    label="Industry"
+                    name="industry"
+                    placeholder="Software"
+                    value={industry}
+                    onChange={(e) => setIndustry(e.target.value)}
+                  />
+                  <Input
+                    label="Country"
+                    name="country"
+                    placeholder="United States"
+                    value={country}
+                    onChange={(e) => setCountry(e.target.value)}
+                  />
                 </div>
               </div>
             </>
@@ -155,7 +185,11 @@ function RegisterForm() {
 
           <div className="space-y-4">
             <Input
-              label={isInvite ? "Your full name" : "Your full name (founder / administrator)"}
+              label={
+                isInvite
+                  ? "Your full name"
+                  : "Your full name (founder / administrator)"
+              }
               name="full_name"
               placeholder="Ada Lovelace"
               required
@@ -198,19 +232,27 @@ function RegisterForm() {
           </div>
 
           <Button type="submit" loading={loading} className="w-full">
-            {isInvite ? "Accept invitation & continue" : "Register organization"}
+            {isInvite
+              ? "Accept invitation & continue"
+              : "Register organization"}
           </Button>
         </form>
 
         <p className="mt-6 text-center text-[13px] text-muted">
           {isInvite ? (
-            <Link href="/login" className="font-semibold text-brand hover:underline">
+            <Link
+              href="/login"
+              className="font-semibold text-brand hover:underline"
+            >
               Already have an account? Sign in
             </Link>
           ) : (
             <>
               Already registered?{" "}
-              <Link href="/login" className="font-semibold text-brand hover:underline">
+              <Link
+                href="/login"
+                className="font-semibold text-brand hover:underline"
+              >
                 Sign in
               </Link>
             </>

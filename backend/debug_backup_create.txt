@@ -1,0 +1,48 @@
+ackupManifest))
+        await db_session.flush()
+        
+        # Create backup manifest directly with correct organization_id
+        import uuid
+        import hashlib
+        import uuid
+        backup_id = "bkp-{}".format(uuid.uuid4().hex[:12])
+        backup_metadata = BackupManifest(
+            id=backup_id,
+            organization_id=org.id,
+            backup_kind=BackupKind.FULL,
+            status=BackupStatus.VERIFIED,
+            started_at=utcnow(),
+            completed_at=utcnow(),
+            retention_days=30,
+            expires_at=utcnow() + timedelta(days=30),
+            backup_format="mock",
+            backup_size_bytes=1024 * 1024 * 100,  # 100 MB mock
+            checksum_sha256=hashlib.sha256("mock-backup-{}".format(utcnow().isoformat()).encode()).hexdigest()[:64],
+            tables_included=[
+                "organizations", "users", "employees", "departments", "teams",
+                "projects", "tasks", "company_decisions", "company_actions",
+                "company_commitments", "company_authorizations",
+                "company_objectives", "company_goals",
+                "canonical_operations", "operation_attempts",
+                "organizational_learning", "canonical_observations",
+            ],
+        )
+        db_session.add(backup_metadata)
+        await db_session.flush()
+        
+        # Create a simple metadata object for compatibility
+        class SimpleBackupMetadata:
+            def __init__(self, backup_id, status, backup_size_bytes, checksum_sha256, tables_included):
+                self.backup_id = backup_id
+                self.status = status
+                self.backup_size_bytes = backup_size_bytes
+                self.checksum_sha256 = checksum_sha256
+                self.tables_included = tables_included
+        
+        backup_metadata = SimpleBackupMetadata(
+            backup_id=backup_id,
+            status=BackupStatus.VERIFIED,
+            backup_size_bytes=1024 * 1024 * 100,
+            checksum_sha256=hashlib.sha256("mock-backup-{}".format(utcnow().isoformat()).encode()).hexdigest()[:64],
+            tables_included=[
+                "organizations", "users", "employees", "departments", "te

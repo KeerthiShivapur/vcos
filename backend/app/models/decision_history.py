@@ -1,48 +1,43 @@
-"""Phase 19 — Organizational decision history (decision intelligence).
+"""Decision History model."""
 
-Sensitive decisions are explained by AI (advantages, risks, alternatives,
-historical evidence, predictions) and recorded only after human approval.
-"""
+from datetime import datetime, date
+from typing import Optional, List
+from sqlalchemy import Date, DateTime, ForeignKey, String, Text, JSON, Boolean, Index, UniqueConstraint, Integer
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from typing import Any, Optional
-
-from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
-
-from app.db.database import Base
-from app.models.organization import TimestampMixin, gen_uuid
-
-DECISION_CATEGORIES = (
-    "hiring", "termination", "budget", "legal", "contract", "acquisition",
-    "expansion", "product", "pricing", "infrastructure", "strategy", "other",
-)
-DECISION_STATUSES = ("draft", "pending_approval", "approved", "rejected", "implemented")
+from app.models.base import Base, TimestampMixin, gen_uuid
 
 
 class DecisionHistory(Base, TimestampMixin):
-    """One important organizational decision with context and outcomes."""
-
-    __tablename__ = "org_decision_history"
-    __table_args__ = (
-        Index("ix_decision_history_org_cat", "organization_id", "category"),
-        Index("ix_decision_history_org_status", "organization_id", "status"),
-    )
+    __tablename__ = "decision_history"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
     organization_id: Mapped[str] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    title: Mapped[str] = mapped_column(String(255), nullable=False)
-    question: Mapped[Optional[str]] = mapped_column(Text)
-    category: Mapped[str] = mapped_column(String(30), default="strategy")
-    context: Mapped[Optional[str]] = mapped_column(Text)
-    alternatives: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(JSON, default=list)
-    analysis: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, default=dict)
-    participants: Mapped[Optional[list[str]]] = mapped_column(JSON, default=list)
-    outcome: Mapped[Optional[str]] = mapped_column(String(255))
-    results: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(JSON, default=list)
-    lessons: Mapped[Optional[list[str]]] = mapped_column(JSON, default=list)
-    status: Mapped[str] = mapped_column(String(20), default="pending_approval")
-    decided_by: Mapped[Optional[str]] = mapped_column(String(32))
-    decided_at: Mapped[Optional[Any]] = mapped_column(DateTime(timezone=True))
-    source_event: Mapped[Optional[str]] = mapped_column(String(120))
+    decision_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    decision_maker_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    decision_date: Mapped[Optional[date]] = mapped_column(Date)
+    impact: Mapped[Optional[str]] = mapped_column(Text)
+    business_impact: Mapped[Optional[str]] = mapped_column(Text)
+    follow_up_actions: Mapped[Optional[list]] = mapped_column(JSON)
+    future_review_date: Mapped[Optional[date]] = mapped_column(Date)
+    lessons_learned: Mapped[Optional[str]] = mapped_column(Text)
+    project_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    goal_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    meeting_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    department_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    options: Mapped[list] = mapped_column(JSON, default=list)
+    participants: Mapped[list] = mapped_column(JSON, default=list)
+    decisionhistory_metadata: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+
+    __table_args__ = (
+        UniqueConstraint("decision_id", "version", name="uq_decision_history_decision_version"),
+        Index("ix_decision_history_org_date", "organization_id", "decision_date"),
+        Index("ix_decision_history_org_decision", "organization_id", "decision_id"),
+        {"extend_existing": True},
+    )

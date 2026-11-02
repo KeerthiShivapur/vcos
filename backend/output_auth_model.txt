@@ -1,0 +1,185 @@
+class CompanyAuthorization(Base, TimestampMixin):
+    """
+    Canonical Company Authorization — a governed permit that bridges Decision
+    Intelligence to Commitment/Execution.
+    
+    Key principles:
+    - Governance-first: policy evaluated before authorization granted
+    - Decision ≠ Authorization ≠ Commitment ≠ Execution (explicit boundaries)
+    - Pure provenance: does not change lifecycle, policy, routing, or governance semantics
+    - Policy-bound: references ApprovalPolicy and GovernanceScope
+    - Temporal: valid_from/valid_until with supersession chain
+    - Contradiction-preserving: evidence, patterns, lessons tracked
+    - Exact-once: fingerprint-based deduplication
+    
+    State machine:
+    requested -> approved / conditional / rejected
+    approved -> superseded (by new authorization)
+    
+    Does NOT duplicate:
+    - CompanyDecision: decision = the reasoning; authorization = the governance permit
+    - CompanyCommitment: authorization = permit; commitment = execution mandate
+    - ApprovalPolicy: policy = rules; authorization = permit instance
+    """
+
+    __tablename__ = "company_authorizations"
+    __table_args__ = (
+        Index("ix_ca_org_state", "organization_id", "state"),
+        Index("ix_ca_org_type", "organization_id", "authorization_type"),
+        Index("ix_ca_org_scope", "organization_id", "scope_type", "scope_id"),
+        Index("ix_ca_org_decision", "organization_id", "decision_id"),
+        Index("ix_ca_org_commitment", "organization_id", "commitment_id"),
+        Index("ix_ca_org_policy", "organization_id", "policy_id"),
+        Index("ix_ca_org_fingerprint", "organization_id", "fingerprint"),
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_ca_exact_once",
+        ),
+        CheckConstraint(
+            "state IN ('requested', 'approved', 'conditional', 'rejected', 'superseded')",
+            name="ck_ca_state_valid",
+        ),
+        CheckConstraint(
+            "authorization_type IN ('full', 'partial', 'conditional')",
+            name="ck_ca_type_valid",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+
+    # Authorization identity
+    authorization_type: Mapped[str] = mapped_column(String(20), default="full", nullable=False)  # full | partial | conditional
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    rationale: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Scope
+    scope_type: Mapped[str] = mapped_column(String(20), default="company", nullable=False)  # company | department | team | project | initiative | objective | role | person
+    scope_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+
+    # Links to canonical graph
+    decision_intelligence_context_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    decision_id: Mapped[Optional[str]] = mapped_column(String(64), index=True)
+    commitment_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    policy_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+
+    # Conditions & Constraints
+    conditions: Mapped[list] = mapped_column(JSON, default=list)
+    constraints: Mapped[Optional[dict]] = mapped_column(JSON)
+
+    # Financial
+    budget_ceiling: Mapped[Optional[float]] = mapped_column(Float)
+    budget_currency: Mapped[Optional[str]] = mapped_column(String(3), default="USD")
+
+    # Temporal validity
+    valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    valid_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    # State machine
+    state: Mapped[str] = mapped_column(String(24), default="requested", nullable=False, index=True)
+    requested_by: Mapped[Optional[str]] = mapped_column(String(64))
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    approved_by: Mapped[Optional[str]] = mapped_column(String(64))
+    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    rejected_by: Mapped[Optional[str]] = mapped_column(String(64))
+    rejected_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    # Evidence & Provenance
+    evidence_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    supporting_pattern_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    supporting_lesson_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradicting_evidence_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradicting_pattern_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradicting_lesson_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    contradiction_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+
+    # Decision Intelligence linkage
+    decision_alternative_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    decision_evidence_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    decision_precedent_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+
+    # Risk
+    risk_assessment: Mapped[Optional[dict]] = mapped_column(JSON)
+
+    # Learning
+    lesson_fingerprints: Mapped[list[str]] = mapped_column(JSON, default=list)
+    pattern_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+
+    # Source tracking
+    source_event_id: Mapped[Optional[str]] = mapped_column(String(64))
+    source_decision_id: Mapped[Optional[str]] = mapped_column(String(64))
+    source_scenario_id: Mapped[Optional[str]] = mapped_column(String(64))
+
+    # Exact-once fingerprint
+    fingerprint: Mapped[str] = mapped_column(String(160), nullable=False)
+
+    # Version for optimistic concurrency
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_ca_exact_once",
+        ),
+        CheckConstraint(
+            "state IN ('requested', 'approved', 'conditional', 'rejected', 'superseded')",
+            name="ck_ca_state_valid",
+        ),
+        CheckConstraint(
+            "authorization_type IN ('full', 'partial', 'conditional')",
+            name="ck_ca_type_valid",
+        ),
+    )
+
+
+# =============================================================================
+# 4I.2 Canonical vocabularies — Objectives & Outcomes
+# =============================================================================
+
+OBJECTIVE_STATES = (
+    "active",
+    "paused",
+    "achieved",
+    "failed",
+    "superseded",
+)
+
+OUTCOME_STATES = (
+    "projected", "actual", "superseded",
+)
+
+ASSESSMENT_STATES = (
+    "outperformed", "met", "partially_met", "underperformed",
+    "missed", "inconclusive", "superseded",
+)
+
+MEASUREMENT_QUALITY = (
+    "primary",
+    "secondary",
+    "derived",
+    "estimated",
+)
+
+SUPERSESSION_REASON = (
+    "replanned",
+    "corrected",
+    "merged",
+    "split",
+    "cancelled",
+)
+
+ASSESSMENT_CONFIDENCE = (
+    "low",
+    "medium",
+    "high",
+    "very_high",
+)
+
+
+# =============================================================================
+# 4I.2 Objectives & Outcomes Models
+# =============================================================================
+

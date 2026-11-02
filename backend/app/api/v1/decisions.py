@@ -1,6 +1,6 @@
 """Decisions API — the Decision Registry (Phase 4.3)."""
 
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +20,7 @@ from app.schemas.knowledge import (
     DecisionParticipantOut,
     DecisionUpdate,
 )
+from app.intelligence.company_brain import company_brain
 
 router = APIRouter(prefix="/decisions", tags=["Decisions"])
 
@@ -263,3 +264,85 @@ async def decision_tasks(
 
     tasks = await decision_service.tasks_for(db, organization_id=org.id, decision_id=decision_id)
     return [_task_payload(t) for t in tasks]
+
+
+# ================================================================================
+# Phase H — Institutional Learning Integration
+# ================================================================================
+
+@router.get("/{decision_id}/learning")
+async def decision_learning(
+    decision_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("knowledge:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Decision-relevant institutional learning from the Company Brain.
+
+    Returns lessons, precedents, patterns, and contradictions relevant to this decision.
+    Enables: "What has the company learned that's relevant to this decision?"
+    """
+    # Verify decision access
+    if await decision_service.get(db, organization_id=org.id, entity_id=decision_id) is None:
+        raise HTTPException(404, "Decision not found")
+
+    # Query Company Brain for learning about this decision
+    result = await company_brain.answer(
+        db, org.id, f"What did we learn about decision {decision_id}?",
+        user=user, entity_type="decision", entity_id=decision_id,
+    )
+
+    if result is None:
+        return {"lessons": [], "patterns": [], "precedents": [], "contradictions": [], "decision_id": decision_id}
+
+    lessons = result.get("lessons", [])
+    patterns = result.get("patterns", [])
+
+    # Get company decision precedents
+    from app.models.company_operating import CompanyDecisionPrecedent, CompanyDecisionContradiction
+    from sqlalchemy import select
+
+    precedent_stmt = select(CompanyDecisionPrecedent).where(
+        CompanyDecisionPrecedent.organization_id == org.id,
+        CompanyDecisionPrecedent.decision_id == decision_id,
+    )
+    precedent_result = await db.execute(precedent_stmt)
+    precedents = precedent_result.scalars().all()
+
+    # Get contradictions
+    contra_stmt = select(CompanyDecisionContradiction).where(
+        CompanyDecisionContradiction.organization_id == org.id,
+        CompanyDecisionContradiction.decision_id == decision_id,
+    )
+    contra_result = await db.execute(contra_stmt)
+    contradictions = contra_result.scalars().all()
+
+    return {
+        "decision_id": decision_id,
+        "lessons": lessons,
+        "patterns": patterns,
+        "precedents": [
+            {
+                "id": p.id,
+                "precedent_decision_id": p.precedent_decision_id,
+                "context_signature": p.context_signature,
+                "relevance_score": p.relevance_score,
+                "evidence_count": p.evidence_count,
+                "cited_lesson": p.cited_lesson,
+            }
+            for p in precedents
+        ],
+        "contradictions": [
+            {
+                "id": c.id,
+                "contradiction_key": c.contradiction_key,
+                "lesson_memory_id": c.lesson_memory_id,
+                "precedent_decision_id": c.precedent_decision_id,
+                "side_a_json": c.side_a_json,
+                "side_b_json": c.side_b_json,
+                "status": c.status,
+            }
+            for c in contradictions
+        ],
+        "generated_at": result.get("generated_at"),
+    }

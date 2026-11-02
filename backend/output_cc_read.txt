@@ -1,0 +1,98 @@
+class CompanyCommitment(Base, TimestampMixin):
+    """
+    Canonical Company Commitment — a governed, traceable commitment that bridges
+    Decision Intelligence (4I.6) to Execution (4I.8/4G.1).
+    
+    Key principles:
+    - Governance-first: scope resolved before any action
+    - Decision ≠ Authorization ≠ Commitment ≠ Execution (explicit boundaries)
+    - Reuses: CompanyDecision, CompanyAuthorization, CompanyAction, CompanyGoal,
+      CompanyObjective, CompanyInitiative, Project, Task, CompanyState, GovernanceScope,
+      ApprovalPolicy, StrategicExecutionEngine, organizational learning, patterns, lessons
+    - Deterministic: same canonical inputs -> same commitment fingerprint
+    - Temporal: state transitions recorded in StrategicHistory
+    - Contradiction-preserving: evidence, patterns, lessons tracked with contradiction_ids
+    - Exact-once: fingerprint-based deduplication
+    
+    State machine:
+    proposed -> pending_authorization -> authorized -> fulfilled
+    proposed -> pending_authorization -> rejected (if conditional)
+    authorized -> superseded (by new commitment)
+    any -> expired
+    
+    Does NOT duplicate:
+    - CompanyDecision: decision = the reasoning; commitment = the governed execution permit
+    - CompanyAuthorization: authorization = governance permit; commitment = execution mandate
+    - CompanyAction: action = atomic execution unit; commitment = strategic mandate
+    """
+
+    __tablename__ = "company_commitments"
+    __table_args__ = (
+        Index("ix_cc_org_state", "organization_id", "state"),
+        Index("ix_cc_org_type", "organization_id", "commitment_type"),
+        Index("ix_cc_org_scope", "organization_id", "scope_type", "scope_id"),
+        Index("ix_cc_org_intent", "organization_id", "intent_id"),
+        Index("ix_cc_org_objective", "organization_id", "objective_id"),
+        Index("ix_cc_org_initiative", "organization_id", "initiative_id"),
+        Index("ix_cc_org_project", "organization_id", "project_id"),
+        Index("ix_cc_org_decision", "organization_id", "decision_id"),
+        Index("ix_cc_org_auth", "organization_id", "authorization_id"),
+        Index("ix_cc_org_fingerprint", "organization_id", "fingerprint"),
+        UniqueConstraint(
+            "organization_id", "fingerprint",
+            name="uq_cc_exact_once",
+        ),
+        CheckConstraint(
+            "state IN ('proposed', 'pending_authorization', 'authorized', 'fulfilled', 'superseded', 'expired')",
+            name="ck_cc_state_valid",
+        ),
+        CheckConstraint(
+            "commitment_type IN ('conditional', 'unconditional')",
+            name="ck_cc_type_valid",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+
+    # Commitment identity
+    commitment_type: Mapped[str] = mapped_column(String(20), nullable=False, index=True)  # conditional | unconditional
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    rationale: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Scope - what this commitment covers
+    scope_type: Mapped[str] = mapped_column(String(20), default="objective", nullable=False, index=True)  # objective | initiative | project | department | team | role | person
+    scope_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+
+    # Links to canonical graph
+    intent_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    objective_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    initiative_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    project_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    decision_id: Mapped[Optional[str]] = mapped_column(String(64), index=True)
+    authorization_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+
+    # Governance
+    approval_required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    
+    # Financial / Resource
+    budget_allocated: Mapped[Optional[float]] = mapped_column(Float)
+    budget_currency: Mapped[Optional[str]] = mapped_column(String(3), default="USD")
+    resource_requirements: Mapped[Optional[dict]] = mapped_column(JSON)
+    resource_constraints: Mapped[Optional[dict]] = mapped_column(JSON)
+
+    # Temporal
+    start_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    target_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    # Conditions
+    conditions: Mapped[list] = mapped_column(JSON, default=list)
+
+    # Risk
+    risk_assessment: Mapped[Optional[str]] = mapped_column(Text)
+    risk_mitigations: Mapped[list] = mapped_column(JSON, default=list)
+
+    # Evidence & Pr

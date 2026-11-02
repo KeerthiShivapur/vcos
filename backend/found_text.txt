@@ -1,0 +1,11 @@
+org = production_company_real_pg["organization"]
+        org_id = org.id
+        access = production_company_real_pg["access"]
+        
+        # Mock verify_backup to avoid transaction aborts from verification queries
+        # (pgbackrest not installed in test environment)
+        from app.models.backup_manifest import BackupVerificationResult
+        from app.validation.capability_contract import ValidationStatus as ValStatus
+        
+        async def mock_verify_backup(db, backup_id):
+     

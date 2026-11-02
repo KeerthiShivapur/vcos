@@ -23,10 +23,7 @@ import {
 } from "@/lib/api";
 import { roleCan, PERMISSIONS } from "@/lib/permissions";
 import { useAuth } from "@/hooks/useAuth";
-import type {
-  BrainMemory,
-  BrainMemoryEvidenceItem,
-} from "@/types";
+import type { BrainMemory, BrainMemoryEvidenceItem } from "@/types";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -61,7 +58,9 @@ export function MemoryTab() {
   const [question, setQuestion] = useState("");
   const [matched, setMatched] = useState<BrainMemory[] | null>(null);
   const [selected, setSelected] = useState<BrainMemory | null>(null);
-  const [evidence, setEvidence] = useState<BrainMemoryEvidenceItem[] | null>(null);
+  const [evidence, setEvidence] = useState<BrainMemoryEvidenceItem[] | null>(
+    null,
+  );
   const [related, setRelated] = useState<BrainMemory[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,7 +78,9 @@ export function MemoryTab() {
       const feed = await brainMemoryFeed({ limit: 100 });
       setMemories(feed.memories);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load memory feed");
+      setError(
+        err instanceof Error ? err.message : "Failed to load memory feed",
+      );
     } finally {
       setBusy(false);
     }
@@ -120,7 +121,10 @@ export function MemoryTab() {
     setBusy(true);
     setError(null);
     try {
-      const result = await brainMemorySearch({ question: question.trim(), limit: 15 });
+      const result = await brainMemorySearch({
+        question: question.trim(),
+        limit: 15,
+      });
       setMatched(result.memories);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Memory search failed");
@@ -135,7 +139,8 @@ export function MemoryTab() {
     setError(null);
     try {
       const updated = await brainMemoryRecordOutcome(selected.id, {
-        outcome_type: outcomeType as "positive" | "negative" | "partial" | "unresolved",
+        outcome_type: outcomeType as
+          "positive" | "negative" | "partial" | "unresolved",
         outcome: outcome || null,
       });
       setSelected({ ...selected, ...updated });
@@ -150,7 +155,11 @@ export function MemoryTab() {
 
   const sections = [
     { id: "feed", label: "Feed", count: memories.length },
-    { id: "search", label: "Historical search", count: matched?.length ?? null },
+    {
+      id: "search",
+      label: "Historical search",
+      count: matched?.length ?? null,
+    },
     { id: "timeline", label: "Timeline", count: episodes.length },
   ];
 
@@ -162,7 +171,9 @@ export function MemoryTab() {
             key={s.id}
             onClick={() => setSection(s.id)}
             className={`border-b-2 px-3.5 py-2 text-[13px] font-medium ${
-              section === s.id ? "border-brand text-ink" : "border-transparent text-faint"
+              section === s.id
+                ? "border-brand text-ink"
+                : "border-transparent text-faint"
             }`}
           >
             {s.label}
@@ -184,7 +195,8 @@ export function MemoryTab() {
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void search();
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey))
+                  void search();
               }}
               placeholder="e.g. task was blocked during execution like this before"
               rows={2}
@@ -200,7 +212,9 @@ export function MemoryTab() {
             </Button>
           </div>
           {matched === null ? (
-            <p className="mt-2 text-xs text-faint">Similarity floor 0.25 — weak matches are excluded.</p>
+            <p className="mt-2 text-xs text-faint">
+              Similarity floor 0.25 — weak matches are excluded.
+            </p>
           ) : matched.length === 0 ? (
             <div className="mt-3">
               <EmptyState
@@ -212,7 +226,11 @@ export function MemoryTab() {
           ) : (
             <div className="mt-3 divide-y divide-line">
               {matched.map((memory) => (
-                <MemoryRow key={memory.id} memory={memory} onOpen={() => void openMemory(memory)} />
+                <MemoryRow
+                  key={memory.id}
+                  memory={memory}
+                  onOpen={() => void openMemory(memory)}
+                />
               ))}
             </div>
           )}
@@ -224,8 +242,16 @@ export function MemoryTab() {
           title="Memory feed"
           subtitle="Evidence-backed organizational memory — experiences, lessons and outcomes"
           actions={
-            <Button size="sm" variant="secondary" onClick={loadFeed} disabled={busy}>
-              <RefreshCw className={`h-3.5 w-3.5 ${busy ? "animate-spin" : ""}`} /> Refresh
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={loadFeed}
+              disabled={busy}
+            >
+              <RefreshCw
+                className={`h-3.5 w-3.5 ${busy ? "animate-spin" : ""}`}
+              />{" "}
+              Refresh
             </Button>
           }
         >
@@ -238,7 +264,11 @@ export function MemoryTab() {
           ) : (
             <div className="divide-y divide-line">
               {memories.map((memory) => (
-                <MemoryRow key={memory.id} memory={memory} onOpen={() => void openMemory(memory)} />
+                <MemoryRow
+                  key={memory.id}
+                  memory={memory}
+                  onOpen={() => void openMemory(memory)}
+                />
               ))}
             </div>
           )}
@@ -260,7 +290,11 @@ export function MemoryTab() {
           ) : (
             <div className="divide-y divide-line">
               {episodes.map((memory) => (
-                <MemoryRow key={memory.id} memory={memory} onOpen={() => void openMemory(memory)} />
+                <MemoryRow
+                  key={memory.id}
+                  memory={memory}
+                  onOpen={() => void openMemory(memory)}
+                />
               ))}
             </div>
           )}
@@ -274,15 +308,21 @@ export function MemoryTab() {
         >
           <div className="space-y-4">
             <p className="text-sm font-semibold text-ink">{selected.title}</p>
-            {selected.summary && <p className="text-[13px] leading-relaxed text-muted">{selected.summary}</p>}
+            {selected.summary && (
+              <p className="text-[13px] leading-relaxed text-muted">
+                {selected.summary}
+              </p>
+            )}
             {selected.outcome && (
               <p className="text-[13px] leading-relaxed text-muted">
-                <span className="font-medium text-ink">Outcome:</span> {selected.outcome}
+                <span className="font-medium text-ink">Outcome:</span>{" "}
+                {selected.outcome}
               </p>
             )}
             {selected.lesson && (
               <p className="text-[13px] leading-relaxed text-muted">
-                <span className="font-medium text-ink">Lesson:</span> {selected.lesson}
+                <span className="font-medium text-ink">Lesson:</span>{" "}
+                {selected.lesson}
               </p>
             )}
 
@@ -293,11 +333,16 @@ export function MemoryTab() {
               {evidence === null ? (
                 <p className="text-xs text-faint">Resolving evidence…</p>
               ) : evidence.length === 0 ? (
-                <p className="text-xs text-faint">No resolvable evidence refs.</p>
+                <p className="text-xs text-faint">
+                  No resolvable evidence refs.
+                </p>
               ) : (
                 <div className="space-y-1.5">
                   {evidence.map((item, index) => (
-                    <div key={index} className="flex items-center justify-between gap-2 rounded-lg border border-line px-3 py-1.5">
+                    <div
+                      key={index}
+                      className="flex items-center justify-between gap-2 rounded-lg border border-line px-3 py-1.5"
+                    >
                       <div className="min-w-0">
                         <p className="truncate text-[13px] text-ink">
                           <Badge tone="neutral">{item.relationship}</Badge>{" "}
@@ -305,7 +350,8 @@ export function MemoryTab() {
                         </p>
                         {item.occurred_at && (
                           <p className="text-[11px] text-faint">
-                            event at {new Date(item.occurred_at).toLocaleString()}
+                            event at{" "}
+                            {new Date(item.occurred_at).toLocaleString()}
                           </p>
                         )}
                       </div>
@@ -334,16 +380,16 @@ export function MemoryTab() {
                         <Link2 className="mr-1 inline h-3 w-3 text-faint" />
                         {memory.title}
                       </p>
-                      <Badge tone={categoryBadge(memory.memory_category)}>{memory.memory_category}</Badge>
+                      <Badge tone={categoryBadge(memory.memory_category)}>
+                        {memory.memory_category}
+                      </Badge>
                     </button>
                   ))}
                 </div>
               </div>
             )}
 
-            {canManage && (
-              <OutcomeForm busy={busy} onRecord={recordOutcome} />
-            )}
+            {canManage && <OutcomeForm busy={busy} onRecord={recordOutcome} />}
           </div>
         </Card>
       )}
@@ -351,25 +397,46 @@ export function MemoryTab() {
   );
 }
 
-function MemoryRow({ memory, onOpen }: { memory: BrainMemory; onOpen: () => void }) {
+function MemoryRow({
+  memory,
+  onOpen,
+}: {
+  memory: BrainMemory;
+  onOpen: () => void;
+}) {
   return (
-    <button onClick={onOpen} className="flex w-full items-start justify-between gap-3 px-5 py-3 text-left hover:bg-surface">
+    <button
+      onClick={onOpen}
+      className="flex w-full items-start justify-between gap-3 px-5 py-3 text-left hover:bg-surface"
+    >
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge tone={categoryBadge(memory.memory_category)}>{memory.memory_category}</Badge>
-          <span className="truncate text-[13px] font-medium text-ink">{memory.title}</span>
+          <Badge tone={categoryBadge(memory.memory_category)}>
+            {memory.memory_category}
+          </Badge>
+          <span className="truncate text-[13px] font-medium text-ink">
+            {memory.title}
+          </span>
         </div>
         {(memory.summary || memory.lesson || memory.outcome) && (
-          <p className="mt-1 truncate text-xs text-muted">{memory.summary || memory.lesson || memory.outcome}</p>
+          <p className="mt-1 truncate text-xs text-muted">
+            {memory.summary || memory.lesson || memory.outcome}
+          </p>
         )}
         <p className="mt-1 text-[11px] text-faint">
           {memory.source_event ?? "recorded"}
-          {memory.entity_type ? ` · ${memory.entity_type} ${memory.entity_id?.slice(0, 8) ?? ""}` : ""}
-          {memory.occurred_at ? ` · ${new Date(memory.occurred_at).toLocaleString()}` : ""}
+          {memory.entity_type
+            ? ` · ${memory.entity_type} ${memory.entity_id?.slice(0, 8) ?? ""}`
+            : ""}
+          {memory.occurred_at
+            ? ` · ${new Date(memory.occurred_at).toLocaleString()}`
+            : ""}
         </p>
       </div>
       <div className="flex shrink-0 flex-col items-end gap-1">
-        <Badge tone={confidenceTone(memory.confidence)}>{Math.round(memory.confidence * 100)}%</Badge>
+        <Badge tone={confidenceTone(memory.confidence)}>
+          {Math.round(memory.confidence * 100)}%
+        </Badge>
         <Badge tone={memory.auth_scope === "org" ? "success" : "warning"}>
           {memory.auth_scope === "org" ? "org-wide" : "project-scoped"}
         </Badge>
@@ -409,7 +476,12 @@ function OutcomeForm({
           placeholder="What happened? (monotonic — upgrades only)"
           className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 py-1.5 text-sm text-ink outline-none focus:border-brand"
         />
-        <Button size="sm" variant="secondary" onClick={() => onRecord(outcomeType, outcome)} disabled={busy}>
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() => onRecord(outcomeType, outcome)}
+          disabled={busy}
+        >
           <Send className="h-3.5 w-3.5" /> Record
         </Button>
       </div>

@@ -4,6 +4,8 @@ import "./globals.css";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ThemeProvider } from "@/hooks/useTheme";
 import { Toaster } from "@/components/ui/Toaster";
+import { OfflineProvider } from "@/components/providers/OfflineProvider";
+import { AppInitializer } from "@/components/AppInitializer";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -13,8 +15,8 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: {
-    default: "VCOS — Virtual Company Operating System",
-    template: "%s · VCOS",
+    default: "VCOS - Virtual Company Operating System",
+    template: "%s | VCOS",
   },
   description:
     "The operating system for virtual companies. One identity, one organization graph, one place to run your company.",
@@ -29,14 +31,21 @@ export const viewport: Viewport = {
   ],
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${inter.variable} font-sans`}>
         <ThemeProvider>
           <AuthProvider>
-            {children}
-            <Toaster />
+            <OfflineProvider>
+              <AppInitializer />
+              {children}
+              <Toaster />
+            </OfflineProvider>
           </AuthProvider>
         </ThemeProvider>
       </body>

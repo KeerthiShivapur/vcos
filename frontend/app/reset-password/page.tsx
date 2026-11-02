@@ -33,9 +33,16 @@ function ResetPasswordForm() {
     }
     setLoading(true);
     try {
-      await api("/auth/reset-password", { method: "POST", auth: false, body: { token, new_password: password } });
+      await api("/auth/reset-password", {
+        method: "POST",
+        auth: false,
+        body: { token, new_password: password },
+      });
       setDone(true);
-      toastSuccess("Password reset", "You can now sign in with your new password.");
+      toastSuccess(
+        "Password reset",
+        "You can now sign in with your new password.",
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to reset password");
     } finally {
@@ -50,13 +57,21 @@ function ResetPasswordForm() {
           <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-brand text-white shadow-popover">
             <KeyRound className="h-6 w-6" />
           </div>
-          <h1 className="text-xl font-bold tracking-tight text-ink">Choose a new password</h1>
+          <h1 className="text-xl font-bold tracking-tight text-ink">
+            Choose a new password
+          </h1>
         </div>
 
         {done ? (
           <div className="card p-6 text-center">
-            <p className="text-sm text-muted">Your password has been updated. All other sessions were signed out.</p>
-            <Button className="mt-4 w-full" onClick={() => router.replace("/login")}>
+            <p className="text-sm text-muted">
+              Your password has been updated. All other sessions were signed
+              out.
+            </p>
+            <Button
+              className="mt-4 w-full"
+              onClick={() => router.replace("/login")}
+            >
               Go to sign in
             </Button>
           </div>
@@ -92,7 +107,10 @@ function ResetPasswordForm() {
         )}
 
         <p className="mt-6 text-center text-[13px] text-muted">
-          <Link href="/login" className="font-semibold text-brand hover:underline">
+          <Link
+            href="/login"
+            className="font-semibold text-brand hover:underline"
+          >
             Back to sign in
           </Link>
         </p>

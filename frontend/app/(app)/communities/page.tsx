@@ -20,7 +20,14 @@ import { Spinner } from "@/components/ui/Spinner";
 import { Badge } from "@/components/ui/Badge";
 import { formatDate } from "@/lib/utils";
 
-const COMMUNITY_TYPES = ["general", "engineering", "product", "design", "social", "regional"];
+const COMMUNITY_TYPES = [
+  "general",
+  "engineering",
+  "product",
+  "design",
+  "social",
+  "regional",
+];
 const VISIBILITIES = ["public", "private", "hidden"];
 
 export default function CommunitiesPage() {
@@ -45,9 +52,13 @@ function CommunitiesContent() {
     setLoading(true);
     setError(null);
     try {
-      setCommunities(await listCommunities({ search: search || undefined, limit: 200 }));
+      setCommunities(
+        await listCommunities({ search: search || undefined, limit: 200 }),
+      );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load communities");
+      setError(
+        err instanceof Error ? err.message : "Unable to load communities",
+      );
     } finally {
       setLoading(false);
     }
@@ -63,11 +74,13 @@ function CommunitiesContent() {
       <PageHeader
         title="Communities"
         description="Shared spaces for teams, interests, and initiatives."
-        actions={canManage ? (
-          <Button size="sm" onClick={() => setCreateOpen(true)}>
-            <Plus className="h-4 w-4" /> New community
-          </Button>
-        ) : undefined}
+        actions={
+          canManage ? (
+            <Button size="sm" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-4 w-4" /> New community
+            </Button>
+          ) : undefined
+        }
       />
 
       <div className="flex flex-wrap items-center gap-2">
@@ -79,21 +92,33 @@ function CommunitiesContent() {
             onKeyDown={(e) => e.key === "Enter" && load()}
           />
         </div>
-        <Button variant="secondary" size="sm" onClick={load}>Search</Button>
+        <Button variant="secondary" size="sm" onClick={load}>
+          Search
+        </Button>
       </div>
 
       {error ? (
-        <ErrorState title="Could not load communities" message={error} onRetry={load} />
+        <ErrorState
+          title="Could not load communities"
+          message={error}
+          onRetry={load}
+        />
       ) : loading ? (
-        <div className="flex justify-center py-24"><Spinner label="Loading communities" /></div>
+        <div className="flex justify-center py-24">
+          <Spinner label="Loading communities" />
+        </div>
       ) : communities.length === 0 ? (
         <EmptyState
           icon={Users}
           title="No communities yet"
           description="Create a space for your team to share and collaborate."
-          action={canManage ? (
-            <Button size="sm" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" /> New community</Button>
-          ) : undefined}
+          action={
+            canManage ? (
+              <Button size="sm" onClick={() => setCreateOpen(true)}>
+                <Plus className="h-4 w-4" /> New community
+              </Button>
+            ) : undefined
+          }
         />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -112,14 +137,22 @@ function CommunitiesContent() {
                   {community.is_member && <Badge tone="brand">Joined</Badge>}
                 </div>
               </div>
-              <h3 className="mt-3 truncate text-[15px] font-semibold text-ink">{community.name}</h3>
+              <h3 className="mt-3 truncate text-[15px] font-semibold text-ink">
+                {community.name}
+              </h3>
               {community.description && (
-                <p className="mt-1 line-clamp-2 text-[13px] text-muted">{community.description}</p>
+                <p className="mt-1 line-clamp-2 text-[13px] text-muted">
+                  {community.description}
+                </p>
               )}
               <div className="mt-3 flex items-center gap-3 text-[12px] text-faint">
-                <span className="flex items-center gap-1"><Users className="h-3.5 w-3.5" /> {community.member_count}</span>
+                <span className="flex items-center gap-1">
+                  <Users className="h-3.5 w-3.5" /> {community.member_count}
+                </span>
                 <span>{community.post_count} posts</span>
-                <span className="ml-auto">{formatDate(community.created_at)}</span>
+                <span className="ml-auto">
+                  {formatDate(community.created_at)}
+                </span>
               </div>
             </Link>
           ))}
@@ -195,26 +228,46 @@ function CreateCommunityModal({
       reset();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to create community");
+      setError(
+        err instanceof Error ? err.message : "Unable to create community",
+      );
     }
   }
 
   return (
     <Modal
       open={open}
-      onClose={() => { reset(); onClose(); }}
+      onClose={() => {
+        reset();
+        onClose();
+      }}
       title="New community"
       description="Create a shared space for your team or initiative."
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit} loading={creating}>Create</Button>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={submit} loading={creating}>
+            Create
+          </Button>
         </>
       }
     >
       <div className="space-y-4">
-        <Input label="Name" placeholder="e.g. Engineering Guild" value={name} onChange={(e) => setName(e.target.value)} />
-        <Textarea label="Description" placeholder="What is this community about?" value={description} onChange={(e) => setDescription(e.target.value)} rows={3} />
+        <Input
+          label="Name"
+          placeholder="e.g. Engineering Guild"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <Textarea
+          label="Description"
+          placeholder="What is this community about?"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={3}
+        />
         <div className="grid grid-cols-2 gap-3">
           <Select
             label="Type"
@@ -229,7 +282,12 @@ function CreateCommunityModal({
             options={VISIBILITIES.map((v) => ({ value: v, label: v }))}
           />
         </div>
-        <Input label="Icon (emoji)" placeholder="🎯" value={icon} onChange={(e) => setIcon(e.target.value)} />
+        <Input
+          label="Icon (emoji)"
+          placeholder="🎯"
+          value={icon}
+          onChange={(e) => setIcon(e.target.value)}
+        />
         {error && <p className="text-[13px] text-danger">{error}</p>}
       </div>
     </Modal>

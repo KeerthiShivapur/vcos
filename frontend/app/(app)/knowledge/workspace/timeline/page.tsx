@@ -21,18 +21,32 @@ import type {
 } from "@/types";
 
 const MONTHS = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
 ];
 
 export default function KnowledgeWorkspaceTimelinePage() {
   const [query, setQuery] = useState("");
-  const [matches, setMatches] = useState<KnowledgeDiscoveryAnswer[] | null>(null);
+  const [matches, setMatches] = useState<KnowledgeDiscoveryAnswer[] | null>(
+    null,
+  );
   const [searchBusy, setSearchBusy] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
 
   const [topic, setTopic] = useState<string | null>(null);
-  const [evolution, setEvolution] = useState<KnowledgeEvolutionResponse | null>(null);
+  const [evolution, setEvolution] = useState<KnowledgeEvolutionResponse | null>(
+    null,
+  );
   const [evolutionBusy, setEvolutionBusy] = useState(false);
   const [evolutionError, setEvolutionError] = useState<string | null>(null);
 
@@ -57,26 +71,25 @@ export default function KnowledgeWorkspaceTimelinePage() {
     }
   }, [query, searchBusy]);
 
-  const openTopic = useCallback(
-    async (topicName: string) => {
-      setTopic(topicName);
-      setMatches(null);
-      setQuery(topicName);
-      setEvolution(null);
-      setStateAt(null);
-      setEvolutionBusy(true);
-      setEvolutionError(null);
-      setStateError(null);
-      try {
-        setEvolution(await brainKnowledgeTopicEvolution(topicName));
-      } catch (err) {
-        setEvolutionError(err instanceof Error ? err.message : "Evolution unavailable");
-      } finally {
-        setEvolutionBusy(false);
-      }
-    },
-    []
-  );
+  const openTopic = useCallback(async (topicName: string) => {
+    setTopic(topicName);
+    setMatches(null);
+    setQuery(topicName);
+    setEvolution(null);
+    setStateAt(null);
+    setEvolutionBusy(true);
+    setEvolutionError(null);
+    setStateError(null);
+    try {
+      setEvolution(await brainKnowledgeTopicEvolution(topicName));
+    } catch (err) {
+      setEvolutionError(
+        err instanceof Error ? err.message : "Evolution unavailable",
+      );
+    } finally {
+      setEvolutionBusy(false);
+    }
+  }, []);
 
   const loadStateAt = useCallback(async () => {
     if (!topic || stateBusy) return;
@@ -88,7 +101,9 @@ export default function KnowledgeWorkspaceTimelinePage() {
     try {
       setStateAt(await brainKnowledgeTopicStateAt(topic, { as_of: asOf }));
     } catch (err) {
-      setStateError(err instanceof Error ? err.message : "No recorded state at that time");
+      setStateError(
+        err instanceof Error ? err.message : "No recorded state at that time",
+      );
     } finally {
       setStateBusy(false);
     }
@@ -115,7 +130,10 @@ export default function KnowledgeWorkspaceTimelinePage() {
             placeholder="Search topics, e.g. pricing"
             className="w-full max-w-md rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:border-brand"
           />
-          <Button onClick={() => void searchTopics()} disabled={searchBusy || !query.trim()}>
+          <Button
+            onClick={() => void searchTopics()}
+            disabled={searchBusy || !query.trim()}
+          >
             {searchBusy ? (
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-line border-t-brand" />
             ) : (
@@ -124,11 +142,15 @@ export default function KnowledgeWorkspaceTimelinePage() {
             Find topic
           </Button>
         </div>
-        {searchError && <p className="mt-2 text-[13px] text-danger">{searchError}</p>}
+        {searchError && (
+          <p className="mt-2 text-[13px] text-danger">{searchError}</p>
+        )}
         {matches && (
           <div className="mt-3">
             {matches.length === 0 ? (
-              <p className="text-[13px] text-faint">No knowledge topics match this search.</p>
+              <p className="text-[13px] text-faint">
+                No knowledge topics match this search.
+              </p>
             ) : (
               <div className="flex flex-wrap gap-1.5">
                 {matches.map((match) => (
@@ -170,20 +192,35 @@ export default function KnowledgeWorkspaceTimelinePage() {
           bodyClassName="p-0"
         >
           {evolution.steps.length === 0 ? (
-            <p className="px-5 py-4 text-xs text-faint">No evolution recorded for this topic yet.</p>
+            <p className="px-5 py-4 text-xs text-faint">
+              No evolution recorded for this topic yet.
+            </p>
           ) : (
             <ol className="divide-y divide-line">
               {evolution.steps.map((step, index) => (
-                <li key={step.claim_id} className="flex items-start gap-3 px-5 py-3.5">
+                <li
+                  key={step.claim_id}
+                  className="flex items-start gap-3 px-5 py-3.5"
+                >
                   <div className="mt-1.5 flex flex-col items-center">
                     <div className="h-2.5 w-2.5 rounded-full border-2 border-brand" />
-                    {index < evolution.steps.length - 1 && <div className="h-full w-px bg-line" />}
+                    {index < evolution.steps.length - 1 && (
+                      <div className="h-full w-px bg-line" />
+                    )}
                   </div>
                   <div className="min-w-0 flex-1 pb-2">
-                    <p className="text-[13px] leading-relaxed text-ink">{step.statement}</p>
+                    <p className="text-[13px] leading-relaxed text-ink">
+                      {step.statement}
+                    </p>
                     <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                      <Badge tone="neutral">{new Date(step.at).toLocaleString()}</Badge>
-                      <Badge tone={step.status === "superseded" ? "neutral" : "success"}>
+                      <Badge tone="neutral">
+                        {new Date(step.at).toLocaleString()}
+                      </Badge>
+                      <Badge
+                        tone={
+                          step.status === "superseded" ? "neutral" : "success"
+                        }
+                      >
                         {step.status}
                       </Badge>
                       {typeof step.confidence === "number" && (
@@ -192,7 +229,9 @@ export default function KnowledgeWorkspaceTimelinePage() {
                         </Badge>
                       )}
                       {step.supersedes && (
-                        <span className="text-[11px] text-faint">supersedes {step.supersedes}</span>
+                        <span className="text-[11px] text-faint">
+                          supersedes {step.supersedes}
+                        </span>
                       )}
                       {step.replaced_by && (
                         <span className="text-[11px] text-faint">
@@ -231,7 +270,11 @@ export default function KnowledgeWorkspaceTimelinePage() {
                   </option>
                 ))}
               </select>
-              <Button size="sm" onClick={() => void loadStateAt()} disabled={stateBusy}>
+              <Button
+                size="sm"
+                onClick={() => void loadStateAt()}
+                disabled={stateBusy}
+              >
                 {stateBusy ? (
                   <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-line border-t-brand" />
                 ) : (
@@ -243,7 +286,9 @@ export default function KnowledgeWorkspaceTimelinePage() {
           }
           bodyClassName="p-0"
         >
-          {stateError && <p className="px-5 py-3 text-[13px] text-danger">{stateError}</p>}
+          {stateError && (
+            <p className="px-5 py-3 text-[13px] text-danger">{stateError}</p>
+          )}
           {stateAt && (
             <div className="divide-y divide-line">
               <div className="px-5 py-4">
@@ -260,9 +305,12 @@ export default function KnowledgeWorkspaceTimelinePage() {
                     </Badge>
                   )}
                 </div>
-                <p className="mt-2 text-[14px] leading-relaxed text-ink">{stateAt.state.statement}</p>
+                <p className="mt-2 text-[14px] leading-relaxed text-ink">
+                  {stateAt.state.statement}
+                </p>
                 <p className="mt-1 text-[11px] text-faint">
-                  valid from {new Date(stateAt.state.valid_from).toLocaleDateString()}
+                  valid from{" "}
+                  {new Date(stateAt.state.valid_from).toLocaleDateString()}
                   {stateAt.state.valid_to
                     ? ` to ${new Date(stateAt.state.valid_to).toLocaleDateString()}`
                     : " — still the current understanding"}
@@ -271,7 +319,8 @@ export default function KnowledgeWorkspaceTimelinePage() {
               {stateAt.replaced_by && (
                 <div className="px-5 py-4">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-faint">
-                    Replaced on {new Date(stateAt.replaced_by.at).toLocaleDateString()}
+                    Replaced on{" "}
+                    {new Date(stateAt.replaced_by.at).toLocaleDateString()}
                   </p>
                   <p className="mt-1 text-[13px] leading-relaxed text-muted">
                     {stateAt.replaced_by.statement}

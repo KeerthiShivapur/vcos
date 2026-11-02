@@ -40,7 +40,10 @@ const STATUS_TONES: Record<string, "success" | "warning" | "neutral"> = {
 
 export function KnowledgeCard({ item, href }: KnowledgeCardProps) {
   const name = item.author_name ?? item.owner_name ?? null;
-  const target = href ?? item.url ?? `/${item.kind === "wiki" ? "wiki" : item.kind === "sop" ? "sops" : `${item.kind === "document" ? "documents" : `${item.kind}s`}`}/${item.id}`;
+  const target =
+    href ??
+    item.url ??
+    `/${item.kind === "wiki" ? "wiki" : item.kind === "sop" ? "sops" : `${item.kind === "document" ? "documents" : `${item.kind}s`}`}/${item.id}`;
   const tone = STATUS_TONES[item.status] ?? "neutral";
 
   return (
@@ -52,7 +55,9 @@ export function KnowledgeCard({ item, href }: KnowledgeCardProps) {
         <div className="flex min-w-0 items-center gap-3">
           <KindIconTile kind={item.kind} />
           <div className="min-w-0">
-            <h3 className="truncate font-semibold text-ink group-hover:text-brand">{item.title}</h3>
+            <h3 className="truncate font-semibold text-ink group-hover:text-brand">
+              {item.title}
+            </h3>
             <p className="text-[12px] text-faint">{kindLabel(item.kind)}</p>
           </div>
         </div>
@@ -68,7 +73,10 @@ export function KnowledgeCard({ item, href }: KnowledgeCardProps) {
       {item.tags && item.tags.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-1.5">
           {item.tags.slice(0, 4).map((tag) => (
-            <span key={tag} className="rounded-md bg-canvas px-2 py-0.5 text-[11px] text-muted">
+            <span
+              key={tag}
+              className="rounded-md bg-canvas px-2 py-0.5 text-[11px] text-muted"
+            >
               #{tag}
             </span>
           ))}

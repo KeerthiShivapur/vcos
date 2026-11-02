@@ -1,0 +1,9 @@
+lean up any existing backups
+        from sqlalchemy import delete
+        await db_session.execute(delete(BackupManifest))
+        await db_session.flush()
+        
+        # Create backup manifest directly with correct organization_id
+        import uuid
+        import hashlib
+        import uuid

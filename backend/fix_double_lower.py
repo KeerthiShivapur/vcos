@@ -1,0 +1,13 @@
+with open('tests/test_gate6f_epistemic_integrity.py', 'r', encoding='utf-8') as f:
+    content = f.read()
+
+# Find and fix the problematic line
+old_text = '            assert "evidence:validate" in str(e).lower() or "permission" in str(e).lower()e).lower()'
+new_text = '            assert "evidence:validate" in str(e).lower() or "permission" in str(e).lower()'
+
+content = content.replace(old_text, new_text)
+
+with open('tests/test_gate6f_epistemic_integrity.py', 'w', encoding='utf-8') as f:
+    f.write(content)
+
+print('Fixed duplicated .lower()')

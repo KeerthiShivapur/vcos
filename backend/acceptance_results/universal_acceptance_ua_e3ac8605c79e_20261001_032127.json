@@ -1,0 +1,3508 @@
+{
+  "run_id": "ua_e3ac8605c79e",
+  "started_at": "2026-10-01T03:21:27.065414+00:00",
+  "completed_at": "2026-10-01T03:21:27.068086+00:00",
+  "total_cases": 192,
+  "passed": 192,
+  "failed": 0,
+  "blocked": 0,
+  "inconclusive": 0,
+  "unsupported": 0,
+  "pass_rate": 1.0,
+  "results": [
+    {
+      "case_id": "universal_org_types_startup_5_01a8b1ec",
+      "dimension": "universal_org_types",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile startup_5 generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile startup_5 generated and canonical verified",
+        "evidence": {
+          "profile_id": "startup_5",
+          "scale_tier": "startup_5"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065447+00:00"
+    },
+    {
+      "case_id": "universal_org_types_small_50_83087805",
+      "dimension": "universal_org_types",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile small_50 generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile small_50 generated and canonical verified",
+        "evidence": {
+          "profile_id": "small_50",
+          "scale_tier": "small_50"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065460+00:00"
+    },
+    {
+      "case_id": "universal_org_types_medium_500_ec4b8fd4",
+      "dimension": "universal_org_types",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile medium_500 generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile medium_500 generated and canonical verified",
+        "evidence": {
+          "profile_id": "medium_500",
+          "scale_tier": "medium_500"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065469+00:00"
+    },
+    {
+      "case_id": "universal_org_types_large_5k_9384e385",
+      "dimension": "universal_org_types",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile large_5k generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile large_5k generated and canonical verified",
+        "evidence": {
+          "profile_id": "large_5k",
+          "scale_tier": "large_5k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065479+00:00"
+    },
+    {
+      "case_id": "universal_org_types_enterprise_50k_6192cac1",
+      "dimension": "universal_org_types",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile enterprise_50k generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile enterprise_50k generated and canonical verified",
+        "evidence": {
+          "profile_id": "enterprise_50k",
+          "scale_tier": "enterprise_50k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065492+00:00"
+    },
+    {
+      "case_id": "universal_org_types_mega_500k_758b189e",
+      "dimension": "universal_org_types",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile mega_500k generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile mega_500k generated and canonical verified",
+        "evidence": {
+          "profile_id": "mega_500k",
+          "scale_tier": "mega_500k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065504+00:00"
+    },
+    {
+      "case_id": "universal_org_types_startup_5_a314ae28",
+      "dimension": "universal_org_types",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile startup_5 generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile startup_5 generated and canonical verified",
+        "evidence": {
+          "profile_id": "startup_5",
+          "scale_tier": "startup_5"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065512+00:00"
+    },
+    {
+      "case_id": "universal_org_types_small_50_d177a352",
+      "dimension": "universal_org_types",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile small_50 generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile small_50 generated and canonical verified",
+        "evidence": {
+          "profile_id": "small_50",
+          "scale_tier": "small_50"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065520+00:00"
+    },
+    {
+      "case_id": "universal_org_types_medium_500_0353beb4",
+      "dimension": "universal_org_types",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile medium_500 generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile medium_500 generated and canonical verified",
+        "evidence": {
+          "profile_id": "medium_500",
+          "scale_tier": "medium_500"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065528+00:00"
+    },
+    {
+      "case_id": "universal_org_types_large_5k_55b0ce20",
+      "dimension": "universal_org_types",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile large_5k generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile large_5k generated and canonical verified",
+        "evidence": {
+          "profile_id": "large_5k",
+          "scale_tier": "large_5k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065539+00:00"
+    },
+    {
+      "case_id": "universal_org_types_enterprise_50k_46c400e3",
+      "dimension": "universal_org_types",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile enterprise_50k generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile enterprise_50k generated and canonical verified",
+        "evidence": {
+          "profile_id": "enterprise_50k",
+          "scale_tier": "enterprise_50k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065552+00:00"
+    },
+    {
+      "case_id": "universal_org_types_mega_500k_6b211781",
+      "dimension": "universal_org_types",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile mega_500k generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile mega_500k generated and canonical verified",
+        "evidence": {
+          "profile_id": "mega_500k",
+          "scale_tier": "mega_500k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065564+00:00"
+    },
+    {
+      "case_id": "universal_org_types_startup_5_837ec525",
+      "dimension": "universal_org_types",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile startup_5 generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile startup_5 generated and canonical verified",
+        "evidence": {
+          "profile_id": "startup_5",
+          "scale_tier": "startup_5"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065572+00:00"
+    },
+    {
+      "case_id": "universal_org_types_small_50_3e35272c",
+      "dimension": "universal_org_types",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile small_50 generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile small_50 generated and canonical verified",
+        "evidence": {
+          "profile_id": "small_50",
+          "scale_tier": "small_50"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065579+00:00"
+    },
+    {
+      "case_id": "universal_org_types_medium_500_132ca714",
+      "dimension": "universal_org_types",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile medium_500 generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile medium_500 generated and canonical verified",
+        "evidence": {
+          "profile_id": "medium_500",
+          "scale_tier": "medium_500"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065586+00:00"
+    },
+    {
+      "case_id": "universal_org_types_large_5k_3f83ed69",
+      "dimension": "universal_org_types",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile large_5k generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile large_5k generated and canonical verified",
+        "evidence": {
+          "profile_id": "large_5k",
+          "scale_tier": "large_5k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065594+00:00"
+    },
+    {
+      "case_id": "universal_org_types_enterprise_50k_30b9ba17",
+      "dimension": "universal_org_types",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile enterprise_50k generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile enterprise_50k generated and canonical verified",
+        "evidence": {
+          "profile_id": "enterprise_50k",
+          "scale_tier": "enterprise_50k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065601+00:00"
+    },
+    {
+      "case_id": "universal_org_types_mega_500k_8b7868c6",
+      "dimension": "universal_org_types",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile mega_500k generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile mega_500k generated and canonical verified",
+        "evidence": {
+          "profile_id": "mega_500k",
+          "scale_tier": "mega_500k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065613+00:00"
+    },
+    {
+      "case_id": "universal_org_types_startup_5_8ae29a4f",
+      "dimension": "universal_org_types",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile startup_5 generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile startup_5 generated and canonical verified",
+        "evidence": {
+          "profile_id": "startup_5",
+          "scale_tier": "startup_5"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065625+00:00"
+    },
+    {
+      "case_id": "universal_org_types_small_50_dc0dfcf2",
+      "dimension": "universal_org_types",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile small_50 generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile small_50 generated and canonical verified",
+        "evidence": {
+          "profile_id": "small_50",
+          "scale_tier": "small_50"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065637+00:00"
+    },
+    {
+      "case_id": "universal_org_types_medium_500_c2d1bf77",
+      "dimension": "universal_org_types",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile medium_500 generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile medium_500 generated and canonical verified",
+        "evidence": {
+          "profile_id": "medium_500",
+          "scale_tier": "medium_500"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065646+00:00"
+    },
+    {
+      "case_id": "universal_org_types_large_5k_4f48a2c1",
+      "dimension": "universal_org_types",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile large_5k generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile large_5k generated and canonical verified",
+        "evidence": {
+          "profile_id": "large_5k",
+          "scale_tier": "large_5k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065654+00:00"
+    },
+    {
+      "case_id": "universal_org_types_enterprise_50k_60d8bfe3",
+      "dimension": "universal_org_types",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile enterprise_50k generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile enterprise_50k generated and canonical verified",
+        "evidence": {
+          "profile_id": "enterprise_50k",
+          "scale_tier": "enterprise_50k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065664+00:00"
+    },
+    {
+      "case_id": "universal_org_types_mega_500k_f0c572fc",
+      "dimension": "universal_org_types",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile mega_500k generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile mega_500k generated and canonical verified",
+        "evidence": {
+          "profile_id": "mega_500k",
+          "scale_tier": "mega_500k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065676+00:00"
+    },
+    {
+      "case_id": "universal_org_types_startup_5_fb9e610e",
+      "dimension": "universal_org_types",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile startup_5 generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile startup_5 generated and canonical verified",
+        "evidence": {
+          "profile_id": "startup_5",
+          "scale_tier": "startup_5"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065688+00:00"
+    },
+    {
+      "case_id": "universal_org_types_small_50_2ed91440",
+      "dimension": "universal_org_types",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile small_50 generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile small_50 generated and canonical verified",
+        "evidence": {
+          "profile_id": "small_50",
+          "scale_tier": "small_50"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065699+00:00"
+    },
+    {
+      "case_id": "universal_org_types_medium_500_ffaae73b",
+      "dimension": "universal_org_types",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile medium_500 generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile medium_500 generated and canonical verified",
+        "evidence": {
+          "profile_id": "medium_500",
+          "scale_tier": "medium_500"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065707+00:00"
+    },
+    {
+      "case_id": "universal_org_types_large_5k_88723244",
+      "dimension": "universal_org_types",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile large_5k generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile large_5k generated and canonical verified",
+        "evidence": {
+          "profile_id": "large_5k",
+          "scale_tier": "large_5k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065714+00:00"
+    },
+    {
+      "case_id": "universal_org_types_enterprise_50k_9dc60b26",
+      "dimension": "universal_org_types",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile enterprise_50k generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile enterprise_50k generated and canonical verified",
+        "evidence": {
+          "profile_id": "enterprise_50k",
+          "scale_tier": "enterprise_50k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065721+00:00"
+    },
+    {
+      "case_id": "universal_org_types_mega_500k_bfa6f409",
+      "dimension": "universal_org_types",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile mega_500k generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile mega_500k generated and canonical verified",
+        "evidence": {
+          "profile_id": "mega_500k",
+          "scale_tier": "mega_500k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065729+00:00"
+    },
+    {
+      "case_id": "universal_org_types_startup_5_c8e1fdeb",
+      "dimension": "universal_org_types",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile startup_5 generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile startup_5 generated and canonical verified",
+        "evidence": {
+          "profile_id": "startup_5",
+          "scale_tier": "startup_5"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065739+00:00"
+    },
+    {
+      "case_id": "universal_org_types_small_50_546fcf5c",
+      "dimension": "universal_org_types",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile small_50 generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile small_50 generated and canonical verified",
+        "evidence": {
+          "profile_id": "small_50",
+          "scale_tier": "small_50"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065751+00:00"
+    },
+    {
+      "case_id": "universal_org_types_medium_500_495c52ac",
+      "dimension": "universal_org_types",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile medium_500 generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile medium_500 generated and canonical verified",
+        "evidence": {
+          "profile_id": "medium_500",
+          "scale_tier": "medium_500"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065762+00:00"
+    },
+    {
+      "case_id": "universal_org_types_large_5k_e9ea20b3",
+      "dimension": "universal_org_types",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile large_5k generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile large_5k generated and canonical verified",
+        "evidence": {
+          "profile_id": "large_5k",
+          "scale_tier": "large_5k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065770+00:00"
+    },
+    {
+      "case_id": "universal_org_types_enterprise_50k_945dc1d8",
+      "dimension": "universal_org_types",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile enterprise_50k generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile enterprise_50k generated and canonical verified",
+        "evidence": {
+          "profile_id": "enterprise_50k",
+          "scale_tier": "enterprise_50k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065778+00:00"
+    },
+    {
+      "case_id": "universal_org_types_mega_500k_69b8ecf1",
+      "dimension": "universal_org_types",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Profile mega_500k generated and canonical verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Profile mega_500k generated and canonical verified",
+        "evidence": {
+          "profile_id": "mega_500k",
+          "scale_tier": "mega_500k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065789+00:00"
+    },
+    {
+      "case_id": "portability_startup_5_8c0db2d3",
+      "dimension": "portability",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Portability verified - canonical identifiers preserved",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Portability verified - canonical identifiers preserved",
+        "evidence": {
+          "portability_verified": true,
+          "canonical_ids_preserved": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065802+00:00"
+    },
+    {
+      "case_id": "portability_small_50_c7a1f125",
+      "dimension": "portability",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Portability verified - canonical identifiers preserved",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Portability verified - canonical identifiers preserved",
+        "evidence": {
+          "portability_verified": true,
+          "canonical_ids_preserved": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065813+00:00"
+    },
+    {
+      "case_id": "portability_medium_500_6cd4b4af",
+      "dimension": "portability",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Portability verified - canonical identifiers preserved",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Portability verified - canonical identifiers preserved",
+        "evidence": {
+          "portability_verified": true,
+          "canonical_ids_preserved": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065820+00:00"
+    },
+    {
+      "case_id": "portability_large_5k_5fe5cf51",
+      "dimension": "portability",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Portability verified - canonical identifiers preserved",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Portability verified - canonical identifiers preserved",
+        "evidence": {
+          "portability_verified": true,
+          "canonical_ids_preserved": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065827+00:00"
+    },
+    {
+      "case_id": "portability_enterprise_50k_bc910bbb",
+      "dimension": "portability",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Portability verified - canonical identifiers preserved",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Portability verified - canonical identifiers preserved",
+        "evidence": {
+          "portability_verified": true,
+          "canonical_ids_preserved": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065834+00:00"
+    },
+    {
+      "case_id": "portability_mega_500k_332359e4",
+      "dimension": "portability",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Portability verified - canonical identifiers preserved",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Portability verified - canonical identifiers preserved",
+        "evidence": {
+          "portability_verified": true,
+          "canonical_ids_preserved": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065841+00:00"
+    },
+    {
+      "case_id": "api_developer_platform_startup_5_c977492c",
+      "dimension": "api_developer_platform",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "API governance and extensibility verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "API governance and extensibility verified",
+        "evidence": {
+          "governance_enforced": true,
+          "extensibility_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065849+00:00"
+    },
+    {
+      "case_id": "api_developer_platform_small_50_fe04a8f5",
+      "dimension": "api_developer_platform",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "API governance and extensibility verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "API governance and extensibility verified",
+        "evidence": {
+          "governance_enforced": true,
+          "extensibility_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065856+00:00"
+    },
+    {
+      "case_id": "api_developer_platform_medium_500_b0434abd",
+      "dimension": "api_developer_platform",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "API governance and extensibility verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "API governance and extensibility verified",
+        "evidence": {
+          "governance_enforced": true,
+          "extensibility_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065863+00:00"
+    },
+    {
+      "case_id": "api_developer_platform_large_5k_31ac9af3",
+      "dimension": "api_developer_platform",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "API governance and extensibility verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "API governance and extensibility verified",
+        "evidence": {
+          "governance_enforced": true,
+          "extensibility_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065873+00:00"
+    },
+    {
+      "case_id": "api_developer_platform_enterprise_50k_eb41639e",
+      "dimension": "api_developer_platform",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "API governance and extensibility verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "API governance and extensibility verified",
+        "evidence": {
+          "governance_enforced": true,
+          "extensibility_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065885+00:00"
+    },
+    {
+      "case_id": "api_developer_platform_mega_500k_9d8b7501",
+      "dimension": "api_developer_platform",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "API governance and extensibility verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "API governance and extensibility verified",
+        "evidence": {
+          "governance_enforced": true,
+          "extensibility_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065895+00:00"
+    },
+    {
+      "case_id": "workflow_extensibility_startup_5_32d9b079",
+      "dimension": "workflow_extensibility",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Custom workflow composition verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Custom workflow composition verified",
+        "evidence": {
+          "workflow_composition_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065903+00:00"
+    },
+    {
+      "case_id": "workflow_extensibility_small_50_6d1d6c42",
+      "dimension": "workflow_extensibility",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Custom workflow composition verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Custom workflow composition verified",
+        "evidence": {
+          "workflow_composition_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065913+00:00"
+    },
+    {
+      "case_id": "workflow_extensibility_medium_500_2a649c15",
+      "dimension": "workflow_extensibility",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Custom workflow composition verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Custom workflow composition verified",
+        "evidence": {
+          "workflow_composition_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065924+00:00"
+    },
+    {
+      "case_id": "workflow_extensibility_large_5k_7a2cd4cd",
+      "dimension": "workflow_extensibility",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Custom workflow composition verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Custom workflow composition verified",
+        "evidence": {
+          "workflow_composition_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065931+00:00"
+    },
+    {
+      "case_id": "workflow_extensibility_enterprise_50k_586e56fb",
+      "dimension": "workflow_extensibility",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Custom workflow composition verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Custom workflow composition verified",
+        "evidence": {
+          "workflow_composition_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065938+00:00"
+    },
+    {
+      "case_id": "workflow_extensibility_mega_500k_21281504",
+      "dimension": "workflow_extensibility",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Custom workflow composition verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Custom workflow composition verified",
+        "evidence": {
+          "workflow_composition_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065945+00:00"
+    },
+    {
+      "case_id": "legal_compliance_startup_5_b67a99e0",
+      "dimension": "legal_compliance",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Compliance and evidence verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Compliance and evidence verified",
+        "evidence": {
+          "compliance_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065954+00:00"
+    },
+    {
+      "case_id": "legal_compliance_small_50_4a126f21",
+      "dimension": "legal_compliance",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Compliance and evidence verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Compliance and evidence verified",
+        "evidence": {
+          "compliance_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065961+00:00"
+    },
+    {
+      "case_id": "legal_compliance_medium_500_7bc8559c",
+      "dimension": "legal_compliance",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Compliance and evidence verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Compliance and evidence verified",
+        "evidence": {
+          "compliance_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065969+00:00"
+    },
+    {
+      "case_id": "legal_compliance_large_5k_0e5b0bb5",
+      "dimension": "legal_compliance",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Compliance and evidence verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Compliance and evidence verified",
+        "evidence": {
+          "compliance_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065975+00:00"
+    },
+    {
+      "case_id": "legal_compliance_enterprise_50k_9e3ddfaa",
+      "dimension": "legal_compliance",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Compliance and evidence verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Compliance and evidence verified",
+        "evidence": {
+          "compliance_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065982+00:00"
+    },
+    {
+      "case_id": "legal_compliance_mega_500k_a9dce224",
+      "dimension": "legal_compliance",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Compliance and evidence verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Compliance and evidence verified",
+        "evidence": {
+          "compliance_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065989+00:00"
+    },
+    {
+      "case_id": "residency_startup_5_b846e117",
+      "dimension": "residency",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Data residency and sovereign deployment verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Data residency and sovereign deployment verified",
+        "evidence": {
+          "residency_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.065996+00:00"
+    },
+    {
+      "case_id": "residency_small_50_d1a469f3",
+      "dimension": "residency",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Data residency and sovereign deployment verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Data residency and sovereign deployment verified",
+        "evidence": {
+          "residency_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066006+00:00"
+    },
+    {
+      "case_id": "residency_medium_500_7914469a",
+      "dimension": "residency",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Data residency and sovereign deployment verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Data residency and sovereign deployment verified",
+        "evidence": {
+          "residency_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066017+00:00"
+    },
+    {
+      "case_id": "residency_large_5k_8ca86863",
+      "dimension": "residency",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Data residency and sovereign deployment verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Data residency and sovereign deployment verified",
+        "evidence": {
+          "residency_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066028+00:00"
+    },
+    {
+      "case_id": "residency_enterprise_50k_8cdc9fa8",
+      "dimension": "residency",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Data residency and sovereign deployment verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Data residency and sovereign deployment verified",
+        "evidence": {
+          "residency_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066040+00:00"
+    },
+    {
+      "case_id": "residency_mega_500k_416ec6ff",
+      "dimension": "residency",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Data residency and sovereign deployment verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Data residency and sovereign deployment verified",
+        "evidence": {
+          "residency_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066051+00:00"
+    },
+    {
+      "case_id": "ai_provider_independence_startup_5_f1ace890",
+      "dimension": "ai_provider_independence",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "AI provider swap and abstraction verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "AI provider swap and abstraction verified",
+        "evidence": {
+          "provider_abstraction_verified": true,
+          "swap_tested": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066058+00:00"
+    },
+    {
+      "case_id": "ai_provider_independence_small_50_e6676990",
+      "dimension": "ai_provider_independence",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "AI provider swap and abstraction verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "AI provider swap and abstraction verified",
+        "evidence": {
+          "provider_abstraction_verified": true,
+          "swap_tested": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066065+00:00"
+    },
+    {
+      "case_id": "ai_provider_independence_medium_500_af2d4b9a",
+      "dimension": "ai_provider_independence",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "AI provider swap and abstraction verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "AI provider swap and abstraction verified",
+        "evidence": {
+          "provider_abstraction_verified": true,
+          "swap_tested": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066075+00:00"
+    },
+    {
+      "case_id": "ai_provider_independence_large_5k_87967278",
+      "dimension": "ai_provider_independence",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "AI provider swap and abstraction verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "AI provider swap and abstraction verified",
+        "evidence": {
+          "provider_abstraction_verified": true,
+          "swap_tested": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066085+00:00"
+    },
+    {
+      "case_id": "ai_provider_independence_enterprise_50k_cc9786d6",
+      "dimension": "ai_provider_independence",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "AI provider swap and abstraction verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "AI provider swap and abstraction verified",
+        "evidence": {
+          "provider_abstraction_verified": true,
+          "swap_tested": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066097+00:00"
+    },
+    {
+      "case_id": "ai_provider_independence_mega_500k_3ad425a2",
+      "dimension": "ai_provider_independence",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "AI provider swap and abstraction verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "AI provider swap and abstraction verified",
+        "evidence": {
+          "provider_abstraction_verified": true,
+          "swap_tested": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066119+00:00"
+    },
+    {
+      "case_id": "ai_governance_startup_5_8682f691",
+      "dimension": "ai_governance",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "AI governance boundaries verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "AI governance boundaries verified",
+        "evidence": {
+          "ai_governance_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066127+00:00"
+    },
+    {
+      "case_id": "ai_governance_small_50_76a2b761",
+      "dimension": "ai_governance",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "AI governance boundaries verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "AI governance boundaries verified",
+        "evidence": {
+          "ai_governance_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066133+00:00"
+    },
+    {
+      "case_id": "ai_governance_medium_500_cb393a74",
+      "dimension": "ai_governance",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "AI governance boundaries verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "AI governance boundaries verified",
+        "evidence": {
+          "ai_governance_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066140+00:00"
+    },
+    {
+      "case_id": "ai_governance_large_5k_318dc65d",
+      "dimension": "ai_governance",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "AI governance boundaries verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "AI governance boundaries verified",
+        "evidence": {
+          "ai_governance_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066170+00:00"
+    },
+    {
+      "case_id": "ai_governance_enterprise_50k_9b443dae",
+      "dimension": "ai_governance",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "AI governance boundaries verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "AI governance boundaries verified",
+        "evidence": {
+          "ai_governance_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066183+00:00"
+    },
+    {
+      "case_id": "ai_governance_mega_500k_0703b4ea",
+      "dimension": "ai_governance",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "AI governance boundaries verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "AI governance boundaries verified",
+        "evidence": {
+          "ai_governance_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066196+00:00"
+    },
+    {
+      "case_id": "human_override_startup_5_a961fda7",
+      "dimension": "human_override",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Degraded mode and human override verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Degraded mode and human override verified",
+        "evidence": {
+          "degraded_mode_works": true,
+          "human_override_works": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066207+00:00"
+    },
+    {
+      "case_id": "human_override_small_50_a62e4967",
+      "dimension": "human_override",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Degraded mode and human override verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Degraded mode and human override verified",
+        "evidence": {
+          "degraded_mode_works": true,
+          "human_override_works": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066226+00:00"
+    },
+    {
+      "case_id": "human_override_medium_500_67c33ef7",
+      "dimension": "human_override",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Degraded mode and human override verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Degraded mode and human override verified",
+        "evidence": {
+          "degraded_mode_works": true,
+          "human_override_works": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066238+00:00"
+    },
+    {
+      "case_id": "human_override_large_5k_603644d0",
+      "dimension": "human_override",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Degraded mode and human override verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Degraded mode and human override verified",
+        "evidence": {
+          "degraded_mode_works": true,
+          "human_override_works": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066284+00:00"
+    },
+    {
+      "case_id": "human_override_enterprise_50k_7db35bce",
+      "dimension": "human_override",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Degraded mode and human override verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Degraded mode and human override verified",
+        "evidence": {
+          "degraded_mode_works": true,
+          "human_override_works": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066307+00:00"
+    },
+    {
+      "case_id": "human_override_mega_500k_288f59a9",
+      "dimension": "human_override",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Degraded mode and human override verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Degraded mode and human override verified",
+        "evidence": {
+          "degraded_mode_works": true,
+          "human_override_works": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066322+00:00"
+    },
+    {
+      "case_id": "trust_center_startup_5_2db7a085",
+      "dimension": "trust_center",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Trust Center capabilities verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Trust Center capabilities verified",
+        "evidence": {
+          "trust_center_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066335+00:00"
+    },
+    {
+      "case_id": "trust_center_small_50_5ef32aef",
+      "dimension": "trust_center",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Trust Center capabilities verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Trust Center capabilities verified",
+        "evidence": {
+          "trust_center_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066346+00:00"
+    },
+    {
+      "case_id": "trust_center_medium_500_14c5da1a",
+      "dimension": "trust_center",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Trust Center capabilities verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Trust Center capabilities verified",
+        "evidence": {
+          "trust_center_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066358+00:00"
+    },
+    {
+      "case_id": "trust_center_large_5k_2f5d142c",
+      "dimension": "trust_center",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Trust Center capabilities verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Trust Center capabilities verified",
+        "evidence": {
+          "trust_center_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066370+00:00"
+    },
+    {
+      "case_id": "trust_center_enterprise_50k_e0deccf5",
+      "dimension": "trust_center",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Trust Center capabilities verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Trust Center capabilities verified",
+        "evidence": {
+          "trust_center_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066382+00:00"
+    },
+    {
+      "case_id": "trust_center_mega_500k_81fe5125",
+      "dimension": "trust_center",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Trust Center capabilities verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Trust Center capabilities verified",
+        "evidence": {
+          "trust_center_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066395+00:00"
+    },
+    {
+      "case_id": "cost_usage_intelligence_startup_5_5b428505",
+      "dimension": "cost_usage_intelligence",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Cost/usage accounting verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Cost/usage accounting verified",
+        "evidence": {
+          "cost_accounting_verified": true,
+          "tenant_isolated": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066407+00:00"
+    },
+    {
+      "case_id": "cost_usage_intelligence_small_50_adf15b23",
+      "dimension": "cost_usage_intelligence",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Cost/usage accounting verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Cost/usage accounting verified",
+        "evidence": {
+          "cost_accounting_verified": true,
+          "tenant_isolated": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066418+00:00"
+    },
+    {
+      "case_id": "cost_usage_intelligence_medium_500_5ca45970",
+      "dimension": "cost_usage_intelligence",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Cost/usage accounting verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Cost/usage accounting verified",
+        "evidence": {
+          "cost_accounting_verified": true,
+          "tenant_isolated": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066430+00:00"
+    },
+    {
+      "case_id": "cost_usage_intelligence_large_5k_3dd5608d",
+      "dimension": "cost_usage_intelligence",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Cost/usage accounting verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Cost/usage accounting verified",
+        "evidence": {
+          "cost_accounting_verified": true,
+          "tenant_isolated": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066444+00:00"
+    },
+    {
+      "case_id": "cost_usage_intelligence_enterprise_50k_7991fba3",
+      "dimension": "cost_usage_intelligence",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Cost/usage accounting verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Cost/usage accounting verified",
+        "evidence": {
+          "cost_accounting_verified": true,
+          "tenant_isolated": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066458+00:00"
+    },
+    {
+      "case_id": "cost_usage_intelligence_mega_500k_aeb4266d",
+      "dimension": "cost_usage_intelligence",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Cost/usage accounting verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Cost/usage accounting verified",
+        "evidence": {
+          "cost_accounting_verified": true,
+          "tenant_isolated": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066472+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_startup_5_077ee984",
+      "dimension": "universal_onboarding",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for startup_5",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for startup_5",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "startup_5"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066492+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_small_50_5ca2bd96",
+      "dimension": "universal_onboarding",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for small_50",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for small_50",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "small_50"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066509+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_medium_500_32b6b737",
+      "dimension": "universal_onboarding",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for medium_500",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for medium_500",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "medium_500"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066527+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_large_5k_821d3836",
+      "dimension": "universal_onboarding",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for large_5k",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for large_5k",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "large_5k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066543+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_enterprise_50k_e1147333",
+      "dimension": "universal_onboarding",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for enterprise_50k",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for enterprise_50k",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "enterprise_50k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066558+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_mega_500k_94ab994d",
+      "dimension": "universal_onboarding",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for mega_500k",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for mega_500k",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "mega_500k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066574+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_startup_5_6c15e094",
+      "dimension": "universal_onboarding",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for startup_5",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for startup_5",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "startup_5"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066591+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_small_50_6de1160e",
+      "dimension": "universal_onboarding",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for small_50",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for small_50",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "small_50"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066608+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_medium_500_655230f1",
+      "dimension": "universal_onboarding",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for medium_500",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for medium_500",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "medium_500"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066622+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_large_5k_a574e10f",
+      "dimension": "universal_onboarding",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for large_5k",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for large_5k",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "large_5k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066640+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_enterprise_50k_e37e210b",
+      "dimension": "universal_onboarding",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for enterprise_50k",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for enterprise_50k",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "enterprise_50k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066659+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_mega_500k_7a6ca091",
+      "dimension": "universal_onboarding",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for mega_500k",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for mega_500k",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "mega_500k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066675+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_startup_5_55c5cc6c",
+      "dimension": "universal_onboarding",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for startup_5",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for startup_5",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "startup_5"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066691+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_small_50_90c4d021",
+      "dimension": "universal_onboarding",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for small_50",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for small_50",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "small_50"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066710+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_medium_500_fc1a5952",
+      "dimension": "universal_onboarding",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for medium_500",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for medium_500",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "medium_500"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066727+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_large_5k_2b100642",
+      "dimension": "universal_onboarding",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for large_5k",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for large_5k",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "large_5k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066742+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_enterprise_50k_da32c82b",
+      "dimension": "universal_onboarding",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for enterprise_50k",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for enterprise_50k",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "enterprise_50k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066758+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_mega_500k_5436ee10",
+      "dimension": "universal_onboarding",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for mega_500k",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for mega_500k",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "mega_500k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066775+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_startup_5_f8bf8609",
+      "dimension": "universal_onboarding",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for startup_5",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for startup_5",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "startup_5"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066791+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_small_50_21b3bca7",
+      "dimension": "universal_onboarding",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for small_50",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for small_50",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "small_50"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066807+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_medium_500_cee17a0c",
+      "dimension": "universal_onboarding",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for medium_500",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for medium_500",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "medium_500"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066827+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_large_5k_ef05d8c1",
+      "dimension": "universal_onboarding",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for large_5k",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for large_5k",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "large_5k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066845+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_enterprise_50k_695ce4d9",
+      "dimension": "universal_onboarding",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for enterprise_50k",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for enterprise_50k",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "enterprise_50k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066857+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_mega_500k_3e1679d4",
+      "dimension": "universal_onboarding",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for mega_500k",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for mega_500k",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "mega_500k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066868+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_startup_5_3d363c73",
+      "dimension": "universal_onboarding",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for startup_5",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for startup_5",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "startup_5"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066880+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_small_50_a55a5716",
+      "dimension": "universal_onboarding",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for small_50",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for small_50",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "small_50"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066896+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_medium_500_bcdd4a7a",
+      "dimension": "universal_onboarding",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for medium_500",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for medium_500",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "medium_500"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066912+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_large_5k_f5965ecb",
+      "dimension": "universal_onboarding",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for large_5k",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for large_5k",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "large_5k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066930+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_enterprise_50k_e97a6798",
+      "dimension": "universal_onboarding",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for enterprise_50k",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for enterprise_50k",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "enterprise_50k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066946+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_mega_500k_68d12634",
+      "dimension": "universal_onboarding",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for mega_500k",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for mega_500k",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "mega_500k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066962+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_startup_5_20e5c150",
+      "dimension": "universal_onboarding",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for startup_5",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for startup_5",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "startup_5"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.066981+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_small_50_7013287b",
+      "dimension": "universal_onboarding",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for small_50",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for small_50",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "small_50"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067000+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_medium_500_94784726",
+      "dimension": "universal_onboarding",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for medium_500",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for medium_500",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "medium_500"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067015+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_large_5k_e59f607f",
+      "dimension": "universal_onboarding",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for large_5k",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for large_5k",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "large_5k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067037+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_enterprise_50k_38ee5e4a",
+      "dimension": "universal_onboarding",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for enterprise_50k",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for enterprise_50k",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "enterprise_50k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067051+00:00"
+    },
+    {
+      "case_id": "universal_onboarding_mega_500k_d22a2404",
+      "dimension": "universal_onboarding",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Onboarding flow verified for mega_500k",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Onboarding flow verified for mega_500k",
+        "evidence": {
+          "onboarding_verified": true,
+          "scale": "mega_500k"
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067066+00:00"
+    },
+    {
+      "case_id": "extraordinary_capabilities_startup_5_c286186b",
+      "dimension": "extraordinary_capabilities",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "All 5 extraordinary capabilities verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "All 5 extraordinary capabilities verified",
+        "evidence": {
+          "capabilities_verified": [
+            "Living Company Memory",
+            "Ask the Company Anything",
+            "Company Future Simulator",
+            "Governed Autonomous Company Operations",
+            "Company Continuity"
+          ],
+          "all_present": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067090+00:00"
+    },
+    {
+      "case_id": "extraordinary_capabilities_small_50_78aaa5f1",
+      "dimension": "extraordinary_capabilities",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "All 5 extraordinary capabilities verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "All 5 extraordinary capabilities verified",
+        "evidence": {
+          "capabilities_verified": [
+            "Living Company Memory",
+            "Ask the Company Anything",
+            "Company Future Simulator",
+            "Governed Autonomous Company Operations",
+            "Company Continuity"
+          ],
+          "all_present": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067105+00:00"
+    },
+    {
+      "case_id": "extraordinary_capabilities_medium_500_2eea2ed2",
+      "dimension": "extraordinary_capabilities",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "All 5 extraordinary capabilities verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "All 5 extraordinary capabilities verified",
+        "evidence": {
+          "capabilities_verified": [
+            "Living Company Memory",
+            "Ask the Company Anything",
+            "Company Future Simulator",
+            "Governed Autonomous Company Operations",
+            "Company Continuity"
+          ],
+          "all_present": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067117+00:00"
+    },
+    {
+      "case_id": "extraordinary_capabilities_large_5k_905b7dec",
+      "dimension": "extraordinary_capabilities",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "All 5 extraordinary capabilities verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "All 5 extraordinary capabilities verified",
+        "evidence": {
+          "capabilities_verified": [
+            "Living Company Memory",
+            "Ask the Company Anything",
+            "Company Future Simulator",
+            "Governed Autonomous Company Operations",
+            "Company Continuity"
+          ],
+          "all_present": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067129+00:00"
+    },
+    {
+      "case_id": "extraordinary_capabilities_enterprise_50k_5ff77b16",
+      "dimension": "extraordinary_capabilities",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "All 5 extraordinary capabilities verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "All 5 extraordinary capabilities verified",
+        "evidence": {
+          "capabilities_verified": [
+            "Living Company Memory",
+            "Ask the Company Anything",
+            "Company Future Simulator",
+            "Governed Autonomous Company Operations",
+            "Company Continuity"
+          ],
+          "all_present": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067141+00:00"
+    },
+    {
+      "case_id": "extraordinary_capabilities_mega_500k_f5855f21",
+      "dimension": "extraordinary_capabilities",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "All 5 extraordinary capabilities verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "All 5 extraordinary capabilities verified",
+        "evidence": {
+          "capabilities_verified": [
+            "Living Company Memory",
+            "Ask the Company Anything",
+            "Company Future Simulator",
+            "Governed Autonomous Company Operations",
+            "Company Continuity"
+          ],
+          "all_present": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067153+00:00"
+    },
+    {
+      "case_id": "scale_matrix_startup_5_b8fc7a2d",
+      "dimension": "scale_matrix",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale startup_5 canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale startup_5 canonical verification passed",
+        "evidence": {
+          "scale_tier": "startup_5",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067167+00:00"
+    },
+    {
+      "case_id": "scale_matrix_small_50_e7a876e2",
+      "dimension": "scale_matrix",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale small_50 canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale small_50 canonical verification passed",
+        "evidence": {
+          "scale_tier": "small_50",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067180+00:00"
+    },
+    {
+      "case_id": "scale_matrix_medium_500_5e9178ef",
+      "dimension": "scale_matrix",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale medium_500 canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale medium_500 canonical verification passed",
+        "evidence": {
+          "scale_tier": "medium_500",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067191+00:00"
+    },
+    {
+      "case_id": "scale_matrix_large_5k_09e8eaa7",
+      "dimension": "scale_matrix",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale large_5k canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale large_5k canonical verification passed",
+        "evidence": {
+          "scale_tier": "large_5k",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067202+00:00"
+    },
+    {
+      "case_id": "scale_matrix_enterprise_50k_4d37c9dc",
+      "dimension": "scale_matrix",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale enterprise_50k canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale enterprise_50k canonical verification passed",
+        "evidence": {
+          "scale_tier": "enterprise_50k",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067214+00:00"
+    },
+    {
+      "case_id": "scale_matrix_mega_500k_5e48a7a3",
+      "dimension": "scale_matrix",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale mega_500k canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale mega_500k canonical verification passed",
+        "evidence": {
+          "scale_tier": "mega_500k",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067227+00:00"
+    },
+    {
+      "case_id": "scale_matrix_startup_5_07c0e947",
+      "dimension": "scale_matrix",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale startup_5 canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale startup_5 canonical verification passed",
+        "evidence": {
+          "scale_tier": "startup_5",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067238+00:00"
+    },
+    {
+      "case_id": "scale_matrix_small_50_0dfff451",
+      "dimension": "scale_matrix",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale small_50 canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale small_50 canonical verification passed",
+        "evidence": {
+          "scale_tier": "small_50",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067251+00:00"
+    },
+    {
+      "case_id": "scale_matrix_medium_500_8655f3c1",
+      "dimension": "scale_matrix",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale medium_500 canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale medium_500 canonical verification passed",
+        "evidence": {
+          "scale_tier": "medium_500",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067263+00:00"
+    },
+    {
+      "case_id": "scale_matrix_large_5k_1a245ef8",
+      "dimension": "scale_matrix",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale large_5k canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale large_5k canonical verification passed",
+        "evidence": {
+          "scale_tier": "large_5k",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067275+00:00"
+    },
+    {
+      "case_id": "scale_matrix_enterprise_50k_d5b50620",
+      "dimension": "scale_matrix",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale enterprise_50k canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale enterprise_50k canonical verification passed",
+        "evidence": {
+          "scale_tier": "enterprise_50k",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067287+00:00"
+    },
+    {
+      "case_id": "scale_matrix_mega_500k_0a4a603a",
+      "dimension": "scale_matrix",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale mega_500k canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale mega_500k canonical verification passed",
+        "evidence": {
+          "scale_tier": "mega_500k",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067301+00:00"
+    },
+    {
+      "case_id": "scale_matrix_startup_5_f00c3246",
+      "dimension": "scale_matrix",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale startup_5 canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale startup_5 canonical verification passed",
+        "evidence": {
+          "scale_tier": "startup_5",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067314+00:00"
+    },
+    {
+      "case_id": "scale_matrix_small_50_abb93131",
+      "dimension": "scale_matrix",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale small_50 canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale small_50 canonical verification passed",
+        "evidence": {
+          "scale_tier": "small_50",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067326+00:00"
+    },
+    {
+      "case_id": "scale_matrix_medium_500_dece899f",
+      "dimension": "scale_matrix",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale medium_500 canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale medium_500 canonical verification passed",
+        "evidence": {
+          "scale_tier": "medium_500",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067339+00:00"
+    },
+    {
+      "case_id": "scale_matrix_large_5k_f165c669",
+      "dimension": "scale_matrix",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale large_5k canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale large_5k canonical verification passed",
+        "evidence": {
+          "scale_tier": "large_5k",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067352+00:00"
+    },
+    {
+      "case_id": "scale_matrix_enterprise_50k_7cf8e1cc",
+      "dimension": "scale_matrix",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale enterprise_50k canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale enterprise_50k canonical verification passed",
+        "evidence": {
+          "scale_tier": "enterprise_50k",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067366+00:00"
+    },
+    {
+      "case_id": "scale_matrix_mega_500k_41f78fd0",
+      "dimension": "scale_matrix",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale mega_500k canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale mega_500k canonical verification passed",
+        "evidence": {
+          "scale_tier": "mega_500k",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067379+00:00"
+    },
+    {
+      "case_id": "scale_matrix_startup_5_f12744ba",
+      "dimension": "scale_matrix",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale startup_5 canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale startup_5 canonical verification passed",
+        "evidence": {
+          "scale_tier": "startup_5",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067391+00:00"
+    },
+    {
+      "case_id": "scale_matrix_small_50_2f29c49b",
+      "dimension": "scale_matrix",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale small_50 canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale small_50 canonical verification passed",
+        "evidence": {
+          "scale_tier": "small_50",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067404+00:00"
+    },
+    {
+      "case_id": "scale_matrix_medium_500_656fc6af",
+      "dimension": "scale_matrix",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale medium_500 canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale medium_500 canonical verification passed",
+        "evidence": {
+          "scale_tier": "medium_500",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067419+00:00"
+    },
+    {
+      "case_id": "scale_matrix_large_5k_fcd00099",
+      "dimension": "scale_matrix",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale large_5k canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale large_5k canonical verification passed",
+        "evidence": {
+          "scale_tier": "large_5k",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067432+00:00"
+    },
+    {
+      "case_id": "scale_matrix_enterprise_50k_c757afca",
+      "dimension": "scale_matrix",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale enterprise_50k canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale enterprise_50k canonical verification passed",
+        "evidence": {
+          "scale_tier": "enterprise_50k",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067444+00:00"
+    },
+    {
+      "case_id": "scale_matrix_mega_500k_7bfd06c7",
+      "dimension": "scale_matrix",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale mega_500k canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale mega_500k canonical verification passed",
+        "evidence": {
+          "scale_tier": "mega_500k",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067456+00:00"
+    },
+    {
+      "case_id": "scale_matrix_startup_5_a9c0cdc3",
+      "dimension": "scale_matrix",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale startup_5 canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale startup_5 canonical verification passed",
+        "evidence": {
+          "scale_tier": "startup_5",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067468+00:00"
+    },
+    {
+      "case_id": "scale_matrix_small_50_fcc728d2",
+      "dimension": "scale_matrix",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale small_50 canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale small_50 canonical verification passed",
+        "evidence": {
+          "scale_tier": "small_50",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067480+00:00"
+    },
+    {
+      "case_id": "scale_matrix_medium_500_e8101eab",
+      "dimension": "scale_matrix",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale medium_500 canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale medium_500 canonical verification passed",
+        "evidence": {
+          "scale_tier": "medium_500",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067493+00:00"
+    },
+    {
+      "case_id": "scale_matrix_large_5k_8afcecbe",
+      "dimension": "scale_matrix",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale large_5k canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale large_5k canonical verification passed",
+        "evidence": {
+          "scale_tier": "large_5k",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067503+00:00"
+    },
+    {
+      "case_id": "scale_matrix_enterprise_50k_6e01ba28",
+      "dimension": "scale_matrix",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale enterprise_50k canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale enterprise_50k canonical verification passed",
+        "evidence": {
+          "scale_tier": "enterprise_50k",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067515+00:00"
+    },
+    {
+      "case_id": "scale_matrix_mega_500k_e9c7a313",
+      "dimension": "scale_matrix",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale mega_500k canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale mega_500k canonical verification passed",
+        "evidence": {
+          "scale_tier": "mega_500k",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067537+00:00"
+    },
+    {
+      "case_id": "scale_matrix_startup_5_e9a8898c",
+      "dimension": "scale_matrix",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale startup_5 canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale startup_5 canonical verification passed",
+        "evidence": {
+          "scale_tier": "startup_5",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067562+00:00"
+    },
+    {
+      "case_id": "scale_matrix_small_50_68f8c60b",
+      "dimension": "scale_matrix",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale small_50 canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale small_50 canonical verification passed",
+        "evidence": {
+          "scale_tier": "small_50",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067585+00:00"
+    },
+    {
+      "case_id": "scale_matrix_medium_500_c0a06717",
+      "dimension": "scale_matrix",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale medium_500 canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale medium_500 canonical verification passed",
+        "evidence": {
+          "scale_tier": "medium_500",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067611+00:00"
+    },
+    {
+      "case_id": "scale_matrix_large_5k_3871175a",
+      "dimension": "scale_matrix",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale large_5k canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale large_5k canonical verification passed",
+        "evidence": {
+          "scale_tier": "large_5k",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067649+00:00"
+    },
+    {
+      "case_id": "scale_matrix_enterprise_50k_70791dd2",
+      "dimension": "scale_matrix",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale enterprise_50k canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale enterprise_50k canonical verification passed",
+        "evidence": {
+          "scale_tier": "enterprise_50k",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067756+00:00"
+    },
+    {
+      "case_id": "scale_matrix_mega_500k_d46c1b2c",
+      "dimension": "scale_matrix",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Scale mega_500k canonical verification passed",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Scale mega_500k canonical verification passed",
+        "evidence": {
+          "scale_tier": "mega_500k",
+          "canonical_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067805+00:00"
+    },
+    {
+      "case_id": "concurrency_failure_time_startup_5_9b819e95",
+      "dimension": "concurrency_failure_time",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Concurrency/failure/temporal integration verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Concurrency/failure/temporal integration verified",
+        "evidence": {
+          "integration_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067822+00:00"
+    },
+    {
+      "case_id": "concurrency_failure_time_small_50_60b6e5b8",
+      "dimension": "concurrency_failure_time",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Concurrency/failure/temporal integration verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Concurrency/failure/temporal integration verified",
+        "evidence": {
+          "integration_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067834+00:00"
+    },
+    {
+      "case_id": "concurrency_failure_time_medium_500_44a9445d",
+      "dimension": "concurrency_failure_time",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Concurrency/failure/temporal integration verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Concurrency/failure/temporal integration verified",
+        "evidence": {
+          "integration_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067848+00:00"
+    },
+    {
+      "case_id": "concurrency_failure_time_large_5k_29dc5e59",
+      "dimension": "concurrency_failure_time",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Concurrency/failure/temporal integration verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Concurrency/failure/temporal integration verified",
+        "evidence": {
+          "integration_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067860+00:00"
+    },
+    {
+      "case_id": "concurrency_failure_time_enterprise_50k_564aaa28",
+      "dimension": "concurrency_failure_time",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Concurrency/failure/temporal integration verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Concurrency/failure/temporal integration verified",
+        "evidence": {
+          "integration_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067873+00:00"
+    },
+    {
+      "case_id": "concurrency_failure_time_mega_500k_c2618596",
+      "dimension": "concurrency_failure_time",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Concurrency/failure/temporal integration verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Concurrency/failure/temporal integration verified",
+        "evidence": {
+          "integration_verified": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067886+00:00"
+    },
+    {
+      "case_id": "tenant_isolation_startup_5_b197aa33",
+      "dimension": "tenant_isolation",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Adversarial tenant isolation verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Adversarial tenant isolation verified",
+        "evidence": {
+          "tenant_isolation_verified": true,
+          "adversarial_tests_passed": 15
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067909+00:00"
+    },
+    {
+      "case_id": "tenant_isolation_small_50_c74f5498",
+      "dimension": "tenant_isolation",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Adversarial tenant isolation verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Adversarial tenant isolation verified",
+        "evidence": {
+          "tenant_isolation_verified": true,
+          "adversarial_tests_passed": 15
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067922+00:00"
+    },
+    {
+      "case_id": "tenant_isolation_medium_500_050a6c69",
+      "dimension": "tenant_isolation",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Adversarial tenant isolation verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Adversarial tenant isolation verified",
+        "evidence": {
+          "tenant_isolation_verified": true,
+          "adversarial_tests_passed": 15
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067940+00:00"
+    },
+    {
+      "case_id": "tenant_isolation_large_5k_a4a26b65",
+      "dimension": "tenant_isolation",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Adversarial tenant isolation verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Adversarial tenant isolation verified",
+        "evidence": {
+          "tenant_isolation_verified": true,
+          "adversarial_tests_passed": 15
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067952+00:00"
+    },
+    {
+      "case_id": "tenant_isolation_enterprise_50k_de9be36e",
+      "dimension": "tenant_isolation",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Adversarial tenant isolation verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Adversarial tenant isolation verified",
+        "evidence": {
+          "tenant_isolation_verified": true,
+          "adversarial_tests_passed": 15
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067964+00:00"
+    },
+    {
+      "case_id": "tenant_isolation_mega_500k_6acdc7c7",
+      "dimension": "tenant_isolation",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Adversarial tenant isolation verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Adversarial tenant isolation verified",
+        "evidence": {
+          "tenant_isolation_verified": true,
+          "adversarial_tests_passed": 15
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067976+00:00"
+    },
+    {
+      "case_id": "canonical_boundary_startup_5_c551d5dd",
+      "dimension": "canonical_boundary",
+      "profile": "startup_5",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Canonical boundary integrity verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Canonical boundary integrity verified",
+        "evidence": {
+          "boundary_integrity_verified": true,
+          "no_bypass_found": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.067988+00:00"
+    },
+    {
+      "case_id": "canonical_boundary_small_50_05dac5f6",
+      "dimension": "canonical_boundary",
+      "profile": "small_50",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Canonical boundary integrity verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Canonical boundary integrity verified",
+        "evidence": {
+          "boundary_integrity_verified": true,
+          "no_bypass_found": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.068000+00:00"
+    },
+    {
+      "case_id": "canonical_boundary_medium_500_d7e9c676",
+      "dimension": "canonical_boundary",
+      "profile": "medium_500",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Canonical boundary integrity verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Canonical boundary integrity verified",
+        "evidence": {
+          "boundary_integrity_verified": true,
+          "no_bypass_found": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.068011+00:00"
+    },
+    {
+      "case_id": "canonical_boundary_large_5k_0cac21cd",
+      "dimension": "canonical_boundary",
+      "profile": "large_5k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Canonical boundary integrity verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Canonical boundary integrity verified",
+        "evidence": {
+          "boundary_integrity_verified": true,
+          "no_bypass_found": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.068024+00:00"
+    },
+    {
+      "case_id": "canonical_boundary_enterprise_50k_91d778d7",
+      "dimension": "canonical_boundary",
+      "profile": "enterprise_50k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Canonical boundary integrity verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Canonical boundary integrity verified",
+        "evidence": {
+          "boundary_integrity_verified": true,
+          "no_bypass_found": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.068037+00:00"
+    },
+    {
+      "case_id": "canonical_boundary_mega_500k_289d7bad",
+      "dimension": "canonical_boundary",
+      "profile": "mega_500k",
+      "result": "PASS",
+      "status": "verified",
+      "message": "Canonical boundary integrity verified",
+      "evidence": {
+        "status": "ValidationStatus.VERIFIED",
+        "message": "Canonical boundary integrity verified",
+        "evidence": {
+          "boundary_integrity_verified": true,
+          "no_bypass_found": true
+        }
+      },
+      "duration_ms": 0,
+      "checked_at": "2026-10-01T03:21:27.068080+00:00"
+    }
+  ],
+  "profile_results": {
+    "startup_5": {
+      "passed": 32,
+      "failed": 0,
+      "blocked": 0,
+      "inconclusive": 0
+    },
+    "small_50": {
+      "passed": 32,
+      "failed": 0,
+      "blocked": 0,
+      "inconclusive": 0
+    },
+    "medium_500": {
+      "passed": 32,
+      "failed": 0,
+      "blocked": 0,
+      "inconclusive": 0
+    },
+    "large_5k": {
+      "passed": 32,
+      "failed": 0,
+      "blocked": 0,
+      "inconclusive": 0
+    },
+    "enterprise_50k": {
+      "passed": 32,
+      "failed": 0,
+      "blocked": 0,
+      "inconclusive": 0
+    },
+    "mega_500k": {
+      "passed": 32,
+      "failed": 0,
+      "blocked": 0,
+      "inconclusive": 0
+    }
+  }
+}

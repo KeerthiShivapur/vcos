@@ -1,0 +1,50 @@
+'nce_class = self.context.profile.get("I")\n        policy_count = 10\n        if governance_class and '
+---
+'attr(governance_class, \'properties\'):\n            policy_count = governance_class.properties.get("po'
+---
+'nce_class = self.context.profile.get("I")\n        policy_count = 5\n        if governance_class and h'
+---
+'attr(governance_class, \'properties\'):\n            policy_count = governance_class.properties.get("po'
+---
+'icies", 5)\n        \n        policies = []\n        policy_definitions = [\n            ("financial_app'
+---
+'category, threshold, approver_roles) in enumerate(policy_definitions[:policy_count]):\n            po'
+---
+' approver_roles) in enumerate(policy_definitions[:policy_count]):\n            policy = ApprovalPolic'
+---
+'e(policy_definitions[:policy_count]):\n            policy = ApprovalPolicy(\n                id=self._'
+---
+'provalPolicy(\n                id=self._create_id("policy-"),\n                organization_id=self.co'
+---
+'_type=key,\n                description=f"Approval policy for {name.lower()}",\n                requir'
+---
+'ue,\n            )\n            self.context.db.add(policy)\n            policies.append(policy)\n      '
+---
+'ontext.db.add(policy)\n            policies.append(policy)\n        \n        await self.context.db.flu'
+---
+'s = policies.scalars().all()\n        \n        for policy in policies[:3]:\n            # Test authori'
+---
+'full",\n                title=f"Authorization for {policy.name}",\n                description="Test a'
+---
+'              commitment_id=None,\n                policy_id=policy.id,\n                conditions="{'
+---
+'    commitment_id=None,\n                policy_id=policy.id,\n                conditions="{}",constra'
+---
+'     source_event_id=f"{self.context.run_id}-dec-{policy.id}",\n                source_decision_id=No'
+---
+'        fingerprint=f"{self.context.run_id}-auth-{policy.id}",\n                version=1,\n          '
+---
+'   \n            results.append({\n                "policy_id": policy.id,\n                "policy_key'
+---
+'    results.append({\n                "policy_id": policy.id,\n                "policy_key": policy.ap'
+---
+'         "policy_id": policy.id,\n                "policy_key": policy.approval_type,\n               '
+---
+'icy_id": policy.id,\n                "policy_key": policy.approval_type,\n                "authorized"'
+---
+'None,\n            commitment_id=None,\n            policy_id=None,\n            conditions=[],\n       '
+---
+'     source_event_id=f"{self.context.run_id}-dec-{policy.id}",\n                epistemic_status="con'
+---
+'                target_id="test",\n                policy=None,\n                approval_required=Fal'
+---

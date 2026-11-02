@@ -45,12 +45,21 @@ import re
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
-from sqlalchemy import select
+from sqlalchemy import inspect as sa_inspect, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.timeutils import ensure_aware
+from app.core.timeutils import ensure_aware, utcnow as now_utc
 from app.intelligence.company_context import CallerAccess, resolve_caller_access
-from app.knowledge.canonical_service import _load_provenance, now_utc
+import json
+
+def _load_provenance(raw: Optional[str]) -> dict[str, Any]:
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
 from app.knowledge.intelligence_engine import (
     _clean_topic_name,
     _fingerprint,
@@ -144,6 +153,24 @@ def _priority(confidence: float, severity: str, urgency: str) -> float:
         confidence * 0.6 + _SEVERITY_WEIGHT.get(severity, 0.5) * 0.25
         + _SEVERITY_WEIGHT.get(urgency, 0.5) * 0.15,
         3,
+    )
+
+
+_FINGERPRINT_CONSTRAINT = "uq_knowledge_intel_insight_fingerprint"
+
+
+def _is_fingerprint_conflict(exc: IntegrityError) -> bool:
+    """True only for the exact unique constraint guarding insight
+    fingerprints — a genuine database error must never be mistaken for a
+    harmless concurrency duplicate."""
+    orig = getattr(exc, "orig", None)
+    if orig is None:
+        return False
+    if getattr(orig, "constraint_name", None) == _FINGERPRINT_CONSTRAINT:
+        return True
+    text = str(orig)
+    return _FINGERPRINT_CONSTRAINT in text or (
+        "UNIQUE constraint failed" in text and "knowledge_intel_insights" in text
     )
 
 
@@ -683,40 +710,60 @@ class KnowledgeActionEngine:
                     topic_id=item.get("topic_id"),
                     topic_name=item.get("topic_name"),
                 )
-                db.add(row)
-                await db.flush()
-                db.add(
-                    KnowledgeIntelInsightEvent(
-                        organization_id=organization_id,
-                        insight_id=row.id,
-                        action="created",
-                        actor_id="system",
-                        details_json=json.dumps(
-                            {"priority_score": priority, "severity": item["severity"]}
-                        ),
+                try:
+                    async with db.begin_nested():
+                        db.add(row)
+                        await db.flush()
+                except IntegrityError as exc:
+                    if not _is_fingerprint_conflict(exc):
+                        raise
+                    if sa_inspect(row).session is db:
+                        db.expunge(row)
+                    row = (
+                        await db.execute(
+                            select(KnowledgeIntelInsight).where(
+                                KnowledgeIntelInsight.organization_id == organization_id,
+                                KnowledgeIntelInsight.kind == item["kind"],
+                                KnowledgeIntelInsight.fingerprint == item["fingerprint"],
+                            )
+                        )
+                    ).scalar_one_or_none()
+                    if row is None:
+                        raise
+                    by_fingerprint[key] = row
+                else:
+                    db.add(
+                        KnowledgeIntelInsightEvent(
+                            organization_id=organization_id,
+                            insight_id=row.id,
+                            action="created",
+                            actor_id="system",
+                            details_json=json.dumps(
+                                {"priority_score": priority, "severity": item["severity"]}
+                            ),
+                        )
                     )
-                )
-                created += 1
-                if item["severity"] in ("high", "critical"):
-                    notified += await self._notify(
-                        db, organization_id=organization_id, insight=row
-                    )
-            else:
-                row.title = item["title"]
-                row.summary = item["summary"]
-                row.severity = item["severity"]
-                row.confidence = item["confidence"]
-                row.impact = item["impact"]
-                row.urgency = item["urgency"]
-                row.priority_score = priority
-                row.source_claims_json = json.dumps(item["source_claims"])
-                row.source_entities_json = json.dumps(item["source_entities"])
-                row.evidence_json = json.dumps(item["evidence"])
-                if row.resolved_by is None and row.status == "resolved":
-                    row.status = "active"
-                    row.resolved_at = None
-                row.updated_at = now
-                updated += 1
+                    created += 1
+                    if item["severity"] in ("high", "critical"):
+                        notified += await self._notify(
+                            db, organization_id=organization_id, insight=row
+                        )
+                    continue
+            row.title = item["title"]
+            row.summary = item["summary"]
+            row.severity = item["severity"]
+            row.confidence = item["confidence"]
+            row.impact = item["impact"]
+            row.urgency = item["urgency"]
+            row.priority_score = priority
+            row.source_claims_json = json.dumps(item["source_claims"])
+            row.source_entities_json = json.dumps(item["source_entities"])
+            row.evidence_json = json.dumps(item["evidence"])
+            if row.resolved_by is None and row.status == "resolved":
+                row.status = "active"
+                row.resolved_at = None
+            row.updated_at = now
+            updated += 1
         await db.flush()
         return {"created": created, "updated": updated, "resolved": resolved, "notified": notified}
 
@@ -1540,6 +1587,12 @@ class KnowledgeActionEngine:
             )
         now = now_utc()
         actor_id = getattr(user, "id", "system")
+        if action == "convert" and target not in ("task", "decision"):
+            raise ValueError("convert target must be 'task' or 'decision'")
+        if action == "execute" and not row.task_id and not row.decision_id:
+            raise ValueError("convert the recommendation before executing it")
+        if action == "verify" and not note:
+            raise ValueError("verification needs a note")
         audit = _json_loads(row.lifecycle_audit_json, []) or []
         audit.append(
             {"action": action, "at": now.isoformat(), "actor_id": actor_id, "note": note}
@@ -1555,8 +1608,6 @@ class KnowledgeActionEngine:
             row.status = "resolved"
             row.resolved_at = now
         elif action == "convert":
-            if target not in ("task", "decision"):
-                raise ValueError("convert target must be 'task' or 'decision'")
             if target == "task":
                 task_id = await self._create_task_from_recommendation(
                     db, organization_id=organization_id, row=row, user=user,
@@ -1569,12 +1620,8 @@ class KnowledgeActionEngine:
                 )
                 row.decision_id, row.converted_at = decision_id, now
         elif action == "execute":
-            if not row.task_id and not row.decision_id:
-                raise ValueError("convert the recommendation before executing it")
             row.executed_by, row.executed_at = actor_id, now
         elif action == "verify":
-            if not note:
-                raise ValueError("verification needs a note")
             row.verified_by, row.verified_at = actor_id, now
             row.verification_outcome = "verified"
             row.verification_note = note

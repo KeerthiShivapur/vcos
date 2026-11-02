@@ -1,0 +1,37 @@
+{
+  "run_id": "1219d863-ca5",
+  "state": "BLOCKED",
+  "profile_name": "startup",
+  "employee_count": 5,
+  "tenant_count": 1,
+  "environment_type": "external_postgres",
+  "dataset_identity": {
+    "vcos_revision": "cd653b84c2a4",
+    "schema_revision": "unknown",
+    "generator_revision": "1.0",
+    "scale_profile": "startup",
+    "employee_count": 5,
+    "tenant_count": 1,
+    "seed": 42,
+    "density_strategy": "standard",
+    "environment_fingerprint": "a486493b8a2b23f5"
+  },
+  "ownership": {
+    "run_id": "1219d863-ca5",
+    "owns_database": false,
+    "owns_schema": false,
+    "owns_tables": false,
+    "database_name": null,
+    "schema_name": null,
+    "created_tables": [],
+    "temporary_resources": []
+  },
+  "checkpoints": [],
+  "current_phase": "schema_validation",
+  "started_at": "2026-09-26T02:37:59.166786",
+  "updated_at": "2026-09-26T02:37:59.499026",
+  "completed_at": "2026-09-26T02:37:59.499034",
+  "error": "Missing tables: ['employees', 'decisions', 'documents', 'canonical_observations', 'security_events', 'company_attention', 'canonical_operations', 'invoices', 'vendors', 'purchase_orders', 'purchase_requests', 'expenses', 'customers', 'conversations', 'messages', 'canonical_metrics', 'metric_observations', 'connector_instances', 'sync_runs', 'company_state_snapshots', 'company_insights', 'organizational_learning', 'learning_evidence', 'company_decisions', 'company_commitments', 'company_authorizations', 'company_objectives', 'company_goals', 'company_actions']",
+  "retry_count": 0,
+  "max_retries": 3
+}

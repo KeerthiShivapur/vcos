@@ -1,0 +1,289 @@
+# LiveKit SIP Configuration
+# For PSTN/Phone integration
+
+# SIP Server Configuration
+server:
+  # SIP over UDP
+  udp:
+    enabled: true
+    port: 5060
+    bind_address: "0.0.0.0"
+  
+  # SIP over TCP
+  tcp:
+    enabled: true
+    port: 5060
+    bind_address: "0.0.0.0"
+  
+  # SIP over TLS (SIPS)
+  tls:
+    enabled: true
+    port: 5061
+    bind_address: "0.0.0.0"
+    cert_file: "/etc/livekit/certs/sip.pem"
+    key_file: "/etc/livekit/certs/sip.key"
+
+# SIP Trunk Configuration
+trunk:
+  # External SIP provider (Twilio, Telnyx, etc.)
+  provider:
+    host: "${SIP_PROVIDER_HOST}"
+    port: 5060
+    transport: "udp"  # udp, tcp, tls
+    
+    # Authentication
+    username: "${SIP_USERNAME}"
+    password: "${SIP_PASSWORD}"
+    realm: "${SIP_REALM}"
+    
+    # Registration
+    register: true
+    register_expires: 3600
+    registrar_host: "${SIP_REGISTRAR_HOST}"
+    
+    # Outbound proxy
+    outbound_proxy: ""
+    
+    # SIP headers
+    from_user: "${SIP_FROM_USER}"
+    from_domain: "${SIP_FROM_DOMAIN}"
+    
+    # Codecs
+    codecs:
+      - "opus"
+      - "PCMU"
+      - "PCMA"
+      - "G722"
+    
+    # DTMF
+    dtmf_mode: "rfc4733"
+    
+    # NAT traversal
+    nat:
+      stun_server: "stun.livekit.io:3478"
+      turn_server: "turn.vcos.io:3478"
+      turn_username: "vcos"
+      turn_password: "${TURN_PASSWORD}"
+
+# SIP Domain Configuration
+domain:
+  # Domain for this SIP server
+  name: "sip.vcos.io"
+  
+  # User provisioning
+  users:
+    # Auto-provision from LiveKit
+    auto_provision: true
+    
+    # Default user settings
+    defaults:
+      # Voicemail
+      voicemail_enabled: true
+      voicemail_email: ""
+      
+      # Call forwarding
+      call_forwarding:
+        enabled: false
+        number: ""
+      
+      # Do not disturb
+      dnd: false
+      
+      # Call recording
+      recording_enabled: false
+      
+      # Codecs
+      allowed_codecs:
+        - "opus"
+        - "PCMU"
+        - "PCMA"
+        - "G722"
+
+# Call Routing
+routing:
+  # Inbound routes
+  inbound:
+    # Default route for incoming calls
+    default:
+      action: "room"
+      room_name: "sip-inbound"
+      # Or route to specific user
+      # action: "user"
+      # user_id: "target-user-id"
+  
+  # Outbound routes
+  outbound:
+    # Default outbound route
+    default:
+      trunk: "primary"
+      # Prefix manipulation
+      prefix: ""
+      strip_prefix: ""
+    
+    # Emergency numbers
+    emergency:
+      numbers:
+        - "911"
+        - "112"
+        - "999"
+      trunk: "emergency"
+      priority: "highest"
+    
+    # International
+    international:
+      prefix: "00"
+      trunk: "international"
+      enabled: true
+
+# Media Configuration
+media:
+  # RTP port range
+  rtp:
+    port_range_start: 10000
+    port_range_end: 20000
+    # RTCP
+    rtcp_mux: true
+    rtcp_interval: 5000
+  
+  # Codecs priority
+  codecs:
+    - "opus/48000/2"
+    - "G722/8000"
+    - "PCMU/8000"
+    - "PCMA/8000"
+    - "G729/8000"
+  
+  # Jitter buffer
+  jitter_buffer:
+    min_delay: 20
+    max_delay: 200
+    target_delay: 60
+  
+  # DTMF
+  dtmf:
+    mode: "rfc4733"
+    payload_type: 101
+  
+  # Silence suppression
+  vad: true
+  comfort_noise: true
+
+# Call Features
+features:
+  # Call recording
+  recording:
+    enabled: true
+    format: "wav"
+    storage:
+      type: "s3"
+      bucket: "vcos-sip-recordings"
+  
+  # Voicemail
+  voicemail:
+    enabled: true
+    storage:
+      type: "s3"
+      bucket: "vcos-voicemail"
+    notification:
+      email: true
+      sms: false
+  
+  # Call transfer
+  transfer:
+    enabled: true
+    attended: true
+    blind: true
+  
+  # Conference
+  conference:
+    enabled: true
+    max_participants: 50
+    record: true
+  
+  # Call parking
+  parking:
+    enabled: true
+    slots: 10
+    timeout: 300
+
+# SIP Security
+security:
+  # TLS
+  tls:
+    cert_file: "/etc/livekit/certs/sip.pem"
+    key_file: "/etc/livekit/certs/sip.key"
+    ca_file: ""
+    verify_client: false
+  
+  # Digest authentication
+  digest:
+    algorithm: "MD5"
+    qop: "auth"
+    nonce_lifetime: 3600
+  
+  # Rate limiting
+  rate_limit:
+    register:
+      requests_per_minute: 10
+      burst: 5
+    invite:
+      requests_per_minute: 30
+      burst: 10
+  
+  # Blacklist/Whitelist
+  access_control:
+    enabled: true
+    whitelist:
+      - "10.0.0.0/8"
+      - "172.16.0.0/12"
+    blacklist: []
+  
+  # Fraud prevention
+  fraud_prevention:
+    enabled: true
+    max_call_duration: 7200  # 2 hours
+    max_concurrent_calls: 100
+    block_premium_numbers: true
+    allowed_countries:
+      - "US"
+      - "CA"
+      - "GB"
+
+# Monitoring
+monitoring:
+  prometheus:
+    enabled: true
+    port: 9090
+    path: "/metrics"
+  
+  health_check:
+    enabled: true
+    path: "/health"
+    interval: "30s"
+  
+  # SIP tracing
+  trace:
+    enabled: false
+    output: "stdout"
+    # For debugging
+    # save_to_file: "/var/log/sip-trace.log"
+
+# Logging
+logging:
+  level: "info"
+  format: "json"
+  output: "stdout"
+  # SIP specific
+  sip_logging:
+    log_requests: true
+    log_responses: true
+    log_headers: false
+
+# Clustering
+cluster:
+  enabled: true
+  redis:
+    address: "redis-cluster:6379"
+    password: "${REDIS_PASSWORD}"
+  # Node ID
+  node_id: ""

@@ -17,7 +17,13 @@ import { Avatar } from "@/components/ui/Avatar";
 import { formatDateTime } from "@/lib/utils";
 import { toastSuccess } from "@/components/ui/Toaster";
 
-export function CommentsPanel({ kind, entityId }: { kind: string; entityId: string }) {
+export function CommentsPanel({
+  kind,
+  entityId,
+}: {
+  kind: string;
+  entityId: string;
+}) {
   const [comments, setComments] = useState<KnowledgeComment[]>([]);
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState("");
@@ -66,7 +72,11 @@ export function CommentsPanel({ kind, entityId }: { kind: string; entityId: stri
   }
 
   return (
-    <Card title="Comments" subtitle="Discuss and annotate this item" className="mt-6">
+    <Card
+      title="Comments"
+      subtitle="Discuss and annotate this item"
+      className="mt-6"
+    >
       <form onSubmit={submit} className="flex items-start gap-2">
         <input
           className="input flex-1 py-2.5 text-sm"
@@ -74,25 +84,40 @@ export function CommentsPanel({ kind, entityId }: { kind: string; entityId: stri
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
         />
-        <Button type="submit" size="sm" loading={sending} disabled={!draft.trim()}>
+        <Button
+          type="submit"
+          size="sm"
+          loading={sending}
+          disabled={!draft.trim()}
+        >
           <Send className="h-4 w-4" />
         </Button>
       </form>
 
       <div className="mt-4 space-y-3">
         {loading ? (
-          <div className="flex justify-center py-6"><Spinner label="Loading comments" /></div>
+          <div className="flex justify-center py-6">
+            <Spinner label="Loading comments" />
+          </div>
         ) : comments.length === 0 ? (
-          <EmptyState icon={MessageSquare} title="No comments yet" description="Start the conversation." />
+          <EmptyState
+            icon={MessageSquare}
+            title="No comments yet"
+            description="Start the conversation."
+          />
         ) : (
           comments.map((comment) => (
             <div key={comment.id} className="flex gap-3">
               <Avatar name={comment.author_name ?? "?"} size="md" />
               <div className="min-w-0 flex-1 rounded-lg border border-line bg-canvas px-3 py-2">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-[13px] font-semibold text-ink">{comment.author_name ?? "Unknown"}</p>
+                  <p className="text-[13px] font-semibold text-ink">
+                    {comment.author_name ?? "Unknown"}
+                  </p>
                   <div className="flex items-center gap-3">
-                    <span className="text-[11px] text-faint">{formatDateTime(comment.created_at)}</span>
+                    <span className="text-[11px] text-faint">
+                      {formatDateTime(comment.created_at)}
+                    </span>
                     <button
                       type="button"
                       onClick={() => remove(comment.id)}
@@ -102,7 +127,9 @@ export function CommentsPanel({ kind, entityId }: { kind: string; entityId: stri
                     </button>
                   </div>
                 </div>
-                <p className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed text-muted">{comment.content}</p>
+                <p className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed text-muted">
+                  {comment.content}
+                </p>
               </div>
             </div>
           ))

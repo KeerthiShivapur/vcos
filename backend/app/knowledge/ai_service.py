@@ -143,16 +143,16 @@ class KnowledgeAIService:
             await db.execute(
                 select(KnowledgeQuality).where(
                     KnowledgeQuality.organization_id == organization_id,
-                    KnowledgeQuality.entity_type == entity_type,
-                    KnowledgeQuality.entity_id == entity.id,
+                    KnowledgeQuality.source_type == entity_type,
+                    KnowledgeQuality.source_id == entity.id,
                 )
             )
         ).scalar_one_or_none()
         if row is None:
             row = KnowledgeQuality(
                 organization_id=organization_id,
-                entity_type=entity_type,
-                entity_id=entity.id,
+                source_type=entity_type,
+                source_id=entity.id,
             )
             db.add(row)
         row.completeness = completeness

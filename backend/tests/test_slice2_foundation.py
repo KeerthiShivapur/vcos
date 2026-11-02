@@ -64,8 +64,12 @@ async def _process_pending(db_session_factory, limit=50):
     from app.events.event_bus import event_bus
 
     async with db_session_factory() as session:
-        await event_bus.process_pending(session, limit=limit)
-        await session.commit()
+        for _ in range(200):
+            processed = await event_bus.process_pending(session, limit=limit)
+            await session.commit()
+            if not processed:
+                return
+        raise AssertionError("event dispatch did not quiesce")
 
 
 async def _notifications(client, headers):

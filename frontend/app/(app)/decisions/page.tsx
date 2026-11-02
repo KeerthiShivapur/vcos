@@ -46,7 +46,7 @@ function DecisionsContent() {
           status: status || undefined,
           search: search || undefined,
           limit: 200,
-        })
+        }),
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load decisions");
@@ -65,9 +65,15 @@ function DecisionsContent() {
       <PageHeader
         title="Decisions"
         description="A record of how and why decisions were made."
-        actions={canManage ? (
-          <Link href="/decisions/new"><Button size="sm"><Plus className="h-4 w-4" /> New decision</Button></Link>
-        ) : undefined}
+        actions={
+          canManage ? (
+            <Link href="/decisions/new">
+              <Button size="sm">
+                <Plus className="h-4 w-4" /> New decision
+              </Button>
+            </Link>
+          ) : undefined
+        }
       />
 
       <div className="flex flex-wrap gap-2">
@@ -91,13 +97,23 @@ function DecisionsContent() {
       {error ? (
         <ErrorState title="Could not load decisions" message={error} />
       ) : loading ? (
-        <div className="flex justify-center py-24"><Spinner label="Loading decisions" /></div>
+        <div className="flex justify-center py-24">
+          <Spinner label="Loading decisions" />
+        </div>
       ) : decisions.length === 0 ? (
         <EmptyState
           icon={Gavel}
           title="No decisions yet"
           description="Capture decisions so the reasoning is never lost."
-          action={canManage ? <Link href="/decisions/new"><Button size="sm"><Plus className="h-4 w-4" /> New decision</Button></Link> : undefined}
+          action={
+            canManage ? (
+              <Link href="/decisions/new">
+                <Button size="sm">
+                  <Plus className="h-4 w-4" /> New decision
+                </Button>
+              </Link>
+            ) : undefined
+          }
         />
       ) : (
         <div className="space-y-2">
@@ -112,19 +128,31 @@ function DecisionsContent() {
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="truncate text-[15px] font-semibold text-ink">{decision.title}</p>
-                      <KnowledgeBadge status={decision.status} kind="decision" />
+                      <p className="truncate text-[15px] font-semibold text-ink">
+                        {decision.title}
+                      </p>
+                      <KnowledgeBadge
+                        status={decision.status}
+                        kind="decision"
+                      />
                     </div>
-                    {decision.description && <p className="mt-1 line-clamp-2 text-[13px] text-muted">{decision.description}</p>}
+                    {decision.description && (
+                      <p className="mt-1 line-clamp-2 text-[13px] text-muted">
+                        {decision.description}
+                      </p>
+                    )}
                     {chosen && (
                       <p className="mt-2 rounded-md bg-brand-soft/40 px-2 py-1 text-[12px] text-brand">
-                        Chosen: <span className="font-semibold">{chosen.title}</span>
+                        Chosen:{" "}
+                        <span className="font-semibold">{chosen.title}</span>
                       </p>
                     )}
                   </div>
                   <div className="shrink-0 text-right text-[12px] text-faint">
                     <p>{formatDate(decision.updated_at)}</p>
-                    {decision.decision_maker_name && <p className="mt-1">{decision.decision_maker_name}</p>}
+                    {decision.decision_maker_name && (
+                      <p className="mt-1">{decision.decision_maker_name}</p>
+                    )}
                   </div>
                 </div>
               </Link>

@@ -1,0 +1,14 @@
+s",
+            "canonical_integrity", "dr_readiness",
+        ]
+        
+        for check_name in critical_checks:
+            check_result = next((c for c in deployment_contract.checks if c.check.value == check_name), None)
+            assert check_result is not None, f"Missing critical check: {check_name}"
+            assert check_result.passed, f"Critical check {check_name} failed: {check_result.message}"
+        
+        logger.info("✅ Critical deployment checks passed")
+        
+        # Verify critical checks passed
+        critical_checks = [
+            "version_compatibility", "sch

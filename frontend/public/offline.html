@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#6366f1" />
+    <title>VCOS - Offline</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+      }
+
+      .container {
+        background: white;
+        border-radius: 16px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+        padding: 48px 32px;
+        max-width: 400px;
+        width: 100%;
+        text-align: center;
+      }
+
+      .icon-wrapper {
+        width: 80px;
+        height: 80px;
+        margin: 0 auto 24px;
+        background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+        border-radius: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .icon-wrapper svg {
+        width: 40px;
+        height: 40px;
+        color: white;
+      }
+
+      h1 {
+        font-size: 24px;
+        font-weight: 700;
+        color: #1e293b;
+        margin-bottom: 12px;
+      }
+
+      .subtitle {
+        font-size: 16px;
+        color: #64748b;
+        line-height: 1.6;
+        margin-bottom: 24px;
+      }
+
+      .status-indicator {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 20px;
+        background: #fef3c7;
+        border-radius: 12px;
+        margin-bottom: 24px;
+        font-size: 14px;
+        color: #92400e;
+      }
+
+      .status-dot {
+        width: 10px;
+        height: 10px;
+        background: #f59e0b;
+        border-radius: 50%;
+        animation: pulse 2s infinite;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.5;
+        }
+      }
+
+      .features {
+        text-align: left;
+        margin-bottom: 32px;
+        padding: 0 16px;
+      }
+
+      .feature {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 12px 0;
+        border-bottom: 1px solid #f1f5f9;
+      }
+
+      .feature:last-child {
+        border-bottom: none;
+      }
+
+      .feature-icon {
+        width: 24px;
+        height: 24px;
+        background: #f1f5f9;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+
+      .feature-icon svg {
+        width: 14px;
+        height: 14px;
+        color: #6366f1;
+      }
+
+      .feature-text {
+        font-size: 14px;
+        color: #334155;
+        line-height: 1.5;
+      }
+
+      .feature-text strong {
+        color: #1e293b;
+      }
+
+      .retry-button {
+        width: 100%;
+        padding: 16px;
+        background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+        color: white;
+        border: none;
+        border-radius: 12px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+
+      .retry-button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(99, 102, 241, 0.4);
+      }
+
+      .retry-button:active {
+        transform: translateY(0);
+      }
+
+      .retry-button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+      }
+
+      .offline-tip {
+        margin-top: 20px;
+        font-size: 13px;
+        color: #94a3b8;
+      }
+
+      .offline-tip a {
+        color: #6366f1;
+        text-decoration: none;
+      }
+
+      .offline-tip a:hover {
+        text-decoration: underline;
+      }
+
+      @media (max-width: 480px) {
+        .container {
+          padding: 32px 20px;
+        }
+
+        h1 {
+          font-size: 20px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="icon-wrapper">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <line x1="1" y1="1" x2="23" y2="23"></line>
+          <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"></path>
+          <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"></path>
+          <path d="M10.71 5.05A16 16 0 0 1 22.58 9"></path>
+          <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"></path>
+          <path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>
+          <line x1="12" y1="20" x2="12.01" y2="20"></line>
+        </svg>
+      </div>
+
+      <h1>You're Offline</h1>
+      <p class="subtitle">
+        No internet connection detected. Some features may be limited.
+      </p>
+
+      <div class="status-indicator">
+        <span class="status-dot"></span>
+        <span>Checking connection...</span>
+      </div>
+
+      <div class="features">
+        <div class="feature">
+          <div class="feature-icon">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <rect x="2" y="3" width="20" height="14" rx="2"></rect>
+              <path d="M8 21h8"></path>
+              <path d="M12 17v4"></path>
+            </svg>
+          </div>
+          <div class="feature-text">
+            <strong>Offline Mode Active</strong> - Your data is saved locally
+          </div>
+        </div>
+        <div class="feature">
+          <div class="feature-icon">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path
+                d="M21 12.79A9 9 0 1 1 14.24 3c1.72 0 3.16.85 4 2.18C20.06 12.21 21 13.52 21 12.79z"
+              ></path>
+            </svg>
+          </div>
+          <div class="feature-text">
+            <strong>Auto-sync</strong> - Changes sync automatically when online
+          </div>
+        </div>
+        <div class="feature">
+          <div class="feature-icon">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="12" cy="12" r="10"></circle>
+              <path d="M12 6v6l4 2"></path>
+            </svg>
+          </div>
+          <div class="feature-text">
+            <strong>Auto-reconnect</strong> - We'll restore connection
+            automatically
+          </div>
+        </div>
+      </div>
+
+      <button class="retry-button" id="retryBtn" onclick="retryConnection()">
+        Try Again
+      </button>
+
+      <p class="offline-tip">
+        <strong>Tip:</strong> You can continue working offline.
+        <a
+          href="#"
+          onclick="
+            event.preventDefault();
+            alert(
+              'Data is stored locally and will sync when you\'re back online.',
+            );
+          "
+        >
+          Learn more
+        </a>
+      </p>
+    </div>
+
+    <script>
+      let retryCount = 0;
+      const maxRetries = 5;
+
+      async function checkConnection() {
+        const statusDot = document.querySelector(".status-dot");
+        const statusText = document.querySelector(
+          ".status-indicator span:last-child",
+        );
+        const retryBtn = document.getElementById("retryBtn");
+
+        try {
+          // Try to fetch a small resource
+          const response = await fetch("/manifest.json", {
+            method: "HEAD",
+            cache: "no-cache",
+            credentials: "omit",
+          });
+
+          if (response.ok) {
+            statusDot.style.background = "#10b981";
+            statusText.textContent = "Online! Redirecting...";
+            retryBtn.textContent = "Continue";
+            retryBtn.disabled = false;
+
+            // Redirect to home after short delay
+            setTimeout(() => {
+              window.location.href = "/";
+            }, 1000);
+            return true;
+          }
+        } catch (error) {
+          // Still offline
+        }
+
+        retryCount++;
+
+        if (retryCount >= maxRetries) {
+          statusDot.style.background = "#ef4444";
+          statusText.textContent =
+            "Still offline. Please check your connection.";
+          retryBtn.textContent = "Try Again";
+          retryBtn.disabled = false;
+        } else {
+          statusText.textContent = `Retrying... (${retryCount}/${maxRetries})`;
+          retryBtn.disabled = true;
+
+          // Exponential backoff: 2s, 4s, 8s, 16s
+          const delay = Math.min(1000 * Math.pow(2, retryCount), 30000);
+          setTimeout(checkConnection, delay);
+        }
+
+        return false;
+      }
+
+      function retryConnection() {
+        retryCount = 0;
+        const statusDot = document.querySelector(".status-dot");
+        const statusText = document.querySelector(
+          ".status-indicator span:last-child",
+        );
+        const retryBtn = document.getElementById("retryBtn");
+
+        statusDot.style.background = "#f59e0b";
+        statusText.textContent = "Checking connection...";
+        retryBtn.disabled = true;
+
+        checkConnection();
+      }
+
+      // Initial check
+      document.addEventListener("DOMContentLoaded", () => {
+        checkConnection();
+
+        // Listen for online event
+        window.addEventListener("online", () => {
+          window.location.href = "/";
+        });
+
+        // Register service worker if not already
+        if ("serviceWorker" in navigator) {
+          navigator.serviceWorker.ready
+            .then((registration) => {
+              console.log("[Offline Page] SW ready:", registration.scope);
+            })
+            .catch((err) => {
+              console.error("[Offline Page] SW registration failed:", err);
+            });
+        }
+      });
+
+      // Handle visibility change to re-check
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden && retryCount > 0) {
+          checkConnection();
+        }
+      });
+    </script>
+  </body>
+</html>

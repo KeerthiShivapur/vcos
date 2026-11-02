@@ -1,0 +1,224 @@
+# LiveKit Ingress Configuration
+# For streaming INTO LiveKit from external sources
+
+# Ingress server configuration
+server:
+  # WHIP (WebRTC-HTTP Ingestion Protocol)
+  whip:
+    enabled: true
+    port: 7882
+    # TLS for secure WHIP
+    tls:
+      enabled: true
+      cert_file: "/etc/livekit/certs/tls.pem"
+      key_file: "/etc/livekit/certs/tls.key"
+  
+  # RTMP Ingestion
+  rtmp:
+    enabled: true
+    port: 1935
+    # RTMPS (RTMP over TLS)
+    rtmps:
+      enabled: true
+      port: 1936
+      cert_file: "/etc/livekit/certs/tls.pem"
+      key_file: "/etc/livekit/certs/tls.key"
+  
+  # SRT (Secure Reliable Transport)
+  srt:
+    enabled: true
+    port: 8888
+    # Encryption
+    encryption:
+      enabled: true
+      passphrase: "${SRT_PASSPHRASE}"
+      key_length: 16  # 0, 16, 24, 32
+
+# Authentication
+auth:
+  # JWT validation for ingress requests
+  jwt:
+    enabled: true
+    api_key: "${LIVEKIT_API_KEY}"
+    api_secret: "${LIVEKIT_API_SECRET}"
+  
+  # Allowlist for IP-based access (optional)
+  ip_allowlist:
+    enabled: false
+    networks:
+      - "10.0.0.0/8"
+      - "172.16.0.0/12"
+
+# Input processing
+input:
+  # Transcoding options for ingested streams
+  transcoding:
+    enabled: true
+    # Default output format
+    default_output:
+      video:
+        codec: "h264"
+        preset: "medium"
+        bitrate: "2500k"
+        width: 1280
+        height: 720
+        framerate: 30
+      audio:
+        codec: "aac"
+        bitrate: "128k"
+        sample_rate: 48000
+        channels: 2
+  
+  # Multiple quality variants for adaptive streaming
+  variants:
+    - name: "1080p"
+      video:
+        width: 1920
+        height: 1080
+        bitrate: "5000k"
+      audio:
+        bitrate: "128k"
+    - name: "720p"
+      video:
+        width: 1280
+        height: 720
+        bitrate: "2500k"
+      audio:
+        bitrate: "128k"
+    - name: "480p"
+      video:
+        width: 854
+        height: 480
+        bitrate: "1000k"
+      audio:
+        bitrate: "96k"
+    - name: "360p"
+      video:
+        width: 640
+        height: 360
+        bitrate: "500k"
+      audio:
+        bitrate: "64k"
+  
+  # Stream validation
+  validation:
+    max_duration: "8h"
+    min_bitrate: "100k"
+    max_bitrate: "20M"
+    allowed_codecs:
+      video:
+        - "h264"
+        - "vp8"
+        - "vp9"
+        - "h265"
+      audio:
+        - "aac"
+        - "opus"
+        - "pcm"
+
+# Output routing
+output:
+  # Route to LiveKit rooms
+  livekit:
+    enabled: true
+    # Auto-create room if not exists
+    auto_create_room: true
+    # Room naming pattern
+    room_name_template: "ingress-{{ .StreamKey }}"
+    # Participant identity
+    participant_identity: "ingress-{{ .StreamKey }}"
+    participant_name: "Ingress Stream"
+    # Track names
+    track_names:
+      video: "camera-{{ .Variant }}"
+      audio: "microphone"
+    # Metadata
+    metadata: |
+      {
+        "source": "ingress",
+        "stream_key": "{{ .StreamKey }}",
+        "started_at": "{{ .StartTime }}"
+      }
+
+# Recording of ingress streams
+recording:
+  enabled: true
+  # Follow main recording config
+  outputs:
+    - type: "file"
+      file:
+        path: "/var/lib/livekit/ingress-recordings"
+        format: "mp4"
+    - type: "s3"
+      s3:
+        bucket: "vcos-ingress-recordings"
+        region: "us-east-1"
+
+# Webhooks for ingress events
+webhooks:
+  urls:
+    - "https://api.vcos.io/webhooks/livekit/ingress"
+  events:
+    - "ingress_started"
+    - "ingress_ended"
+    - "ingress_updated"
+    - "ingress_failed"
+  retry:
+    max_retries: 3
+    backoff: "exponential"
+
+# Monitoring
+monitoring:
+  prometheus:
+    enabled: true
+    port: 9090
+    path: "/metrics"
+  
+  health_check:
+    enabled: true
+    path: "/health"
+    interval: "30s"
+
+# Logging
+logging:
+  level: "info"
+  format: "json"
+  output: "stdout"
+
+# Resource limits
+resources:
+  # Per-ingress limits
+  max_concurrent: 50
+  max_duration: "24h"
+  
+  # CPU/Memory per worker
+  cpu_limit: "2000m"
+  memory_limit: "2Gi"
+  cpu_request: "500m"
+  memory_request: "512Mi"
+
+# Security
+security:
+  # Rate limiting per stream key
+  rate_limit:
+    enabled: true
+    requests_per_second: 10
+    burst: 20
+  
+  # Stream key validation
+  stream_key:
+    min_length: 16
+    max_length: 64
+    pattern: "^[a-zA-Z0-9_-]+$"
+  
+  # TLS
+  tls:
+    cert_file: "/etc/livekit/certs/tls.pem"
+    key_file: "/etc/livekit/certs/tls.key"
+
+# Clustering
+cluster:
+  enabled: true
+  redis:
+    address: "redis-cluster:6379"
+    password: "${REDIS_PASSWORD}"

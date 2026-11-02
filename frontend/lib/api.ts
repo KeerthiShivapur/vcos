@@ -52,7 +52,7 @@ import type {
   Community,
   CommunityAnalytics,
   CommunityEvent,
-CommunityMember,
+  CommunityMember,
   CompanyAction,
   CompanyActionCenterResponse,
   CompanyActionDetailResponse,
@@ -172,7 +172,7 @@ CommunityMember,
 } from "@/types";
 
 export const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8999/api/v1";
+  process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api/v1";
 
 const ACCESS_KEY = "vcos.access_token";
 const REFRESH_KEY = "vcos.refresh_token";
@@ -269,19 +269,35 @@ function isNetworkError(err: unknown): boolean {
 async function fetchWithRetry(
   url: string,
   init: RequestInit,
-  allowRetry: boolean
+  allowRetry: boolean,
+  externalSignal?: AbortSignal,
 ): Promise<Response> {
   for (let attempt = 1; ; attempt++) {
+    if (externalSignal?.aborted) {
+      throw new DOMException("Request cancelled", "AbortError");
+    }
     const controller = new AbortController();
+    const forwardAbort = () => controller.abort();
+    externalSignal?.addEventListener("abort", forwardAbort, { once: true });
     const timer = setTimeout(() => controller.abort(), ATTEMPT_TIMEOUT_MS);
     try {
       const response = await fetch(url, { ...init, signal: controller.signal });
-      clearTimeout(timer);
       return response;
     } catch (err) {
+      if (
+        externalSignal?.aborted ||
+        !allowRetry ||
+        attempt >= 2 ||
+        !isNetworkError(err)
+      ) {
+        throw err;
+      }
+      await new Promise((resolve) =>
+        setTimeout(resolve, ATTEMPT_RETRY_DELAY_MS),
+      );
+    } finally {
       clearTimeout(timer);
-      if (!allowRetry || attempt >= 2 || !isNetworkError(err)) throw err;
-      await new Promise((resolve) => setTimeout(resolve, ATTEMPT_RETRY_DELAY_MS));
+      externalSignal?.removeEventListener("abort", forwardAbort);
     }
   }
 }
@@ -323,11 +339,12 @@ interface RequestOptions {
   query?: Record<string, string | number | boolean | undefined | null>;
   auth?: boolean;
   retry?: boolean;
+  signal?: AbortSignal;
 }
 
 export async function api<T>(
   path: string,
-  options: RequestOptions = {}
+  options: RequestOptions = {},
 ): Promise<T> {
   const { method = "GET", body, query, auth = true, retry } = options;
   const canRefreshReissue = retry ?? true;
@@ -352,7 +369,8 @@ export async function api<T>(
       headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
     },
-    allowRetry
+    allowRetry,
+    options.signal,
   );
 
   if (response.status === 401 && auth && canRefreshReissue) {
@@ -392,7 +410,10 @@ export function setSession(data: LoginResult) {
   tokenStore.setOrg(data.organization);
 }
 
-export async function login(email: string, password: string): Promise<LoginResult> {
+export async function login(
+  email: string,
+  password: string,
+): Promise<LoginResult> {
   const data = await api<LoginResult>("/auth/login", {
     method: "POST",
     auth: false,
@@ -472,8 +493,15 @@ export interface EmployeeListQuery {
   page_size?: number;
 }
 
-export async function listEmployees(query: EmployeeListQuery = {}): Promise<EmployeeSummary[]> {
-  return api<EmployeeSummary[]>("/employees", { query: query as Record<string, string | number | boolean | null | undefined> });
+export async function listEmployees(
+  query: EmployeeListQuery = {},
+): Promise<EmployeeSummary[]> {
+  return api<EmployeeSummary[]>("/employees", {
+    query: query as Record<
+      string,
+      string | number | boolean | null | undefined
+    >,
+  });
 }
 
 export async function getEmployee(id: string): Promise<Employee> {
@@ -484,8 +512,13 @@ export async function getMyEmployee(): Promise<Employee> {
   return api<Employee>("/employees/me");
 }
 
-export async function getEmployeeTimeline(id: string, limit = 50): Promise<TimelineEntry[]> {
-  return api<TimelineEntry[]>(`/employees/${id}/timeline`, { query: { limit } });
+export async function getEmployeeTimeline(
+  id: string,
+  limit = 50,
+): Promise<TimelineEntry[]> {
+  return api<TimelineEntry[]>(`/employees/${id}/timeline`, {
+    query: { limit },
+  });
 }
 
 export async function getDirectReports(id: string): Promise<EmployeeSummary[]> {
@@ -505,49 +538,92 @@ export async function addFavorite(employeeId: string): Promise<Message> {
 }
 
 export async function removeFavorite(employeeId: string): Promise<Message> {
-  return api<Message>(`/employees/${employeeId}/favorite`, { method: "DELETE" });
+  return api<Message>(`/employees/${employeeId}/favorite`, {
+    method: "DELETE",
+  });
 }
 
-export async function createEmployee(payload: Record<string, unknown>): Promise<Employee> {
+export async function createEmployee(
+  payload: Record<string, unknown>,
+): Promise<Employee> {
   return api<Employee>("/employees", { method: "POST", body: payload });
 }
 
-export async function updateEmployee(id: string, payload: Record<string, unknown>): Promise<Employee> {
+export async function updateEmployee(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<Employee> {
   return api<Employee>(`/employees/${id}`, { method: "PATCH", body: payload });
 }
 
-export async function archiveEmployee(id: string, reason?: string): Promise<Employee> {
-  return api<Employee>(`/employees/${id}/archive`, { method: "POST", body: { reason } });
+export async function archiveEmployee(
+  id: string,
+  reason?: string,
+): Promise<Employee> {
+  return api<Employee>(`/employees/${id}/archive`, {
+    method: "POST",
+    body: { reason },
+  });
 }
 
 export async function addEmployeeSkill(
   id: string,
-  payload: { skill_id?: string; name?: string; level: number; years_experience?: number; verified?: boolean }
+  payload: {
+    skill_id?: string;
+    name?: string;
+    level: number;
+    years_experience?: number;
+    verified?: boolean;
+  },
 ) {
   return api(`/employees/${id}/skills`, { method: "POST", body: payload });
 }
 
-export async function removeEmployeeSkill(id: string, skillId: string): Promise<Message> {
-  return api<Message>(`/employees/${id}/skills/${skillId}`, { method: "DELETE" });
+export async function removeEmployeeSkill(
+  id: string,
+  skillId: string,
+): Promise<Message> {
+  return api<Message>(`/employees/${id}/skills/${skillId}`, {
+    method: "DELETE",
+  });
 }
 
 export async function addEmployeeCertification(
   id: string,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
 ) {
-  return api(`/employees/${id}/certifications`, { method: "POST", body: payload });
+  return api(`/employees/${id}/certifications`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function removeEmployeeCertification(id: string, certId: string): Promise<Message> {
-  return api<Message>(`/employees/${id}/certifications/${certId}`, { method: "DELETE" });
+export async function removeEmployeeCertification(
+  id: string,
+  certId: string,
+): Promise<Message> {
+  return api<Message>(`/employees/${id}/certifications/${certId}`, {
+    method: "DELETE",
+  });
 }
 
-export async function addEmployeeAchievement(id: string, payload: Record<string, unknown>) {
-  return api(`/employees/${id}/achievements`, { method: "POST", body: payload });
+export async function addEmployeeAchievement(
+  id: string,
+  payload: Record<string, unknown>,
+) {
+  return api(`/employees/${id}/achievements`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function removeEmployeeAchievement(id: string, achievementId: string): Promise<Message> {
-  return api<Message>(`/employees/${id}/achievements/${achievementId}`, { method: "DELETE" });
+export async function removeEmployeeAchievement(
+  id: string,
+  achievementId: string,
+): Promise<Message> {
+  return api<Message>(`/employees/${id}/achievements/${achievementId}`, {
+    method: "DELETE",
+  });
 }
 
 // ------------------------------------------------------------------ departments
@@ -560,12 +636,20 @@ export async function getDepartment(id: string): Promise<Department> {
   return api<Department>(`/departments/${id}`);
 }
 
-export async function createDepartment(payload: Record<string, unknown>): Promise<Department> {
+export async function createDepartment(
+  payload: Record<string, unknown>,
+): Promise<Department> {
   return api<Department>("/departments", { method: "POST", body: payload });
 }
 
-export async function updateDepartment(id: string, payload: Record<string, unknown>): Promise<Department> {
-  return api<Department>(`/departments/${id}`, { method: "PATCH", body: payload });
+export async function updateDepartment(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<Department> {
+  return api<Department>(`/departments/${id}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
 export async function getDepartmentStats(id: string): Promise<DepartmentStats> {
@@ -598,30 +682,60 @@ export async function getTeam(id: string): Promise<Team> {
   return api<Team>(`/teams/${id}`);
 }
 
-export async function createTeam(payload: Record<string, unknown>): Promise<Team> {
+export async function createTeam(
+  payload: Record<string, unknown>,
+): Promise<Team> {
   return api<Team>("/teams", { method: "POST", body: payload });
 }
 
-export async function updateTeam(id: string, payload: Record<string, unknown>): Promise<Team> {
+export async function updateTeam(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<Team> {
   return api<Team>(`/teams/${id}`, { method: "PATCH", body: payload });
 }
 
-export async function addTeamMember(teamId: string, employeeId: string, role?: string) {
-  return api(`/teams/${teamId}/members`, { method: "POST", body: { employee_id: employeeId, role } });
+export async function addTeamMember(
+  teamId: string,
+  employeeId: string,
+  role?: string,
+) {
+  return api(`/teams/${teamId}/members`, {
+    method: "POST",
+    body: { employee_id: employeeId, role },
+  });
 }
 
-export async function removeTeamMember(teamId: string, employeeId: string): Promise<Message> {
-  return api<Message>(`/teams/${teamId}/members/${employeeId}`, { method: "DELETE" });
+export async function removeTeamMember(
+  teamId: string,
+  employeeId: string,
+): Promise<Message> {
+  return api<Message>(`/teams/${teamId}/members/${employeeId}`, {
+    method: "DELETE",
+  });
 }
 
 export async function listTeamGoals(teamId: string) {
-  return api<{ id: string; team_id: string; title: string; status: string; created_at: string }[]>(
-    `/teams/${teamId}/goals`
-  );
+  return api<
+    {
+      id: string;
+      team_id: string;
+      title: string;
+      status: string;
+      created_at: string;
+    }[]
+  >(`/teams/${teamId}/goals`);
 }
 
-export async function addTeamGoal(teamId: string, title: string, status = "planned") {
-  return api(`/teams/${teamId}/goals`, { method: "POST", body: { title, status } });
+export async function addTeamGoal(
+  teamId: string,
+  title: string,
+  status = "planned",
+) {
+  return api(`/teams/${teamId}/goals`, {
+    method: "POST",
+    body: { title, status },
+  });
 }
 
 // ------------------------------------------------------------------ organization
@@ -630,8 +744,13 @@ export async function getOrganizationStructure(): Promise<OrganizationStructure>
   return api<OrganizationStructure>("/organization/structure");
 }
 
-export async function getOrgChart(departmentId?: string, teamId?: string): Promise<OrgChartResponse> {
-  return api<OrgChartResponse>("/organization/chart", { query: { department_id: departmentId, team_id: teamId } });
+export async function getOrgChart(
+  departmentId?: string,
+  teamId?: string,
+): Promise<OrgChartResponse> {
+  return api<OrgChartResponse>("/organization/chart", {
+    query: { department_id: departmentId, team_id: teamId },
+  });
 }
 
 export async function getOrganizationGraph(): Promise<OrganizationGraph> {
@@ -644,11 +763,18 @@ export async function getOrgIntelligence(): Promise<OrgIntelligence> {
 
 // ------------------------------------------------------------------ expertise
 
-export async function listSkills(category?: string, search?: string): Promise<Skill[]> {
+export async function listSkills(
+  category?: string,
+  search?: string,
+): Promise<Skill[]> {
   return api<Skill[]>("/expertise/skills", { query: { category, search } });
 }
 
-export async function createSkill(payload: { name: string; category?: string; description?: string }): Promise<Skill> {
+export async function createSkill(payload: {
+  name: string;
+  category?: string;
+  description?: string;
+}): Promise<Skill> {
   return api<Skill>("/expertise/skills", { method: "POST", body: payload });
 }
 
@@ -656,29 +782,47 @@ export async function listSkillCategories(): Promise<string[]> {
   return api<string[]>("/expertise/skills/categories");
 }
 
-export async function getExperts(params: {
-  skill_id?: string;
-  skill_name?: string;
-  category?: string;
-  limit?: number;
-} = {}): Promise<Expert[]> {
+export async function getExperts(
+  params: {
+    skill_id?: string;
+    skill_name?: string;
+    category?: string;
+    limit?: number;
+  } = {},
+): Promise<Expert[]> {
   return api<Expert[]>("/expertise/experts", { query: params });
 }
 
-export async function getEmployeeExpertise(employeeId: string): Promise<ExpertiseScore[]> {
+export async function getEmployeeExpertise(
+  employeeId: string,
+): Promise<ExpertiseScore[]> {
   return api<ExpertiseScore[]>(`/expertise/employees/${employeeId}`);
 }
 
-export async function recomputeEmployeeExpertise(employeeId: string): Promise<ExpertiseScore[]> {
-  return api<ExpertiseScore[]>(`/expertise/employees/${employeeId}/recompute`, { method: "POST" });
+export async function recomputeEmployeeExpertise(
+  employeeId: string,
+): Promise<ExpertiseScore[]> {
+  return api<ExpertiseScore[]>(`/expertise/employees/${employeeId}/recompute`, {
+    method: "POST",
+  });
 }
 
-export async function getSuccessors(employeeId: string, limit = 5): Promise<Successor[]> {
-  return api<Successor[]>(`/expertise/successors/${employeeId}`, { query: { limit } });
+export async function getSuccessors(
+  employeeId: string,
+  limit = 5,
+): Promise<Successor[]> {
+  return api<Successor[]>(`/expertise/successors/${employeeId}`, {
+    query: { limit },
+  });
 }
 
-export async function getMentors(employeeId: string, limit = 5): Promise<Mentor[]> {
-  return api<Mentor[]>(`/expertise/mentors/${employeeId}`, { query: { limit } });
+export async function getMentors(
+  employeeId: string,
+  limit = 5,
+): Promise<Mentor[]> {
+  return api<Mentor[]>(`/expertise/mentors/${employeeId}`, {
+    query: { limit },
+  });
 }
 
 export async function getSkillGaps(): Promise<SkillGap[]> {
@@ -688,19 +832,39 @@ export async function getSkillGaps(): Promise<SkillGap[]> {
 // ------------------------------------------------------------------ presence
 
 export async function getMyPresence() {
-  return api<{ employee_id: string; presence: Presence | null; availability: Availability | null }>("/presence/me");
+  return api<{
+    employee_id: string;
+    presence: Presence | null;
+    availability: Availability | null;
+  }>("/presence/me");
 }
 
-export async function updateMyPresence(payload: { status?: string; working_hours?: Record<string, unknown>; device?: string }) {
-  return api<Presence>("/presence/me/presence", { method: "PUT", body: payload });
+export async function updateMyPresence(payload: {
+  status?: string;
+  working_hours?: Record<string, unknown>;
+  device?: string;
+}) {
+  return api<Presence>("/presence/me/presence", {
+    method: "PUT",
+    body: payload,
+  });
 }
 
-export async function updateMyAvailability(payload: { status?: string; note?: string }) {
-  return api<Availability>("/presence/me/availability", { method: "PUT", body: payload });
+export async function updateMyAvailability(payload: {
+  status?: string;
+  note?: string;
+}) {
+  return api<Availability>("/presence/me/availability", {
+    method: "PUT",
+    body: payload,
+  });
 }
 
 export async function heartbeatPresence(status = "online"): Promise<Presence> {
-  return api<Presence>("/presence/heartbeat", { method: "POST", query: { status } });
+  return api<Presence>("/presence/heartbeat", {
+    method: "POST",
+    query: { status },
+  });
 }
 
 export async function getPresenceStats() {
@@ -717,11 +881,13 @@ export function apiUrl(): string {
 
 // ---------------------------------------------------------------- projects
 
-export async function listProjects(query: {
-  status?: string;
-  search?: string;
-  sort?: string;
-} = {}): Promise<Project[]> {
+export async function listProjects(
+  query: {
+    status?: string;
+    search?: string;
+    sort?: string;
+  } = {},
+): Promise<Project[]> {
   return api<Project[]>("/projects", { query });
 }
 
@@ -729,11 +895,16 @@ export async function getProject(id: string): Promise<Project> {
   return api<Project>(`/projects/${id}`);
 }
 
-export async function createProject(payload: Record<string, unknown>): Promise<Project> {
+export async function createProject(
+  payload: Record<string, unknown>,
+): Promise<Project> {
   return api<Project>("/projects", { method: "POST", body: payload });
 }
 
-export async function updateProject(id: string, payload: Record<string, unknown>): Promise<Project> {
+export async function updateProject(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<Project> {
   return api<Project>(`/projects/${id}`, { method: "PATCH", body: payload });
 }
 
@@ -741,20 +912,38 @@ export async function deleteProject(id: string): Promise<Message> {
   return api<Message>(`/projects/${id}`, { method: "DELETE" });
 }
 
-export async function projectLifecycle(id: string, action: string): Promise<Project> {
-  return api<Project>(`/projects/${id}/lifecycle`, { method: "POST", body: { action } });
+export async function projectLifecycle(
+  id: string,
+  action: string,
+): Promise<Project> {
+  return api<Project>(`/projects/${id}/lifecycle`, {
+    method: "POST",
+    body: { action },
+  });
 }
 
 export async function listProjectMembers(id: string): Promise<ProjectMember[]> {
   return api<ProjectMember[]>(`/projects/${id}/members`);
 }
 
-export async function addProjectMember(id: string, employeeId: string, role?: string): Promise<ProjectMember> {
-  return api<ProjectMember>(`/projects/${id}/members`, { method: "POST", body: { employee_id: employeeId, role } });
+export async function addProjectMember(
+  id: string,
+  employeeId: string,
+  role?: string,
+): Promise<ProjectMember> {
+  return api<ProjectMember>(`/projects/${id}/members`, {
+    method: "POST",
+    body: { employee_id: employeeId, role },
+  });
 }
 
-export async function removeProjectMember(id: string, employeeId: string): Promise<Message> {
-  return api<Message>(`/projects/${id}/members/${employeeId}`, { method: "DELETE" });
+export async function removeProjectMember(
+  id: string,
+  employeeId: string,
+): Promise<Message> {
+  return api<Message>(`/projects/${id}/members/${employeeId}`, {
+    method: "DELETE",
+  });
 }
 
 export async function getProjectStats(id: string): Promise<ProjectStats> {
@@ -775,11 +964,16 @@ export async function listRoadmaps(): Promise<Roadmap[]> {
   return api<Roadmap[]>("/roadmaps");
 }
 
-export async function createRoadmap(payload: Record<string, unknown>): Promise<Roadmap> {
+export async function createRoadmap(
+  payload: Record<string, unknown>,
+): Promise<Roadmap> {
   return api<Roadmap>("/roadmaps", { method: "POST", body: payload });
 }
 
-export async function updateRoadmap(id: string, payload: Record<string, unknown>): Promise<Roadmap> {
+export async function updateRoadmap(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<Roadmap> {
   return api<Roadmap>(`/roadmaps/${id}`, { method: "PATCH", body: payload });
 }
 
@@ -787,8 +981,14 @@ export async function deleteRoadmap(id: string): Promise<Message> {
   return api<Message>(`/roadmaps/${id}`, { method: "DELETE" });
 }
 
-export async function roadmapLifecycle(id: string, action: string): Promise<Roadmap> {
-  return api<Roadmap>(`/roadmaps/${id}/lifecycle`, { method: "POST", body: { action } });
+export async function roadmapLifecycle(
+  id: string,
+  action: string,
+): Promise<Roadmap> {
+  return api<Roadmap>(`/roadmaps/${id}/lifecycle`, {
+    method: "POST",
+    body: { action },
+  });
 }
 
 // ---------------------------------------------------------------- epics
@@ -797,11 +997,16 @@ export async function listEpics(projectId?: string): Promise<Epic[]> {
   return api<Epic[]>("/epics", { query: { project_id: projectId } });
 }
 
-export async function createEpic(payload: Record<string, unknown>): Promise<Epic> {
+export async function createEpic(
+  payload: Record<string, unknown>,
+): Promise<Epic> {
   return api<Epic>("/epics", { method: "POST", body: payload });
 }
 
-export async function updateEpic(id: string, payload: Record<string, unknown>): Promise<Epic> {
+export async function updateEpic(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<Epic> {
   return api<Epic>(`/epics/${id}`, { method: "PATCH", body: payload });
 }
 
@@ -823,12 +1028,20 @@ export async function listMilestones(projectId?: string): Promise<Milestone[]> {
   return api<Milestone[]>("/milestones", { query: { project_id: projectId } });
 }
 
-export async function createMilestone(payload: Record<string, unknown>): Promise<Milestone> {
+export async function createMilestone(
+  payload: Record<string, unknown>,
+): Promise<Milestone> {
   return api<Milestone>("/milestones", { method: "POST", body: payload });
 }
 
-export async function updateMilestone(id: string, payload: Record<string, unknown>): Promise<Milestone> {
-  return api<Milestone>(`/milestones/${id}`, { method: "PATCH", body: payload });
+export async function updateMilestone(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<Milestone> {
+  return api<Milestone>(`/milestones/${id}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
 export async function deleteMilestone(id: string): Promise<Message> {
@@ -845,11 +1058,16 @@ export async function listSprints(projectId?: string): Promise<Sprint[]> {
   return api<Sprint[]>("/sprints", { query: { project_id: projectId } });
 }
 
-export async function createSprint(payload: Record<string, unknown>): Promise<Sprint> {
+export async function createSprint(
+  payload: Record<string, unknown>,
+): Promise<Sprint> {
   return api<Sprint>("/sprints", { method: "POST", body: payload });
 }
 
-export async function updateSprint(id: string, payload: Record<string, unknown>): Promise<Sprint> {
+export async function updateSprint(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<Sprint> {
   return api<Sprint>(`/sprints/${id}`, { method: "PATCH", body: payload });
 }
 
@@ -867,17 +1085,19 @@ export async function completeSprint(id: string): Promise<Sprint> {
 
 // ---------------------------------------------------------------- tasks
 
-export async function listTasks(query: {
-  project_id?: string;
-  assignee_id?: string;
-  parent_task_id?: string;
-  sprint_id?: string;
-  status?: string;
-  priority?: string;
-  tag?: string;
-  search?: string;
-  sort?: string;
-} = {}): Promise<Task[]> {
+export async function listTasks(
+  query: {
+    project_id?: string;
+    assignee_id?: string;
+    parent_task_id?: string;
+    sprint_id?: string;
+    status?: string;
+    priority?: string;
+    tag?: string;
+    search?: string;
+    sort?: string;
+  } = {},
+): Promise<Task[]> {
   return api<Task[]>("/tasks", { query });
 }
 
@@ -885,81 +1105,133 @@ export async function getTask(id: string): Promise<Task> {
   return api<Task>(`/tasks/${id}`);
 }
 
-export async function createTask(payload: Record<string, unknown>): Promise<Task> {
+export async function createTask(
+  payload: Record<string, unknown>,
+): Promise<Task> {
   return api<Task>("/tasks", { method: "POST", body: payload });
 }
 
-export async function updateTask(id: string, payload: Record<string, unknown>): Promise<Task> {
+export async function updateTask(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<Task> {
   return api<Task>(`/tasks/${id}`, { method: "PATCH", body: payload });
 }
 
-export async function transitionTask(id: string, status: string): Promise<Task> {
-  return api<Task>(`/tasks/${id}/transition`, { method: "POST", body: { status } });
+export async function transitionTask(
+  id: string,
+  status: string,
+): Promise<Task> {
+  return api<Task>(`/tasks/${id}/transition`, {
+    method: "POST",
+    body: { status },
+  });
 }
 
 export async function deleteTask(id: string): Promise<Message> {
   return api<Message>(`/tasks/${id}`, { method: "DELETE" });
 }
 
-export async function listTaskDependencies(taskId: string): Promise<Dependency[]> {
+export async function listTaskDependencies(
+  taskId: string,
+): Promise<Dependency[]> {
   return api<Dependency[]>(`/tasks/${taskId}/dependencies`);
 }
 
-export async function addTaskDependency(taskId: string, dependsOnTaskId: string, kind = "finish_to_start"): Promise<Dependency> {
+export async function addTaskDependency(
+  taskId: string,
+  dependsOnTaskId: string,
+  kind = "finish_to_start",
+): Promise<Dependency> {
   return api<Dependency>(`/tasks/${taskId}/dependencies`, {
     method: "POST",
     body: { depends_on_task_id: dependsOnTaskId, kind },
   });
 }
 
-export async function removeTaskDependency(taskId: string, dependencyId: string): Promise<Message> {
-  return api<Message>(`/tasks/${taskId}/dependencies/${dependencyId}`, { method: "DELETE" });
+export async function removeTaskDependency(
+  taskId: string,
+  dependencyId: string,
+): Promise<Message> {
+  return api<Message>(`/tasks/${taskId}/dependencies/${dependencyId}`, {
+    method: "DELETE",
+  });
 }
 
 // ---------------------------------------------------------------- task collaboration
 
 export type { TaskComment, TaskAttachment, TaskActivityEntry } from "@/types";
 
-export async function addTaskComment(taskId: string, body: string): Promise<TaskComment> {
-  return api<TaskComment>(`/tasks/${taskId}/comments`, { method: "POST", body: { body } });
+export async function addTaskComment(
+  taskId: string,
+  body: string,
+): Promise<TaskComment> {
+  return api<TaskComment>(`/tasks/${taskId}/comments`, {
+    method: "POST",
+    body: { body },
+  });
 }
 
 export async function listTaskComments(taskId: string): Promise<TaskComment[]> {
   return api<TaskComment[]>(`/tasks/${taskId}/comments`);
 }
 
-export async function deleteTaskComment(taskId: string, commentId: string): Promise<Message> {
-  return api<Message>(`/tasks/${taskId}/comments/${commentId}`, { method: "DELETE" });
+export async function deleteTaskComment(
+  taskId: string,
+  commentId: string,
+): Promise<Message> {
+  return api<Message>(`/tasks/${taskId}/comments/${commentId}`, {
+    method: "DELETE",
+  });
 }
 
 export async function addTaskAttachment(
   taskId: string,
-  payload: { filename: string; url: string; size_bytes?: number; kind?: string }
+  payload: {
+    filename: string;
+    url: string;
+    size_bytes?: number;
+    kind?: string;
+  },
 ): Promise<TaskAttachment> {
-  return api<TaskAttachment>(`/tasks/${taskId}/attachments`, { method: "POST", body: payload });
+  return api<TaskAttachment>(`/tasks/${taskId}/attachments`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function listTaskAttachments(taskId: string): Promise<TaskAttachment[]> {
+export async function listTaskAttachments(
+  taskId: string,
+): Promise<TaskAttachment[]> {
   return api<TaskAttachment[]>(`/tasks/${taskId}/attachments`);
 }
 
-export async function deleteTaskAttachment(taskId: string, attachmentId: string): Promise<Message> {
-  return api<Message>(`/tasks/${taskId}/attachments/${attachmentId}`, { method: "DELETE" });
+export async function deleteTaskAttachment(
+  taskId: string,
+  attachmentId: string,
+): Promise<Message> {
+  return api<Message>(`/tasks/${taskId}/attachments/${attachmentId}`, {
+    method: "DELETE",
+  });
 }
 
-export async function getTaskActivity(taskId: string): Promise<TaskActivityEntry[]> {
+export async function getTaskActivity(
+  taskId: string,
+): Promise<TaskActivityEntry[]> {
   return api<TaskActivityEntry[]>(`/tasks/${taskId}/activity`);
 }
 
 // ---------------------------------------------------------------- goals
 
-export async function listGoals(query: {
-  scope?: string;
-  status?: string;
-  owner_id?: string;
-  team_id?: string;
-  search?: string;
-} = {}): Promise<Goal[]> {
+export async function listGoals(
+  query: {
+    scope?: string;
+    status?: string;
+    owner_id?: string;
+    team_id?: string;
+    search?: string;
+  } = {},
+): Promise<Goal[]> {
   return api<Goal[]>("/goals", { query });
 }
 
@@ -967,11 +1239,16 @@ export async function getGoal(id: string): Promise<Goal> {
   return api<Goal>(`/goals/${id}`);
 }
 
-export async function createGoal(payload: Record<string, unknown>): Promise<Goal> {
+export async function createGoal(
+  payload: Record<string, unknown>,
+): Promise<Goal> {
   return api<Goal>("/goals", { method: "POST", body: payload });
 }
 
-export async function updateGoal(id: string, payload: Record<string, unknown>): Promise<Goal> {
+export async function updateGoal(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<Goal> {
   return api<Goal>(`/goals/${id}`, { method: "PATCH", body: payload });
 }
 
@@ -983,25 +1260,45 @@ export async function listKeyResults(goalId: string): Promise<KeyResult[]> {
   return api<KeyResult[]>(`/goals/${goalId}/key-results`);
 }
 
-export async function addKeyResult(goalId: string, payload: Record<string, unknown>): Promise<KeyResult> {
-  return api<KeyResult>(`/goals/${goalId}/key-results`, { method: "POST", body: payload });
+export async function addKeyResult(
+  goalId: string,
+  payload: Record<string, unknown>,
+): Promise<KeyResult> {
+  return api<KeyResult>(`/goals/${goalId}/key-results`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function updateKeyResult(goalId: string, krId: string, payload: Record<string, unknown>): Promise<KeyResult> {
-  return api<KeyResult>(`/goals/${goalId}/key-results/${krId}`, { method: "PATCH", body: payload });
+export async function updateKeyResult(
+  goalId: string,
+  krId: string,
+  payload: Record<string, unknown>,
+): Promise<KeyResult> {
+  return api<KeyResult>(`/goals/${goalId}/key-results/${krId}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
-export async function deleteKeyResult(goalId: string, krId: string): Promise<Message> {
-  return api<Message>(`/goals/${goalId}/key-results/${krId}`, { method: "DELETE" });
+export async function deleteKeyResult(
+  goalId: string,
+  krId: string,
+): Promise<Message> {
+  return api<Message>(`/goals/${goalId}/key-results/${krId}`, {
+    method: "DELETE",
+  });
 }
 
 // ---------------------------------------------------------------- meetings
 
-export async function listMeetings(query: {
-  project_id?: string;
-  status?: string;
-  employee_id?: string;
-} = {}): Promise<Meeting[]> {
+export async function listMeetings(
+  query: {
+    project_id?: string;
+    status?: string;
+    employee_id?: string;
+  } = {},
+): Promise<Meeting[]> {
   return api<Meeting[]>("/meetings", { query });
 }
 
@@ -1009,11 +1306,16 @@ export async function getMeeting(id: string): Promise<Meeting> {
   return api<Meeting>(`/meetings/${id}`);
 }
 
-export async function createMeeting(payload: Record<string, unknown>): Promise<Meeting> {
+export async function createMeeting(
+  payload: Record<string, unknown>,
+): Promise<Meeting> {
   return api<Meeting>("/meetings", { method: "POST", body: payload });
 }
 
-export async function updateMeeting(id: string, payload: Record<string, unknown>): Promise<Meeting> {
+export async function updateMeeting(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<Meeting> {
   return api<Meeting>(`/meetings/${id}`, { method: "PATCH", body: payload });
 }
 
@@ -1027,11 +1329,13 @@ export async function deleteMeeting(id: string): Promise<Message> {
 
 // ------------------------------------------------- Phase 6: collaboration
 
-export async function listUpcomingMeetings(query: {
-  scope?: string;
-  from_date?: string;
-  to_date?: string;
-} = {}): Promise<MeetingWithSession[]> {
+export async function listUpcomingMeetings(
+  query: {
+    scope?: string;
+    from_date?: string;
+    to_date?: string;
+  } = {},
+): Promise<MeetingWithSession[]> {
   return api<MeetingWithSession[]>("/meetings/upcoming", { query });
 }
 
@@ -1039,68 +1343,128 @@ export async function meetingByCode(code: string): Promise<MeetingWithSession> {
   return api<MeetingWithSession>(`/meetings/code/${code}`);
 }
 
-export async function getMeetingSession(meetingId: string): Promise<MeetingSession> {
+export async function getMeetingSession(
+  meetingId: string,
+): Promise<MeetingSession> {
   return api<MeetingSession>(`/meetings/${meetingId}/session`);
 }
 
-export async function createMeetingSession(meetingId: string, payload: Record<string, unknown>): Promise<MeetingSession> {
-  return api<MeetingSession>(`/meetings/${meetingId}/session`, { method: "POST", body: payload });
+export async function createMeetingSession(
+  meetingId: string,
+  payload: Record<string, unknown>,
+): Promise<MeetingSession> {
+  return api<MeetingSession>(`/meetings/${meetingId}/session`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function joinMeeting(meetingId: string, device = "desktop"): Promise<{
+export async function joinMeeting(
+  meetingId: string,
+  device = "desktop",
+): Promise<{
   meeting: Meeting;
   session: MeetingSession;
   participant: MeetingParticipant;
 }> {
-  return api(`/meetings/${meetingId}/join`, { method: "POST", body: { device } });
+  return api(`/meetings/${meetingId}/join`, {
+    method: "POST",
+    body: { device },
+  });
 }
 
-export async function leaveMeeting(meetingId: string): Promise<{ left: boolean; participant_id?: string }> {
+export async function leaveMeeting(
+  meetingId: string,
+): Promise<{ left: boolean; participant_id?: string }> {
   return api(`/meetings/${meetingId}/leave`, { method: "POST" });
 }
 
-export async function inviteToMeeting(meetingId: string, employeeIds: string[], message?: string): Promise<{ invited: string[]; count: number }> {
-  return api(`/meetings/${meetingId}/invite`, { method: "POST", body: { employee_ids: employeeIds, message } });
+export async function inviteToMeeting(
+  meetingId: string,
+  employeeIds: string[],
+  message?: string,
+): Promise<{ invited: string[]; count: number }> {
+  return api(`/meetings/${meetingId}/invite`, {
+    method: "POST",
+    body: { employee_ids: employeeIds, message },
+  });
 }
 
-export async function startMeetingSession(meetingId: string): Promise<MeetingSession> {
-  return api<MeetingSession>(`/meetings/${meetingId}/start`, { method: "POST" });
+export async function startMeetingSession(
+  meetingId: string,
+): Promise<MeetingSession> {
+  return api<MeetingSession>(`/meetings/${meetingId}/start`, {
+    method: "POST",
+  });
 }
 
-export async function endMeetingSession(meetingId: string): Promise<MeetingSession> {
+export async function endMeetingSession(
+  meetingId: string,
+): Promise<MeetingSession> {
   return api<MeetingSession>(`/meetings/${meetingId}/end`, { method: "POST" });
 }
 
-export async function sendMeetingPresence(meetingId: string, payload: Record<string, unknown>): Promise<MeetingParticipant> {
-  return api<MeetingParticipant>(`/meetings/${meetingId}/presence`, { method: "POST", body: payload });
+export async function sendMeetingPresence(
+  meetingId: string,
+  payload: Record<string, unknown>,
+): Promise<MeetingParticipant> {
+  return api<MeetingParticipant>(`/meetings/${meetingId}/presence`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function listMeetingParticipants(meetingId: string): Promise<MeetingParticipant[]> {
+export async function listMeetingParticipants(
+  meetingId: string,
+): Promise<MeetingParticipant[]> {
   return api<MeetingParticipant[]>(`/meetings/${meetingId}/participants`);
 }
 
-export async function listMeetingNotes(meetingId: string): Promise<MeetingNote[]> {
+export async function listMeetingNotes(
+  meetingId: string,
+): Promise<MeetingNote[]> {
   return api<MeetingNote[]>(`/meetings/${meetingId}/notes`);
 }
 
-export async function createMeetingNote(meetingId: string, content: string, sessionId?: string): Promise<MeetingNote> {
-  return api<MeetingNote>(`/meetings/${meetingId}/notes`, { method: "POST", body: { content, session_id: sessionId } });
+export async function createMeetingNote(
+  meetingId: string,
+  content: string,
+  sessionId?: string,
+): Promise<MeetingNote> {
+  return api<MeetingNote>(`/meetings/${meetingId}/notes`, {
+    method: "POST",
+    body: { content, session_id: sessionId },
+  });
 }
 
-export async function updateMeetingNote(meetingId: string, noteId: string, content: string): Promise<MeetingNote> {
-  return api<MeetingNote>(`/meetings/${meetingId}/notes/${noteId}`, { method: "PATCH", body: { content } });
+export async function updateMeetingNote(
+  meetingId: string,
+  noteId: string,
+  content: string,
+): Promise<MeetingNote> {
+  return api<MeetingNote>(`/meetings/${meetingId}/notes/${noteId}`, {
+    method: "PATCH",
+    body: { content },
+  });
 }
 
-export async function deleteMeetingNote(meetingId: string, noteId: string): Promise<Message> {
-  return api<Message>(`/meetings/${meetingId}/notes/${noteId}`, { method: "DELETE" });
+export async function deleteMeetingNote(
+  meetingId: string,
+  noteId: string,
+): Promise<Message> {
+  return api<Message>(`/meetings/${meetingId}/notes/${noteId}`, {
+    method: "DELETE",
+  });
 }
 
-export async function listMeetingRooms(query: {
-  room_type?: string;
-  status?: string;
-  department_id?: string;
-  team_id?: string;
-} = {}): Promise<MeetingRoom[]> {
+export async function listMeetingRooms(
+  query: {
+    room_type?: string;
+    status?: string;
+    department_id?: string;
+    team_id?: string;
+  } = {},
+): Promise<MeetingRoom[]> {
   return api<MeetingRoom[]>("/meeting-rooms", { query });
 }
 
@@ -1108,82 +1472,161 @@ export async function getMeetingRoom(id: string): Promise<MeetingRoom> {
   return api<MeetingRoom>(`/meeting-rooms/${id}`);
 }
 
-export async function createMeetingRoom(payload: Record<string, unknown>): Promise<MeetingRoom> {
+export async function createMeetingRoom(
+  payload: Record<string, unknown>,
+): Promise<MeetingRoom> {
   return api<MeetingRoom>("/meeting-rooms", { method: "POST", body: payload });
 }
 
-export async function updateMeetingRoom(id: string, payload: Record<string, unknown>): Promise<MeetingRoom> {
-  return api<MeetingRoom>(`/meeting-rooms/${id}`, { method: "PATCH", body: payload });
+export async function updateMeetingRoom(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<MeetingRoom> {
+  return api<MeetingRoom>(`/meeting-rooms/${id}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
 export async function deleteMeetingRoom(id: string): Promise<Message> {
   return api<Message>(`/meeting-rooms/${id}`, { method: "DELETE" });
 }
 
-export async function roomAvailability(id: string, start?: string, end?: string): Promise<
-  { kind: string; id: string; title: string; start_at: string | null; end_at: string | null; status: string }[]
+export async function roomAvailability(
+  id: string,
+  start?: string,
+  end?: string,
+): Promise<
+  {
+    kind: string;
+    id: string;
+    title: string;
+    start_at: string | null;
+    end_at: string | null;
+    status: string;
+  }[]
 > {
   return api(`/meeting-rooms/${id}/availability`, { query: { start, end } });
 }
 
-export async function listMeetingAttendees(meetingId: string): Promise<Attendee[]> {
+export async function listMeetingAttendees(
+  meetingId: string,
+): Promise<Attendee[]> {
   return api<Attendee[]>(`/meetings/${meetingId}/attendees`);
 }
 
-export async function addMeetingAttendee(meetingId: string, employeeId: string, role = "participant"): Promise<Attendee> {
-  return api<Attendee>(`/meetings/${meetingId}/attendees`, { method: "POST", body: { employee_id: employeeId, role } });
+export async function addMeetingAttendee(
+  meetingId: string,
+  employeeId: string,
+  role = "participant",
+): Promise<Attendee> {
+  return api<Attendee>(`/meetings/${meetingId}/attendees`, {
+    method: "POST",
+    body: { employee_id: employeeId, role },
+  });
 }
 
-export async function removeMeetingAttendee(meetingId: string, employeeId: string): Promise<Message> {
-  return api<Message>(`/meetings/${meetingId}/attendees/${employeeId}`, { method: "DELETE" });
+export async function removeMeetingAttendee(
+  meetingId: string,
+  employeeId: string,
+): Promise<Message> {
+  return api<Message>(`/meetings/${meetingId}/attendees/${employeeId}`, {
+    method: "DELETE",
+  });
 }
 
-export async function rsvpMeeting(meetingId: string, status: "accepted" | "declined" | "tentative"): Promise<Attendee> {
-  return api<Attendee>(`/meetings/${meetingId}/rsvp`, { method: "POST", body: { status } });
+export async function rsvpMeeting(
+  meetingId: string,
+  status: "accepted" | "declined" | "tentative",
+): Promise<Attendee> {
+  return api<Attendee>(`/meetings/${meetingId}/rsvp`, {
+    method: "POST",
+    body: { status },
+  });
 }
 
-export async function listAgendaItems(meetingId: string): Promise<AgendaItem[]> {
+export async function listAgendaItems(
+  meetingId: string,
+): Promise<AgendaItem[]> {
   return api<AgendaItem[]>(`/meetings/${meetingId}/agenda`);
 }
 
-export async function addAgendaItem(meetingId: string, payload: Record<string, unknown>): Promise<AgendaItem> {
-  return api<AgendaItem>(`/meetings/${meetingId}/agenda`, { method: "POST", body: payload });
+export async function addAgendaItem(
+  meetingId: string,
+  payload: Record<string, unknown>,
+): Promise<AgendaItem> {
+  return api<AgendaItem>(`/meetings/${meetingId}/agenda`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function listActionItems(meetingId: string): Promise<ActionItem[]> {
+export async function listActionItems(
+  meetingId: string,
+): Promise<ActionItem[]> {
   return api<ActionItem[]>(`/meetings/${meetingId}/action-items`);
 }
 
-export async function addActionItem(meetingId: string, payload: Record<string, unknown>): Promise<ActionItem> {
-  return api<ActionItem>(`/meetings/${meetingId}/action-items`, { method: "POST", body: payload });
+export async function addActionItem(
+  meetingId: string,
+  payload: Record<string, unknown>,
+): Promise<ActionItem> {
+  return api<ActionItem>(`/meetings/${meetingId}/action-items`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function completeActionItem(meetingId: string, itemId: string): Promise<ActionItem> {
-  return api<ActionItem>(`/meetings/${meetingId}/action-items/${itemId}/complete`, { method: "POST" });
+export async function completeActionItem(
+  meetingId: string,
+  itemId: string,
+): Promise<ActionItem> {
+  return api<ActionItem>(
+    `/meetings/${meetingId}/action-items/${itemId}/complete`,
+    { method: "POST" },
+  );
 }
 
 // ------------------------------------------- Phase 6: live collaboration (chat/whiteboard/captions)
 
-export async function listMeetingChat(meetingId: string, limit = 50): Promise<MeetingChatMessage[]> {
-  return api<MeetingChatMessage[]>(`/meetings/${meetingId}/chat`, { query: { limit } });
+export async function listMeetingChat(
+  meetingId: string,
+  limit = 50,
+): Promise<MeetingChatMessage[]> {
+  return api<MeetingChatMessage[]>(`/meetings/${meetingId}/chat`, {
+    query: { limit },
+  });
 }
 
-export async function sendMeetingChat(meetingId: string, content: string): Promise<MeetingChatMessage> {
-  return api<MeetingChatMessage>(`/meetings/${meetingId}/chat`, { method: "POST", body: { content } });
+export async function sendMeetingChat(
+  meetingId: string,
+  content: string,
+): Promise<MeetingChatMessage> {
+  return api<MeetingChatMessage>(`/meetings/${meetingId}/chat`, {
+    method: "POST",
+    body: { content },
+  });
 }
 
-export async function deleteMeetingChat(meetingId: string, messageId: string): Promise<Message> {
-  return api<Message>(`/meetings/${meetingId}/chat/${messageId}`, { method: "DELETE" });
+export async function deleteMeetingChat(
+  meetingId: string,
+  messageId: string,
+): Promise<Message> {
+  return api<Message>(`/meetings/${meetingId}/chat/${messageId}`, {
+    method: "DELETE",
+  });
 }
 
-export async function getMeetingWhiteboard(meetingId: string): Promise<MeetingWhiteboard> {
+export async function getMeetingWhiteboard(
+  meetingId: string,
+): Promise<MeetingWhiteboard> {
   return api<MeetingWhiteboard>(`/meetings/${meetingId}/whiteboard`);
 }
 
 export async function updateMeetingWhiteboard(
   meetingId: string,
   content: Record<string, unknown>,
-  version: number
+  version: number,
 ): Promise<MeetingWhiteboard> {
   return api<MeetingWhiteboard>(`/meetings/${meetingId}/whiteboard`, {
     method: "PUT",
@@ -1194,7 +1637,7 @@ export async function updateMeetingWhiteboard(
 export async function listMeetingCaptions(
   meetingId: string,
   afterMs?: number,
-  language?: string
+  language?: string,
 ): Promise<MeetingCaption[]> {
   return api<MeetingCaption[]>(`/meetings/${meetingId}/captions`, {
     query: { after_ms: afterMs, language },
@@ -1209,115 +1652,189 @@ export async function addMeetingCaption(
     language?: string;
     start_ms?: number;
     end_ms?: number;
-  }
+  },
 ): Promise<MeetingCaption> {
-  return api<MeetingCaption>(`/meetings/${meetingId}/captions`, { method: "POST", body: payload });
+  return api<MeetingCaption>(`/meetings/${meetingId}/captions`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function getMeetingTranscript(meetingId: string): Promise<MeetingTranscript | { meeting_id: string; status: string }> {
-  return api<MeetingTranscript | { meeting_id: string; status: string }>(`/meetings/${meetingId}/transcript`);
+export async function getMeetingTranscript(
+  meetingId: string,
+): Promise<MeetingTranscript | { meeting_id: string; status: string }> {
+  return api<MeetingTranscript | { meeting_id: string; status: string }>(
+    `/meetings/${meetingId}/transcript`,
+  );
 }
 
 // ------------------------------------------- Phase 6: recordings
 
-export async function listMeetingRecordings(meetingId: string): Promise<MeetingRecording[]> {
+export async function listMeetingRecordings(
+  meetingId: string,
+): Promise<MeetingRecording[]> {
   return api<MeetingRecording[]>(`/meetings/${meetingId}/recordings`);
 }
 
 export async function startMeetingRecording(
   meetingId: string,
-  payload: { kind?: string; title?: string; captions_enabled?: boolean; language?: string } = {}
+  payload: {
+    kind?: string;
+    title?: string;
+    captions_enabled?: boolean;
+    language?: string;
+  } = {},
 ): Promise<MeetingRecording> {
-  return api<MeetingRecording>(`/meetings/${meetingId}/recordings/start`, { method: "POST", body: payload });
+  return api<MeetingRecording>(`/meetings/${meetingId}/recordings/start`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function stopMeetingRecording(meetingId: string, recordingId: string): Promise<MeetingRecording> {
-  return api<MeetingRecording>(`/meetings/${meetingId}/recordings/${recordingId}/stop`, { method: "POST" });
+export async function stopMeetingRecording(
+  meetingId: string,
+  recordingId: string,
+): Promise<MeetingRecording> {
+  return api<MeetingRecording>(
+    `/meetings/${meetingId}/recordings/${recordingId}/stop`,
+    { method: "POST" },
+  );
 }
 
-export async function deleteMeetingRecording(meetingId: string, recordingId: string): Promise<Message> {
-  return api<Message>(`/meetings/${meetingId}/recordings/${recordingId}`, { method: "DELETE" });
+export async function deleteMeetingRecording(
+  meetingId: string,
+  recordingId: string,
+): Promise<Message> {
+  return api<Message>(`/meetings/${meetingId}/recordings/${recordingId}`, {
+    method: "DELETE",
+  });
 }
 
-export async function listRecordingLibrary(status?: string, limit = 100): Promise<MeetingRecording[]> {
+export async function listRecordingLibrary(
+  status?: string,
+  limit = 100,
+): Promise<MeetingRecording[]> {
   return api<MeetingRecording[]>("/recordings", { query: { status, limit } });
 }
 
 // ------------------------------------------- Phase 6: meeting intelligence
 
-export async function finalizeMeetingIntelligence(meetingId: string): Promise<Record<string, unknown>> {
-  return api<Record<string, unknown>>(`/meetings/${meetingId}/ai/finalize`, { method: "POST" });
+export async function finalizeMeetingIntelligence(
+  meetingId: string,
+): Promise<Record<string, unknown>> {
+  return api<Record<string, unknown>>(`/meetings/${meetingId}/ai/finalize`, {
+    method: "POST",
+  });
 }
 
-export async function getMeetingAttendance(meetingId: string): Promise<MeetingAttendanceResponse> {
+export async function getMeetingAttendance(
+  meetingId: string,
+): Promise<MeetingAttendanceResponse> {
   return api<MeetingAttendanceResponse>(`/meetings/${meetingId}/attendance`);
 }
 
-export async function listMeetingDecisions(meetingId: string): Promise<MeetingDecision[]> {
+export async function listMeetingDecisions(
+  meetingId: string,
+): Promise<MeetingDecision[]> {
   return api<MeetingDecision[]>(`/meetings/${meetingId}/decisions`);
 }
 
-export async function createMeetingDecision(meetingId: string, content: string): Promise<MeetingDecision> {
-  return api<MeetingDecision>(`/meetings/${meetingId}/decisions`, { method: "POST", body: { content } });
+export async function createMeetingDecision(
+  meetingId: string,
+  content: string,
+): Promise<MeetingDecision> {
+  return api<MeetingDecision>(`/meetings/${meetingId}/decisions`, {
+    method: "POST",
+    body: { content },
+  });
 }
 
 export async function updateMeetingDecision(
   meetingId: string,
   decisionId: string,
-  content: string
+  content: string,
 ): Promise<MeetingDecision> {
-  return api<MeetingDecision>(`/meetings/${meetingId}/decisions/${decisionId}`, {
-    method: "PATCH",
-    body: { content },
+  return api<MeetingDecision>(
+    `/meetings/${meetingId}/decisions/${decisionId}`,
+    {
+      method: "PATCH",
+      body: { content },
+    },
+  );
+}
+
+export async function deleteMeetingDecision(
+  meetingId: string,
+  decisionId: string,
+): Promise<Message> {
+  return api<Message>(`/meetings/${meetingId}/decisions/${decisionId}`, {
+    method: "DELETE",
   });
 }
 
-export async function deleteMeetingDecision(meetingId: string, decisionId: string): Promise<Message> {
-  return api<Message>(`/meetings/${meetingId}/decisions/${decisionId}`, { method: "DELETE" });
-}
-
-export async function getMeetingSuggestions(query: {
-  employee_ids?: string;
-  duration_minutes?: number;
-  days?: number;
-  start_at?: string;
-  end_at?: string;
-  capacity?: number;
-} = {}): Promise<MeetingSuggestionsResponse> {
+export async function getMeetingSuggestions(
+  query: {
+    employee_ids?: string;
+    duration_minutes?: number;
+    days?: number;
+    start_at?: string;
+    end_at?: string;
+    capacity?: number;
+  } = {},
+): Promise<MeetingSuggestionsResponse> {
   return api<MeetingSuggestionsResponse>("/meetings/suggest", { query });
 }
 
-export async function getMeetingAnalyticsOverview(days = 30): Promise<MeetingAnalyticsOverview> {
-  return api<MeetingAnalyticsOverview>("/meeting-analytics", { query: { days } });
+export async function getMeetingAnalyticsOverview(
+  days = 30,
+): Promise<MeetingAnalyticsOverview> {
+  return api<MeetingAnalyticsOverview>("/meeting-analytics", {
+    query: { days },
+  });
 }
 
 // ---------------------------------------------------------------- calendar
 
-export async function listCalendarEvents(query: {
-  employee_id?: string;
-  start?: string;
-  end?: string;
-  scope?: string;
-  project_id?: string;
-  team_id?: string;
-} = {}): Promise<CalendarEvent[]> {
+export async function listCalendarEvents(
+  query: {
+    employee_id?: string;
+    start?: string;
+    end?: string;
+    scope?: string;
+    project_id?: string;
+    team_id?: string;
+  } = {},
+): Promise<CalendarEvent[]> {
   return api<CalendarEvent[]>("/calendar/events", { query });
 }
 
-export async function getCalendarFeed(query: {
-  start?: string;
-  end?: string;
-  employee_id?: string;
-} = {}): Promise<CalendarFeedItem[]> {
+export async function getCalendarFeed(
+  query: {
+    start?: string;
+    end?: string;
+    employee_id?: string;
+  } = {},
+): Promise<CalendarFeedItem[]> {
   return api<CalendarFeedItem[]>("/calendar/feed", { query });
 }
 
-export async function createCalendarEvent(payload: Record<string, unknown>): Promise<CalendarEvent> {
-  return api<CalendarEvent>("/calendar/events", { method: "POST", body: payload });
+export async function createCalendarEvent(
+  payload: Record<string, unknown>,
+): Promise<CalendarEvent> {
+  return api<CalendarEvent>("/calendar/events", {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function updateCalendarEvent(id: string, payload: Record<string, unknown>): Promise<CalendarEvent> {
-  return api<CalendarEvent>(`/calendar/events/${id}`, { method: "PATCH", body: payload });
+export async function updateCalendarEvent(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<CalendarEvent> {
+  return api<CalendarEvent>(`/calendar/events/${id}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
 export async function deleteCalendarEvent(id: string): Promise<Message> {
@@ -1326,20 +1843,31 @@ export async function deleteCalendarEvent(id: string): Promise<Message> {
 
 // ---------------------------------------------------------------- approvals
 
-export async function listApprovals(query: {
-  status?: string;
-  approval_type?: string;
-  employee_id?: string;
-} = {}): Promise<Approval[]> {
+export async function listApprovals(
+  query: {
+    status?: string;
+    approval_type?: string;
+    employee_id?: string;
+  } = {},
+): Promise<Approval[]> {
   return api<Approval[]>("/approvals", { query });
 }
 
-export async function createApproval(payload: Record<string, unknown>): Promise<Approval> {
+export async function createApproval(
+  payload: Record<string, unknown>,
+): Promise<Approval> {
   return api<Approval>("/approvals", { method: "POST", body: payload });
 }
 
-export async function decideApproval(id: string, decision: "approved" | "rejected", note?: string): Promise<Approval> {
-  return api<Approval>(`/approvals/${id}/decide`, { method: "POST", body: { decision, note } });
+export async function decideApproval(
+  id: string,
+  decision: "approved" | "rejected",
+  note?: string,
+): Promise<Approval> {
+  return api<Approval>(`/approvals/${id}/decide`, {
+    method: "POST",
+    body: { decision, note },
+  });
 }
 
 export async function cancelApproval(id: string): Promise<Approval> {
@@ -1352,19 +1880,26 @@ export async function getApprovalStats() {
 
 // ---------------------------------------------------------------- risks
 
-export async function listRisks(query: {
-  project_id?: string;
-  status?: string;
-  severity?: string;
-} = {}): Promise<Risk[]> {
+export async function listRisks(
+  query: {
+    project_id?: string;
+    status?: string;
+    severity?: string;
+  } = {},
+): Promise<Risk[]> {
   return api<Risk[]>("/risks", { query });
 }
 
-export async function createRisk(payload: Record<string, unknown>): Promise<Risk> {
+export async function createRisk(
+  payload: Record<string, unknown>,
+): Promise<Risk> {
   return api<Risk>("/risks", { method: "POST", body: payload });
 }
 
-export async function updateRisk(id: string, payload: Record<string, unknown>): Promise<Risk> {
+export async function updateRisk(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<Risk> {
   return api<Risk>(`/risks/${id}`, { method: "PATCH", body: payload });
 }
 
@@ -1386,51 +1921,389 @@ export async function listRoles(): Promise<Role[]> {
   return api<Role[]>("/roles");
 }
 
-export async function createGovernanceScope(payload: Record<string, unknown>): Promise<GovernanceScope> {
-  return api<GovernanceScope>("/governance/scopes", { method: "POST", body: payload });
+// ------------------------------------------------------------------ Company Experience (Universal Adaptive Experience)
+
+export interface CompanyExperienceProfile {
+  experience_profile: string;
+  employee_count: number;
+  organizational_depth: number;
+  organizational_unit_count: number;
+  legal_entity_count: number;
+  geographic_footprint_count: number;
+  governance_complexity: string;
+  approval_levels: number;
+  integration_count: number;
+  workflow_complexity: string;
+  enabled_modules: string[];
+  default_dashboard_layout: string;
+  navigation_density: string;
+  progressive_disclosure: boolean;
+  show_advanced_features: boolean;
+  default_language: string;
+  supported_languages: string[];
+  timezone: string;
+  date_format: string;
+  number_format: string;
+  feature_flags: Record<string, boolean>;
+  configured_by: string | null;
+  configured_at: string | null;
+  last_profile_change: string | null;
+  previous_profile: string | null;
 }
 
-export async function updateGovernanceScope(id: string, payload: Record<string, unknown>): Promise<GovernanceScope> {
-  return api<GovernanceScope>(`/governance/scopes/${id}`, { method: "PATCH", body: payload });
+export interface SuggestedProfileOut {
+  suggested_profile: string;
+  current_profile: string;
+  organization_complexity: Record<string, number>;
+  score_breakdown: Record<string, number>;
+}
+
+export interface ProfileCapabilitiesOut {
+  modules: string[];
+  navigation_groups: string[];
+  max_org_depth: number;
+  max_departments: number;
+  max_teams: number;
+  governance_level: string;
+  approval_levels: number;
+  modules_enabled_by_default: string[];
+  features?: string[];
+}
+
+export interface AdaptiveModuleOut {
+  key: string;
+  label: string;
+  icon: string;
+  description: string;
+  required_permissions: string[];
+  priority: number;
+  progressive_disclosure: boolean;
+  badge_count: number;
+  badge_label?: string;
+}
+
+export interface AdaptiveNavigationGroupOut {
+  key: string;
+  label: string;
+  modules: AdaptiveModuleOut[];
+  priority: number;
+  collapsible: boolean;
+  default_collapsed: boolean;
+}
+
+export interface CompanyBrainInsightsOut {
+  overview: Record<string, any>;
+  recent_changes: Record<string, any>[];
+  change_count: number;
+}
+
+export interface DigitalTwinOverlayOut {
+  health_score: number;
+  capacity_utilization: number;
+  bottlenecks: string[];
+  active_scenarios: number;
+}
+
+export interface RecommendedActionOut {
+  type: string;
+  label: string;
+  action: string;
+  target: string;
+  priority: number;
+  source: string;
+}
+
+export interface AdaptiveExperienceOut {
+  profile: string;
+  navigation_groups: {
+    key: string;
+    label: string;
+    modules: AdaptiveModuleOut[];
+    priority: number;
+    collapsible: boolean;
+    default_collapsed: boolean;
+  }[];
+  visible_modules: string[];
+  dashboard_layout: string;
+  navigation_density: string;
+  progressive_disclosure: boolean;
+  show_advanced_features: boolean;
+  feature_flags: Record<string, boolean>;
+  company_brain_insights: CompanyBrainInsightsOut;
+  digital_twin_overlay: DigitalTwinOverlayOut;
+  recommended_actions: RecommendedActionOut[];
+  context_fingerprint: string;
+  resolved_at: string;
+}
+
+export interface SuggestedProfileOut {
+  suggested_profile: string;
+  current_profile: string;
+  organization_complexity: Record<string, number>;
+  score_breakdown: Record<string, number>;
+}
+
+export interface AdaptiveNavigationOut {
+  groups: {
+    key: string;
+    label: string;
+    modules: AdaptiveModuleOut[];
+    priority: number;
+    collapsible: boolean;
+    default_collapsed: boolean;
+  }[];
+  visible_modules: string[];
+}
+
+export async function getCompanyExperienceConfig(): Promise<CompanyExperienceProfile> {
+  return api<CompanyExperienceProfile>("/company-experience/config");
+}
+
+export async function updateCompanyExperienceConfig(
+  payload: Record<string, any>,
+): Promise<CompanyExperienceProfile> {
+  return api<CompanyExperienceProfile>("/company-experience/config", {
+    method: "PATCH",
+    body: payload,
+  });
+}
+
+export async function getSuggestedProfile(): Promise<SuggestedProfileOut> {
+  return api<SuggestedProfileOut>("/company-experience/profile");
+}
+
+export async function getProfileCapabilities(
+  profile?: string,
+): Promise<ProfileCapabilitiesOut> {
+  const query = profile ? `?profile=${profile}` : "";
+  return api<ProfileCapabilitiesOut>(
+    `/company-experience/capabilities${query}`,
+  );
+}
+
+export async function getAdaptiveNavigation(): Promise<AdaptiveNavigationOut> {
+  return api<AdaptiveNavigationOut>("/company-experience/navigation");
+}
+
+export async function getAdaptiveExperience(): Promise<AdaptiveExperienceOut> {
+  return api<AdaptiveExperienceOut>("/company-experience/adaptive");
+}
+
+export async function previewProfileTransition(
+  targetProfile: string,
+): Promise<any> {
+  return api<any>(
+    `/company-experience/transition/preview?target_profile=${targetProfile}`,
+  );
+}
+
+export async function getModuleRecommendations(
+  limit: number = 5,
+): Promise<any> {
+  return api<any>(`/company-experience/module-recommendations?limit=${limit}`);
+}
+
+export async function getProfileHistory(): Promise<any[]> {
+  return api<any[]>("/company-experience/history");
+}
+
+export async function transitionProfile(
+  newProfile: string,
+  reason?: string,
+): Promise<CompanyExperienceProfile> {
+  return api<CompanyExperienceProfile>("/company-experience/transition", {
+    method: "POST",
+    body: { new_profile: newProfile, reason },
+  });
+}
+
+export async function checkModuleAccess(
+  moduleKey: string,
+): Promise<{ module: string; accessible: boolean }> {
+  return api<{ module: string; accessible: boolean }>(
+    `/company-experience/module-access/${moduleKey}`,
+  );
+}
+
+export interface ExternalGroup {
+  id: string;
+  organization_id: string;
+  identity_provider_id: string;
+  identity_provider_name: string;
+  external_group_id: string;
+  display_name: string;
+  description: string | null;
+  members_count: number;
+  sync_status: string;
+  last_synced_at: string | null;
+}
+
+export interface GroupRoleMapping {
+  id: string;
+  organization_id: string;
+  external_group_id: string;
+  external_group_name: string;
+  role_id: string;
+  role_name: string;
+  role_code: string;
+  mapped_by: string;
+  mapped_by_name: string;
+  mapping_state: string;
+  justification: string | null;
+  expires_at: string | null;
+  tenant_verified: boolean;
+  group_verified: boolean;
+  validated_by: string | null;
+  validated_at: string | null;
+  revoked_by: string | null;
+  revoked_at: string | null;
+  revocation_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GroupRoleMappingCreate {
+  external_group_id: string;
+  role_id: string;
+  justification?: string;
+  expires_at?: string;
+}
+
+export interface GroupRoleMappingUpdate {
+  role_id?: string;
+  justification?: string;
+  expires_at?: string;
+  mapping_state?: string;
+}
+
+export async function listExternalGroups(): Promise<ExternalGroup[]> {
+  return api<ExternalGroup[]>("/roles/groups");
+}
+
+export async function listGroupRoleMappings(
+  groupId: string,
+): Promise<GroupRoleMapping[]> {
+  return api<GroupRoleMapping[]>(`/roles/groups/${groupId}/mappings`);
+}
+
+export async function createGroupRoleMapping(
+  groupId: string,
+  payload: GroupRoleMappingCreate,
+): Promise<GroupRoleMapping> {
+  return api<GroupRoleMapping>(`/roles/groups/${groupId}/mappings`, {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export async function updateGroupRoleMapping(
+  groupId: string,
+  mappingId: string,
+  payload: GroupRoleMappingUpdate,
+): Promise<GroupRoleMapping> {
+  return api<GroupRoleMapping>(
+    `/roles/groups/${groupId}/mappings/${mappingId}`,
+    { method: "PATCH", body: payload },
+  );
+}
+
+export async function deleteGroupRoleMapping(
+  groupId: string,
+  mappingId: string,
+): Promise<{ message: string }> {
+  return api<{ message: string }>(
+    `/roles/groups/${groupId}/mappings/${mappingId}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function validateGroupRoleMapping(
+  groupId: string,
+  mappingId: string,
+): Promise<GroupRoleMapping> {
+  return api<GroupRoleMapping>(
+    `/roles/groups/${groupId}/mappings/${mappingId}/validate`,
+    { method: "POST" },
+  );
+}
+
+export async function createGovernanceScope(
+  payload: Record<string, unknown>,
+): Promise<GovernanceScope> {
+  return api<GovernanceScope>("/governance/scopes", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export async function updateGovernanceScope(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<GovernanceScope> {
+  return api<GovernanceScope>(`/governance/scopes/${id}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
 export async function deleteGovernanceScope(id: string): Promise<Message> {
   return api<Message>(`/governance/scopes/${id}`, { method: "DELETE" });
 }
 
-export async function listGovernanceAssignments(query: {
-  user_id?: string;
-  scope_id?: string;
-  role_id?: string;
-} = {}): Promise<GovernanceAssignment[]> {
+export async function listGovernanceAssignments(
+  query: {
+    user_id?: string;
+    scope_id?: string;
+    role_id?: string;
+  } = {},
+): Promise<GovernanceAssignment[]> {
   return api<GovernanceAssignment[]>("/governance/assignments", { query });
 }
 
-export async function createGovernanceAssignment(payload: Record<string, unknown>): Promise<GovernanceAssignment> {
-  return api<GovernanceAssignment>("/governance/assignments", { method: "POST", body: payload });
+export async function createGovernanceAssignment(
+  payload: Record<string, unknown>,
+): Promise<GovernanceAssignment> {
+  return api<GovernanceAssignment>("/governance/assignments", {
+    method: "POST",
+    body: payload,
+  });
 }
 
 export async function removeGovernanceAssignment(id: string): Promise<Message> {
   return api<Message>(`/governance/assignments/${id}`, { method: "DELETE" });
 }
 
-export async function listGovernanceDelegations(query: {
-  granted_to?: string;
-  granted_by?: string;
-  status?: string;
-} = {}): Promise<GovernanceDelegation[]> {
+export async function listGovernanceDelegations(
+  query: {
+    granted_to?: string;
+    granted_by?: string;
+    status?: string;
+  } = {},
+): Promise<GovernanceDelegation[]> {
   return api<GovernanceDelegation[]>("/governance/delegations", { query });
 }
 
-export async function createGovernanceDelegation(payload: Record<string, unknown>): Promise<GovernanceDelegation> {
-  return api<GovernanceDelegation>("/governance/delegations", { method: "POST", body: payload });
+export async function createGovernanceDelegation(
+  payload: Record<string, unknown>,
+): Promise<GovernanceDelegation> {
+  return api<GovernanceDelegation>("/governance/delegations", {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function revokeGovernanceDelegation(id: string): Promise<GovernanceDelegation> {
-  return api<GovernanceDelegation>(`/governance/delegations/${id}/revoke`, { method: "POST" });
+export async function revokeGovernanceDelegation(
+  id: string,
+): Promise<GovernanceDelegation> {
+  return api<GovernanceDelegation>(`/governance/delegations/${id}/revoke`, {
+    method: "POST",
+  });
 }
 
-export async function getEffectivePermissions(userId: string, scopeId?: string): Promise<EffectivePermissions> {
+export async function getEffectivePermissions(
+  userId: string,
+  scopeId?: string,
+): Promise<EffectivePermissions> {
   return api<EffectivePermissions>("/governance/effective-permissions", {
     query: { user_id: userId, scope_id: scopeId },
   });
@@ -1440,12 +2313,23 @@ export async function listApprovalPolicies(): Promise<ApprovalPolicy[]> {
   return api<ApprovalPolicy[]>("/governance/policies");
 }
 
-export async function createApprovalPolicy(payload: Record<string, unknown>): Promise<ApprovalPolicy> {
-  return api<ApprovalPolicy>("/governance/policies", { method: "POST", body: payload });
+export async function createApprovalPolicy(
+  payload: Record<string, unknown>,
+): Promise<ApprovalPolicy> {
+  return api<ApprovalPolicy>("/governance/policies", {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function updateApprovalPolicy(id: string, payload: Record<string, unknown>): Promise<ApprovalPolicy> {
-  return api<ApprovalPolicy>(`/governance/policies/${id}`, { method: "PATCH", body: payload });
+export async function updateApprovalPolicy(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<ApprovalPolicy> {
+  return api<ApprovalPolicy>(`/governance/policies/${id}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
 // ---------------------------------------------------------------- workload & analytics
@@ -1454,12 +2338,18 @@ export async function getMyWorkload(): Promise<Workload> {
   return api<Workload>("/workload/me");
 }
 
-export async function getEmployeeWorkload(employeeId: string): Promise<Workload> {
+export async function getEmployeeWorkload(
+  employeeId: string,
+): Promise<Workload> {
   return api<Workload>(`/workload/employees/${employeeId}`);
 }
 
-export async function snapshotWorkload(): Promise<{ snapshots_created: number }> {
-  return api<{ snapshots_created: number }>("/workload/snapshot", { method: "POST" });
+export async function snapshotWorkload(): Promise<{
+  snapshots_created: number;
+}> {
+  return api<{ snapshots_created: number }>("/workload/snapshot", {
+    method: "POST",
+  });
 }
 
 export async function getOrganizationLoad(): Promise<OrganizationLoad> {
@@ -1646,7 +2536,11 @@ export interface StrategyPlan {
   status: string;
   priorities: string[];
   focus_areas: string[];
-  initiatives: { title: string; why: string; evidence: Record<string, unknown> }[];
+  initiatives: {
+    title: string;
+    why: string;
+    evidence: Record<string, unknown>;
+  }[];
   predictions: { metric: string; level: string; rationale: string }[];
   generated_at: string;
 }
@@ -1672,90 +2566,150 @@ export interface ExecutiveIntelligenceDashboard {
     knowledge_total: number;
   };
   departments_health: DepartmentHealth[];
-  projects_health: { project_id: string; name: string; health: number; progress: number; status: string }[];
+  projects_health: {
+    project_id: string;
+    name: string;
+    health: number;
+    progress: number;
+    status: string;
+  }[];
   risks: StrategicRisk[];
   recommendations: ExecutiveRecommendation[];
   digital_twin: Record<string, number>;
-  executive_calendar: { id: string; title: string; start_at?: string; meeting_type: string; status: string }[];
-  recent_decisions: { id: string; title: string; status: string; created_at?: string }[];
+  executive_calendar: {
+    id: string;
+    title: string;
+    start_at?: string;
+    meeting_type: string;
+    status: string;
+  }[];
+  recent_decisions: {
+    id: string;
+    title: string;
+    status: string;
+    created_at?: string;
+  }[];
   recent_activity: ExecutiveTimelineEntry[];
   strategy: Record<string, unknown>;
 }
 
-export async function getExecutiveIntelligence(refresh = false): Promise<ExecutiveIntelligenceDashboard> {
-  return api<ExecutiveIntelligenceDashboard>("/executive/dashboard", { query: { refresh } });
+export async function getExecutiveIntelligence(
+  refresh = false,
+): Promise<ExecutiveIntelligenceDashboard> {
+  return api<ExecutiveIntelligenceDashboard>("/executive/dashboard", {
+    query: { refresh },
+  });
 }
 
 export async function getCompanyHealth(): Promise<ExecutiveHealth> {
   return api<ExecutiveHealth>("/executive/health");
 }
 
-export async function getDepartmentsHealth(): Promise<{ total: number; departments: DepartmentHealth[] }> {
-  return api<{ total: number; departments: DepartmentHealth[] }>("/executive/health/departments");
+export async function getDepartmentsHealth(): Promise<{
+  total: number;
+  departments: DepartmentHealth[];
+}> {
+  return api<{ total: number; departments: DepartmentHealth[] }>(
+    "/executive/health/departments",
+  );
 }
 
-export async function getDepartmentHealth(departmentId: string): Promise<DepartmentHealth> {
+export async function getDepartmentHealth(
+  departmentId: string,
+): Promise<DepartmentHealth> {
   return api<DepartmentHealth>(`/executive/health/departments/${departmentId}`);
 }
 
-export async function listStrategicRisks(query: {
-  refresh?: boolean;
-  status?: string;
-  level?: string;
-  limit?: number;
-} = {}): Promise<{ total: number; risks: StrategicRisk[] }> {
-  return api<{ total: number; risks: StrategicRisk[] }>("/executive/risks", { query });
+export async function listStrategicRisks(
+  query: {
+    refresh?: boolean;
+    status?: string;
+    level?: string;
+    limit?: number;
+  } = {},
+): Promise<{ total: number; risks: StrategicRisk[] }> {
+  return api<{ total: number; risks: StrategicRisk[] }>("/executive/risks", {
+    query,
+  });
 }
 
 export async function updateStrategicRiskStatus(
   riskId: string,
-  status: "open" | "accepted" | "mitigated"
+  status: "open" | "accepted" | "mitigated",
 ): Promise<StrategicRisk> {
-  return api<StrategicRisk>(`/executive/risks/${riskId}/status`, { method: "PATCH", body: { status } });
-}
-
-export async function listExecutiveRecommendations(query: {
-  refresh?: boolean;
-  status?: string;
-  limit?: number;
-} = {}): Promise<{ total: number; recommendations: ExecutiveRecommendation[] }> {
-  return api<{ total: number; recommendations: ExecutiveRecommendation[] }>("/executive/recommendations", { query });
-}
-
-export async function updateRecommendationStatus(
-  recommendationId: string,
-  status: "active" | "accepted" | "dismissed"
-): Promise<ExecutiveRecommendation> {
-  return api<ExecutiveRecommendation>(`/executive/recommendations/${recommendationId}/status`, {
+  return api<StrategicRisk>(`/executive/risks/${riskId}/status`, {
     method: "PATCH",
     body: { status },
   });
 }
 
-export async function listExecutivePredictions(query: {
-  refresh?: boolean;
-  metric?: string;
-  level?: string;
-} = {}): Promise<{ total: number; predictions: ExecutivePrediction[] }> {
-  return api<{ total: number; predictions: ExecutivePrediction[] }>("/executive/predictions", { query });
+export async function listExecutiveRecommendations(
+  query: {
+    refresh?: boolean;
+    status?: string;
+    limit?: number;
+  } = {},
+): Promise<{ total: number; recommendations: ExecutiveRecommendation[] }> {
+  return api<{ total: number; recommendations: ExecutiveRecommendation[] }>(
+    "/executive/recommendations",
+    { query },
+  );
+}
+
+export async function updateRecommendationStatus(
+  recommendationId: string,
+  status: "active" | "accepted" | "dismissed",
+): Promise<ExecutiveRecommendation> {
+  return api<ExecutiveRecommendation>(
+    `/executive/recommendations/${recommendationId}/status`,
+    {
+      method: "PATCH",
+      body: { status },
+    },
+  );
+}
+
+export async function listExecutivePredictions(
+  query: {
+    refresh?: boolean;
+    metric?: string;
+    level?: string;
+  } = {},
+): Promise<{ total: number; predictions: ExecutivePrediction[] }> {
+  return api<{ total: number; predictions: ExecutivePrediction[] }>(
+    "/executive/predictions",
+    { query },
+  );
 }
 
 export async function runSimulation(
   scenario: string,
-  params: Record<string, unknown> = {}
+  params: Record<string, unknown> = {},
 ): Promise<SimulationResult> {
-  return api<SimulationResult>("/executive/simulations", { method: "POST", body: { scenario, params } });
+  return api<SimulationResult>("/executive/simulations", {
+    method: "POST",
+    body: { scenario, params },
+  });
 }
 
-export async function listSimulations(): Promise<{ total: number; simulations: SimulationResult[] }> {
-  return api<{ total: number; simulations: SimulationResult[] }>("/executive/simulations");
+export async function listSimulations(): Promise<{
+  total: number;
+  simulations: SimulationResult[];
+}> {
+  return api<{ total: number; simulations: SimulationResult[] }>(
+    "/executive/simulations",
+  );
 }
 
-export async function getSimulation(simulationId: string): Promise<SimulationResult> {
+export async function getSimulation(
+  simulationId: string,
+): Promise<SimulationResult> {
   return api<SimulationResult>(`/executive/simulations/${simulationId}`);
 }
 
-export async function listSimulationScenarios(): Promise<{ scenarios: string[] }> {
+export async function listSimulationScenarios(): Promise<{
+  scenarios: string[];
+}> {
   return api<{ scenarios: string[] }>("/executive/simulations/scenarios/list");
 }
 
@@ -1763,39 +2717,55 @@ export async function getDigitalTwin(): Promise<DigitalTwin> {
   return api<DigitalTwin>("/executive/twin");
 }
 
-export async function getOrganizationSnapshot(persist = false): Promise<DigitalTwin> {
+export async function getOrganizationSnapshot(
+  persist = false,
+): Promise<DigitalTwin> {
   return api<DigitalTwin>("/executive/snapshot", { query: { persist } });
 }
 
 export async function searchOrganizationMemory(
   query: string,
-  limit = 20
+  limit = 20,
 ): Promise<{ total: number; results: MemoryMatch[] }> {
-  return api<{ total: number; results: MemoryMatch[] }>("/executive/twin/search-memory", {
-    method: "POST",
-    body: { query, limit },
-  });
+  return api<{ total: number; results: MemoryMatch[] }>(
+    "/executive/twin/search-memory",
+    {
+      method: "POST",
+      body: { query, limit },
+    },
+  );
 }
 
 export async function getOrganizationTimeline(
-  limit = 60
+  limit = 60,
 ): Promise<{ total: number; entries: ExecutiveTimelineEntry[] }> {
-  return api<{ total: number; entries: ExecutiveTimelineEntry[] }>("/executive/timeline", { query: { limit } });
+  return api<{ total: number; entries: ExecutiveTimelineEntry[] }>(
+    "/executive/timeline",
+    { query: { limit } },
+  );
 }
 
 export async function getExecutiveTrends(
-  period = "weekly"
+  period = "weekly",
 ): Promise<{ period: string; trends: TrendSeries[] }> {
-  return api<{ period: string; trends: TrendSeries[] }>("/executive/analytics/trends", { query: { period } });
+  return api<{ period: string; trends: TrendSeries[] }>(
+    "/executive/analytics/trends",
+    { query: { period } },
+  );
 }
 
-export async function getExecutiveMetrics(): Promise<{ total: number; metrics: ExecutiveMetric[] }> {
-  return api<{ total: number; metrics: ExecutiveMetric[] }>("/executive/analytics/metrics");
+export async function getExecutiveMetrics(): Promise<{
+  total: number;
+  metrics: ExecutiveMetric[];
+}> {
+  return api<{ total: number; metrics: ExecutiveMetric[] }>(
+    "/executive/analytics/metrics",
+  );
 }
 
 export async function generateExecutiveReport(
   reportType: string,
-  departmentId?: string
+  departmentId?: string,
 ): Promise<ExecutiveReport> {
   return api<ExecutiveReport>("/executive/reports", {
     method: "POST",
@@ -1803,41 +2773,66 @@ export async function generateExecutiveReport(
   });
 }
 
-export async function listExecutiveReports(query: {
-  report_type?: string;
-  limit?: number;
-} = {}): Promise<{ total: number; reports: ExecutiveReport[] }> {
-  return api<{ total: number; reports: ExecutiveReport[] }>("/executive/reports", { query });
+export async function listExecutiveReports(
+  query: {
+    report_type?: string;
+    limit?: number;
+  } = {},
+): Promise<{ total: number; reports: ExecutiveReport[] }> {
+  return api<{ total: number; reports: ExecutiveReport[] }>(
+    "/executive/reports",
+    { query },
+  );
 }
 
 export async function listReportTypes(): Promise<{ report_types: string[] }> {
   return api<{ report_types: string[] }>("/executive/reports/types");
 }
 
-export async function listStrategicGoals(query: {
-  focus?: string;
-  status?: string;
-} = {}): Promise<{ goals: StrategicGoal[] }> {
-  return api<{ goals: StrategicGoal[] }>("/executive/strategy/goals", { query });
+export async function listStrategicGoals(
+  query: {
+    focus?: string;
+    status?: string;
+  } = {},
+): Promise<{ goals: StrategicGoal[] }> {
+  return api<{ goals: StrategicGoal[] }>("/executive/strategy/goals", {
+    query,
+  });
 }
 
-export async function createStrategicGoal(payload: Record<string, unknown>): Promise<StrategicGoal> {
-  return api<StrategicGoal>("/executive/strategy/goals", { method: "POST", body: payload });
+export async function createStrategicGoal(
+  payload: Record<string, unknown>,
+): Promise<StrategicGoal> {
+  return api<StrategicGoal>("/executive/strategy/goals", {
+    method: "POST",
+    body: payload,
+  });
 }
 
 export async function updateStrategicGoal(
   goalId: string,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
 ): Promise<StrategicGoal> {
-  return api<StrategicGoal>(`/executive/strategy/goals/${goalId}`, { method: "PATCH", body: payload });
+  return api<StrategicGoal>(`/executive/strategy/goals/${goalId}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
-export async function getStrategyPlan(horizon = "quarter"): Promise<StrategyPlan> {
-  return api<StrategyPlan>("/executive/strategy/plan", { method: "POST", query: { horizon } });
+export async function getStrategyPlan(
+  horizon = "quarter",
+): Promise<StrategyPlan> {
+  return api<StrategyPlan>("/executive/strategy/plan", {
+    method: "POST",
+    query: { horizon },
+  });
 }
 
 export async function askStrategy(question: string): Promise<StrategyAnswer> {
-  return api<StrategyAnswer>("/executive/strategy/ask", { method: "POST", body: { question } });
+  return api<StrategyAnswer>("/executive/strategy/ask", {
+    method: "POST",
+    body: { question },
+  });
 }
 
 // ---------------------------------------------------------------- ai companion
@@ -1877,7 +2872,7 @@ export async function getCompanionStatus(): Promise<CompanionStatus> {
 export async function askCompanion(
   message: string,
   context?: CompanionContext,
-  conversationId?: string
+  conversationId?: string,
 ): Promise<CompanionReply> {
   return api<CompanionReply>("/ai/companion/ask", {
     method: "POST",
@@ -1888,7 +2883,7 @@ export async function askCompanion(
 export async function* askCompanionStream(
   message: string,
   context?: CompanionContext,
-  conversationId?: string
+  conversationId?: string,
 ): AsyncGenerator<{ delta?: string; done?: CompanionReply }, void, unknown> {
   const url = `${API_URL}/ai/companion/stream`;
   const headers: Record<string, string> = {
@@ -1898,7 +2893,11 @@ export async function* askCompanionStream(
   const response = await fetch(url, {
     method: "POST",
     headers,
-    body: JSON.stringify({ message, context: context ?? {}, conversation_id: conversationId }),
+    body: JSON.stringify({
+      message,
+      context: context ?? {},
+      conversation_id: conversationId,
+    }),
   });
   if (!response.ok || !response.body) {
     let detail: unknown = null;
@@ -1908,7 +2907,10 @@ export async function* askCompanionStream(
     } catch {
       /* ignore */
     }
-    throw new ApiError(response.status, typeof detail === "string" ? detail : "Stream failed");
+    throw new ApiError(
+      response.status,
+      typeof detail === "string" ? detail : "Stream failed",
+    );
   }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -1946,14 +2948,24 @@ export interface ConversationSummary {
 
 export interface ConversationHistory {
   conversation_id: string;
-  messages: { id: string; role: string; content: string; source?: string; intents?: string }[];
+  messages: {
+    id: string;
+    role: string;
+    content: string;
+    source?: string;
+    intents?: string;
+  }[];
 }
 
-export async function listAiConversations(limit = 20): Promise<{ total: number; conversations: ConversationSummary[] }> {
+export async function listAiConversations(
+  limit = 20,
+): Promise<{ total: number; conversations: ConversationSummary[] }> {
   return api(`/ai/conversations?limit=${limit}`);
 }
 
-export async function getConversationHistory(conversationId: string): Promise<ConversationHistory> {
+export async function getConversationHistory(
+  conversationId: string,
+): Promise<ConversationHistory> {
   return api(`/ai/conversations/${conversationId}`);
 }
 
@@ -1978,7 +2990,9 @@ export interface DailyPlan {
   goals: { name: string; progress: number; status: string }[];
 }
 
-export async function createPlan(planType: "daily" | "weekly" = "daily"): Promise<DailyPlan> {
+export async function createPlan(
+  planType: "daily" | "weekly" = "daily",
+): Promise<DailyPlan> {
   return api("/ai/plan", { method: "POST", body: { plan_type: planType } });
 }
 
@@ -1993,28 +3007,26 @@ export interface RecommendationItem {
 }
 
 export async function listRecommendations(
-  audience: "user" | "organization" = "user"
+  audience: "user" | "organization" = "user",
 ): Promise<{ total: number; recommendations: RecommendationItem[] }> {
   return api(`/ai/recommendations?audience=${audience}`);
-}
-
-export async function universalSearch(query: string, scopes?: string[], limit = 20) {
-  return api("/ai/search", { method: "POST", body: { query, scopes, limit } });
 }
 
 // ---------------------------------------------------------------------------
 // Phase 4 â€” Knowledge Operating System
 // ---------------------------------------------------------------------------
 
-export async function listDocuments(query: {
-  status?: string;
-  category?: string;
-  search?: string;
-  owner_id?: string;
-  project_id?: string;
-  limit?: number;
-  offset?: number;
-} = {}): Promise<Document[]> {
+export async function listDocuments(
+  query: {
+    status?: string;
+    category?: string;
+    search?: string;
+    owner_id?: string;
+    project_id?: string;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<Document[]> {
   return api<Document[]>("/documents", { query });
 }
 
@@ -2022,11 +3034,16 @@ export async function getDocument(id: string): Promise<Document> {
   return api<Document>(`/documents/${id}`);
 }
 
-export async function createDocument(payload: Record<string, unknown>): Promise<Document> {
+export async function createDocument(
+  payload: Record<string, unknown>,
+): Promise<Document> {
   return api<Document>("/documents", { method: "POST", body: payload });
 }
 
-export async function updateDocument(id: string, payload: Record<string, unknown>): Promise<Document> {
+export async function updateDocument(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<Document> {
   return api<Document>(`/documents/${id}`, { method: "PATCH", body: payload });
 }
 
@@ -2042,8 +3059,14 @@ export async function archiveDocument(id: string): Promise<Document> {
   return api<Document>(`/documents/${id}/archive`, { method: "POST" });
 }
 
-export async function submitDocument(id: string, approverId?: string): Promise<Document> {
-  return api<Document>(`/documents/${id}/submit`, { method: "POST", body: { approver_id: approverId } });
+export async function submitDocument(
+  id: string,
+  approverId?: string,
+): Promise<Document> {
+  return api<Document>(`/documents/${id}/submit`, {
+    method: "POST",
+    body: { approver_id: approverId },
+  });
 }
 
 export async function approveDocument(id: string): Promise<Document> {
@@ -2052,7 +3075,14 @@ export async function approveDocument(id: string): Promise<Document> {
 
 // ---------------------------------------------------------------- wiki
 
-export async function listWikiPages(query: { space?: string; status?: string; search?: string; limit?: number } = {}): Promise<WikiPage[]> {
+export async function listWikiPages(
+  query: {
+    space?: string;
+    status?: string;
+    search?: string;
+    limit?: number;
+  } = {},
+): Promise<WikiPage[]> {
   return api<WikiPage[]>("/wiki", { query });
 }
 
@@ -2060,11 +3090,16 @@ export async function getWikiPage(id: string): Promise<WikiPage> {
   return api<WikiPage>(`/wiki/${id}`);
 }
 
-export async function createWikiPage(payload: Record<string, unknown>): Promise<WikiPage> {
+export async function createWikiPage(
+  payload: Record<string, unknown>,
+): Promise<WikiPage> {
   return api<WikiPage>("/wiki", { method: "POST", body: payload });
 }
 
-export async function updateWikiPage(id: string, payload: Record<string, unknown>): Promise<WikiPage> {
+export async function updateWikiPage(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<WikiPage> {
   return api<WikiPage>(`/wiki/${id}`, { method: "PATCH", body: payload });
 }
 
@@ -2076,8 +3111,14 @@ export async function publishWikiPage(id: string): Promise<WikiPage> {
   return api<WikiPage>(`/wiki/${id}/publish`, { method: "POST" });
 }
 
-export async function moveWikiPage(id: string, parentId: string | null): Promise<WikiPage> {
-  return api<WikiPage>(`/wiki/${id}/move`, { method: "POST", body: { parent_id: parentId } });
+export async function moveWikiPage(
+  id: string,
+  parentId: string | null,
+): Promise<WikiPage> {
+  return api<WikiPage>(`/wiki/${id}/move`, {
+    method: "POST",
+    body: { parent_id: parentId },
+  });
 }
 
 export async function getWikiTree(): Promise<WikiTreeNode[]> {
@@ -2090,7 +3131,14 @@ export async function getWikiChildren(id: string): Promise<WikiPage[]> {
 
 // ---------------------------------------------------------------- policies
 
-export async function listPolicies(query: { category?: string; status?: string; search?: string; limit?: number } = {}): Promise<Policy[]> {
+export async function listPolicies(
+  query: {
+    category?: string;
+    status?: string;
+    search?: string;
+    limit?: number;
+  } = {},
+): Promise<Policy[]> {
   return api<Policy[]>("/policies", { query });
 }
 
@@ -2098,11 +3146,16 @@ export async function getPolicy(id: string): Promise<Policy> {
   return api<Policy>(`/policies/${id}`);
 }
 
-export async function createPolicy(payload: Record<string, unknown>): Promise<Policy> {
+export async function createPolicy(
+  payload: Record<string, unknown>,
+): Promise<Policy> {
   return api<Policy>("/policies", { method: "POST", body: payload });
 }
 
-export async function updatePolicy(id: string, payload: Record<string, unknown>): Promise<Policy> {
+export async function updatePolicy(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<Policy> {
   return api<Policy>(`/policies/${id}`, { method: "PATCH", body: payload });
 }
 
@@ -2110,16 +3163,31 @@ export async function deletePolicy(id: string): Promise<Message> {
   return api<Message>(`/policies/${id}`, { method: "DELETE" });
 }
 
-export async function submitPolicy(id: string, approverId?: string): Promise<Policy> {
-  return api<Policy>(`/policies/${id}/submit`, { method: "POST", body: { approver_id: approverId } });
+export async function submitPolicy(
+  id: string,
+  approverId?: string,
+): Promise<Policy> {
+  return api<Policy>(`/policies/${id}/submit`, {
+    method: "POST",
+    body: { approver_id: approverId },
+  });
 }
 
-export async function approvePolicy(id: string, note?: string): Promise<Policy> {
-  return api<Policy>(`/policies/${id}/approve`, { method: "POST", body: { note } });
+export async function approvePolicy(
+  id: string,
+  note?: string,
+): Promise<Policy> {
+  return api<Policy>(`/policies/${id}/approve`, {
+    method: "POST",
+    body: { note },
+  });
 }
 
 export async function rejectPolicy(id: string, note?: string): Promise<Policy> {
-  return api<Policy>(`/policies/${id}/reject`, { method: "POST", body: { note } });
+  return api<Policy>(`/policies/${id}/reject`, {
+    method: "POST",
+    body: { note },
+  });
 }
 
 export async function listOverduePolicies(): Promise<Policy[]> {
@@ -2128,7 +3196,14 @@ export async function listOverduePolicies(): Promise<Policy[]> {
 
 // ---------------------------------------------------------------- sops
 
-export async function listSops(query: { category?: string; status?: string; search?: string; limit?: number } = {}): Promise<SOP[]> {
+export async function listSops(
+  query: {
+    category?: string;
+    status?: string;
+    search?: string;
+    limit?: number;
+  } = {},
+): Promise<SOP[]> {
   return api<SOP[]>("/sops", { query });
 }
 
@@ -2136,11 +3211,16 @@ export async function getSop(id: string): Promise<SOP> {
   return api<SOP>(`/sops/${id}`);
 }
 
-export async function createSop(payload: Record<string, unknown>): Promise<SOP> {
+export async function createSop(
+  payload: Record<string, unknown>,
+): Promise<SOP> {
   return api<SOP>("/sops", { method: "POST", body: payload });
 }
 
-export async function updateSop(id: string, payload: Record<string, unknown>): Promise<SOP> {
+export async function updateSop(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<SOP> {
   return api<SOP>(`/sops/${id}`, { method: "PATCH", body: payload });
 }
 
@@ -2154,7 +3234,14 @@ export async function publishSop(id: string): Promise<SOP> {
 
 // ---------------------------------------------------------------- templates
 
-export async function listTemplates(query: { kind?: string; status?: string; search?: string; limit?: number } = {}): Promise<Template[]> {
+export async function listTemplates(
+  query: {
+    kind?: string;
+    status?: string;
+    search?: string;
+    limit?: number;
+  } = {},
+): Promise<Template[]> {
   return api<Template[]>("/templates", { query });
 }
 
@@ -2162,11 +3249,16 @@ export async function getTemplate(id: string): Promise<Template> {
   return api<Template>(`/templates/${id}`);
 }
 
-export async function createTemplate(payload: Record<string, unknown>): Promise<Template> {
+export async function createTemplate(
+  payload: Record<string, unknown>,
+): Promise<Template> {
   return api<Template>("/templates", { method: "POST", body: payload });
 }
 
-export async function updateTemplate(id: string, payload: Record<string, unknown>): Promise<Template> {
+export async function updateTemplate(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<Template> {
   return api<Template>(`/templates/${id}`, { method: "PATCH", body: payload });
 }
 
@@ -2188,7 +3280,14 @@ export async function listMostUsedTemplates(): Promise<Template[]> {
 
 // ---------------------------------------------------------------- decisions
 
-export async function listDecisions(query: { status?: string; project_id?: string; search?: string; limit?: number } = {}): Promise<Decision[]> {
+export async function listDecisions(
+  query: {
+    status?: string;
+    project_id?: string;
+    search?: string;
+    limit?: number;
+  } = {},
+): Promise<Decision[]> {
   return api<Decision[]>("/decisions", { query });
 }
 
@@ -2196,11 +3295,16 @@ export async function getDecision(id: string): Promise<Decision> {
   return api<Decision>(`/decisions/${id}`);
 }
 
-export async function createDecision(payload: Record<string, unknown>): Promise<Decision> {
+export async function createDecision(
+  payload: Record<string, unknown>,
+): Promise<Decision> {
   return api<Decision>("/decisions", { method: "POST", body: payload });
 }
 
-export async function updateDecision(id: string, payload: Record<string, unknown>): Promise<Decision> {
+export async function updateDecision(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<Decision> {
   return api<Decision>(`/decisions/${id}`, { method: "PATCH", body: payload });
 }
 
@@ -2208,16 +3312,35 @@ export async function deleteDecision(id: string): Promise<Message> {
   return api<Message>(`/decisions/${id}`, { method: "DELETE" });
 }
 
-export async function chooseDecisionOption(id: string, optionId: string, reason?: string): Promise<Decision> {
-  return api<Decision>(`/decisions/${id}/choose`, { method: "POST", body: { option_id: optionId, reason } });
+export async function chooseDecisionOption(
+  id: string,
+  optionId: string,
+  reason?: string,
+): Promise<Decision> {
+  return api<Decision>(`/decisions/${id}/choose`, {
+    method: "POST",
+    body: { option_id: optionId, reason },
+  });
 }
 
-export async function transitionDecision(id: string, status: string): Promise<Decision> {
-  return api<Decision>(`/decisions/${id}/status`, { method: "POST", body: { status } });
+export async function transitionDecision(
+  id: string,
+  status: string,
+): Promise<Decision> {
+  return api<Decision>(`/decisions/${id}/status`, {
+    method: "POST",
+    body: { status },
+  });
 }
 
-export async function executeDecisionAction(id: string, actionIndex: number): Promise<{ decision: Decision; task: Task }> {
-  return api<{ decision: Decision; task: Task }>(`/decisions/${id}/actions/${actionIndex}/execute`, { method: "POST" });
+export async function executeDecisionAction(
+  id: string,
+  actionIndex: number,
+): Promise<{ decision: Decision; task: Task }> {
+  return api<{ decision: Decision; task: Task }>(
+    `/decisions/${id}/actions/${actionIndex}/execute`,
+    { method: "POST" },
+  );
 }
 
 export async function listDecisionTasks(id: string): Promise<Task[]> {
@@ -2240,7 +3363,9 @@ export async function knowledgeSearch(query: {
   return api<KnowledgeSearchResponse>("/knowledge/search", { query });
 }
 
-export async function getKnowledgeGraph(query: { kind?: string; focus?: string; depth?: number; limit?: number } = {}): Promise<KnowledgeGraph> {
+export async function getKnowledgeGraph(
+  query: { kind?: string; focus?: string; depth?: number; limit?: number } = {},
+): Promise<KnowledgeGraph> {
   return api<KnowledgeGraph>("/knowledge/graph", { query });
 }
 
@@ -2248,23 +3373,35 @@ export async function getKnowledgeAnalytics(): Promise<KnowledgeAnalytics> {
   return api<KnowledgeAnalytics>("/knowledge/analytics");
 }
 
-export async function getKnowledgeRecommendations(limit = 10): Promise<KnowledgeRecommendation[]> {
-  return api<KnowledgeRecommendation[]>("/knowledge/recommendations", { query: { limit } });
+export async function getKnowledgeRecommendations(
+  limit = 10,
+): Promise<KnowledgeRecommendation[]> {
+  return api<KnowledgeRecommendation[]>("/knowledge/recommendations", {
+    query: { limit },
+  });
 }
 
-export async function getKnowledgeExperts(topic?: string): Promise<KnowledgeExpert[]> {
+export async function getKnowledgeExperts(
+  topic?: string,
+): Promise<KnowledgeExpert[]> {
   return api<KnowledgeExpert[]>("/knowledge/experts", { query: { topic } });
 }
 
-export async function getStaleKnowledge(days = 180): Promise<KnowledgeRecentItem[]> {
+export async function getStaleKnowledge(
+  days = 180,
+): Promise<KnowledgeRecentItem[]> {
   return api<KnowledgeRecentItem[]>("/knowledge/stale", { query: { days } });
 }
 
-export async function getRecentKnowledge(limit = 10): Promise<KnowledgeRecentItem[]> {
+export async function getRecentKnowledge(
+  limit = 10,
+): Promise<KnowledgeRecentItem[]> {
   return api<KnowledgeRecentItem[]>("/knowledge/recent", { query: { limit } });
 }
 
-export async function getMyKnowledgeFavorites(): Promise<KnowledgeRecentItem[]> {
+export async function getMyKnowledgeFavorites(): Promise<
+  KnowledgeRecentItem[]
+> {
   return api<KnowledgeRecentItem[]>("/knowledge/favorites");
 }
 
@@ -2272,79 +3409,172 @@ export async function listKnowledgeCategories(): Promise<KnowledgeCategory[]> {
   return api<KnowledgeCategory[]>("/knowledge/categories");
 }
 
-export async function createKnowledgeCategory(payload: { name: string; description?: string; color?: string }): Promise<KnowledgeCategory> {
-  return api<KnowledgeCategory>("/knowledge/categories", { method: "POST", body: payload });
+export async function createKnowledgeCategory(payload: {
+  name: string;
+  description?: string;
+  color?: string;
+}): Promise<KnowledgeCategory> {
+  return api<KnowledgeCategory>("/knowledge/categories", {
+    method: "POST",
+    body: payload,
+  });
 }
 
 export async function listKnowledgeTags(): Promise<KnowledgeTag[]> {
   return api<KnowledgeTag[]>("/knowledge/tags");
 }
 
-export async function listKnowledgeVersions(kind: string, entityId: string): Promise<KnowledgeVersion[]> {
+export async function listKnowledgeVersions(
+  kind: string,
+  entityId: string,
+): Promise<KnowledgeVersion[]> {
   return api<KnowledgeVersion[]>(`/knowledge/${kind}/${entityId}/versions`);
 }
 
-export async function getKnowledgeVersion(kind: string, entityId: string, version: number): Promise<KnowledgeVersion> {
-  return api<KnowledgeVersion>(`/knowledge/${kind}/${entityId}/versions/${version}`);
+export async function getKnowledgeVersion(
+  kind: string,
+  entityId: string,
+  version: number,
+): Promise<KnowledgeVersion> {
+  return api<KnowledgeVersion>(
+    `/knowledge/${kind}/${entityId}/versions/${version}`,
+  );
 }
 
-export async function restoreKnowledgeVersion(kind: string, entityId: string, version: number): Promise<Document> {
-  return api<Document>(`/knowledge/${kind}/${entityId}/versions/${version}/restore`, { method: "POST" });
+export async function restoreKnowledgeVersion(
+  kind: string,
+  entityId: string,
+  version: number,
+): Promise<Document> {
+  return api<Document>(
+    `/knowledge/${kind}/${entityId}/versions/${version}/restore`,
+    { method: "POST" },
+  );
 }
 
-export async function listKnowledgeComments(kind: string, entityId: string): Promise<KnowledgeComment[]> {
+export async function listKnowledgeComments(
+  kind: string,
+  entityId: string,
+): Promise<KnowledgeComment[]> {
   return api<KnowledgeComment[]>(`/knowledge/${kind}/${entityId}/comments`);
 }
 
-export async function addKnowledgeComment(kind: string, entityId: string, content: string): Promise<KnowledgeComment> {
-  return api<KnowledgeComment>(`/knowledge/${kind}/${entityId}/comments`, { method: "POST", body: { content } });
+export async function addKnowledgeComment(
+  kind: string,
+  entityId: string,
+  content: string,
+): Promise<KnowledgeComment> {
+  return api<KnowledgeComment>(`/knowledge/${kind}/${entityId}/comments`, {
+    method: "POST",
+    body: { content },
+  });
 }
 
-export async function updateKnowledgeComment(kind: string, entityId: string, commentId: string, content: string): Promise<KnowledgeComment> {
-  return api<KnowledgeComment>(`/knowledge/${kind}/${entityId}/comments/${commentId}`, { method: "PATCH", body: { content } });
+export async function updateKnowledgeComment(
+  kind: string,
+  entityId: string,
+  commentId: string,
+  content: string,
+): Promise<KnowledgeComment> {
+  return api<KnowledgeComment>(
+    `/knowledge/${kind}/${entityId}/comments/${commentId}`,
+    { method: "PATCH", body: { content } },
+  );
 }
 
-export async function deleteKnowledgeComment(kind: string, entityId: string, commentId: string): Promise<Message> {
-  return api<Message>(`/knowledge/${kind}/${entityId}/comments/${commentId}`, { method: "DELETE" });
+export async function deleteKnowledgeComment(
+  kind: string,
+  entityId: string,
+  commentId: string,
+): Promise<Message> {
+  return api<Message>(`/knowledge/${kind}/${entityId}/comments/${commentId}`, {
+    method: "DELETE",
+  });
 }
 
-export async function toggleWatch(kind: string, entityId: string): Promise<{ watching: boolean }> {
-  return api<{ watching: boolean }>(`/knowledge/${kind}/${entityId}/watch`, { method: "POST" });
+export async function toggleWatch(
+  kind: string,
+  entityId: string,
+): Promise<{ watching: boolean }> {
+  return api<{ watching: boolean }>(`/knowledge/${kind}/${entityId}/watch`, {
+    method: "POST",
+  });
 }
 
-export async function listWatchers(kind: string, entityId: string): Promise<KnowledgeWatcher[]> {
+export async function listWatchers(
+  kind: string,
+  entityId: string,
+): Promise<KnowledgeWatcher[]> {
   return api<KnowledgeWatcher[]>(`/knowledge/${kind}/${entityId}/watchers`);
 }
 
-export async function toggleFavorite(kind: string, entityId: string): Promise<{ favorited: boolean }> {
-  return api<{ favorited: boolean }>(`/knowledge/${kind}/${entityId}/favorite`, { method: "POST" });
+export async function toggleFavorite(
+  kind: string,
+  entityId: string,
+): Promise<{ favorited: boolean }> {
+  return api<{ favorited: boolean }>(
+    `/knowledge/${kind}/${entityId}/favorite`,
+    { method: "POST" },
+  );
 }
 
-export async function touchPresence(kind: string, entityId: string): Promise<{ presence: string }> {
-  return api<{ presence: string }>(`/knowledge/${kind}/${entityId}/presence`, { method: "POST" });
+export async function touchPresence(
+  kind: string,
+  entityId: string,
+): Promise<{ presence: string }> {
+  return api<{ presence: string }>(`/knowledge/${kind}/${entityId}/presence`, {
+    method: "POST",
+  });
 }
 
-export async function listPresence(kind: string, entityId: string): Promise<KnowledgePresence[]> {
+export async function listPresence(
+  kind: string,
+  entityId: string,
+): Promise<KnowledgePresence[]> {
   return api<KnowledgePresence[]>(`/knowledge/${kind}/${entityId}/presence`);
 }
 
-export async function listKnowledgeRelations(kind: string, entityId: string): Promise<KnowledgeRelation[]> {
+export async function listKnowledgeRelations(
+  kind: string,
+  entityId: string,
+): Promise<KnowledgeRelation[]> {
   return api<KnowledgeRelation[]>(`/knowledge/${kind}/${entityId}/relations`);
 }
 
-export async function addKnowledgeRelation(kind: string, entityId: string, payload: { target_type: string; target_id: string; relation_type?: string }): Promise<KnowledgeRelation> {
-  return api<KnowledgeRelation>(`/knowledge/${kind}/${entityId}/relations`, { method: "POST", body: payload });
-}
-
-export async function removeKnowledgeRelation(kind: string, entityId: string, relationId: string): Promise<Message> {
-  return api<Message>(`/knowledge/${kind}/${entityId}/relations/${relationId}`, { method: "DELETE" });
-}
-
-export async function submitKnowledge(kind: string, entityId: string, approverId?: string): Promise<{ status: string; entity_id: string; kind: string }> {
-  return api<{ status: string; entity_id: string; kind: string }>(`/knowledge/${kind}/${entityId}/submit`, {
+export async function addKnowledgeRelation(
+  kind: string,
+  entityId: string,
+  payload: { target_type: string; target_id: string; relation_type?: string },
+): Promise<KnowledgeRelation> {
+  return api<KnowledgeRelation>(`/knowledge/${kind}/${entityId}/relations`, {
     method: "POST",
-    body: { approver_id: approverId },
+    body: payload,
   });
+}
+
+export async function removeKnowledgeRelation(
+  kind: string,
+  entityId: string,
+  relationId: string,
+): Promise<Message> {
+  return api<Message>(
+    `/knowledge/${kind}/${entityId}/relations/${relationId}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function submitKnowledge(
+  kind: string,
+  entityId: string,
+  approverId?: string,
+): Promise<{ status: string; entity_id: string; kind: string }> {
+  return api<{ status: string; entity_id: string; kind: string }>(
+    `/knowledge/${kind}/${entityId}/submit`,
+    {
+      method: "POST",
+      body: { approver_id: approverId },
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -2353,14 +3583,21 @@ export async function submitKnowledge(kind: string, entityId: string, approverId
 
 // ---------------------------------------------------------------- communities
 
-export async function listCommunities(query: {
-  type?: string;
-  search?: string;
-  mine_only?: boolean;
-  limit?: number;
-  offset?: number;
-} = {}): Promise<Community[]> {
-  return api<Community[]>("/communities", { query: query as Record<string, string | number | boolean | null | undefined> });
+export async function listCommunities(
+  query: {
+    type?: string;
+    search?: string;
+    mine_only?: boolean;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<Community[]> {
+  return api<Community[]>("/communities", {
+    query: query as Record<
+      string,
+      string | number | boolean | null | undefined
+    >,
+  });
 }
 
 export async function getCommunity(id: string): Promise<Community> {
@@ -2378,8 +3615,14 @@ export async function createCommunity(payload: {
   return api<Community>("/communities", { method: "POST", body: payload });
 }
 
-export async function updateCommunity(id: string, payload: Record<string, unknown>): Promise<Community> {
-  return api<Community>(`/communities/${id}`, { method: "PATCH", body: payload });
+export async function updateCommunity(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<Community> {
+  return api<Community>(`/communities/${id}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
 export async function deleteCommunity(id: string): Promise<Message> {
@@ -2394,15 +3637,25 @@ export async function leaveCommunity(id: string): Promise<Message> {
   return api<Message>(`/communities/${id}/leave`, { method: "POST" });
 }
 
-export async function setCommunityRole(id: string, employeeId: string, role: "owner" | "moderator" | "member"): Promise<{ employee_id: string; role: string }> {
+export async function setCommunityRole(
+  id: string,
+  employeeId: string,
+  role: "owner" | "moderator" | "member",
+): Promise<{ employee_id: string; role: string }> {
   return api<{ employee_id: string; role: string }>(`/communities/${id}/role`, {
     method: "POST",
     body: { employee_id: employeeId, role },
   });
 }
 
-export async function listCommunityMembers(id: string, limit = 100, offset = 0): Promise<CommunityMember[]> {
-  return api<CommunityMember[]>(`/communities/${id}/members`, { query: { limit, offset } });
+export async function listCommunityMembers(
+  id: string,
+  limit = 100,
+  offset = 0,
+): Promise<CommunityMember[]> {
+  return api<CommunityMember[]>(`/communities/${id}/members`, {
+    query: { limit, offset },
+  });
 }
 
 export async function getCommunityAnalytics(): Promise<CommunityAnalytics> {
@@ -2411,32 +3664,49 @@ export async function getCommunityAnalytics(): Promise<CommunityAnalytics> {
 
 // ---------------------------------------------------------------- posts
 
-export async function listFeed(query: {
-  community_id?: string;
-  mine_only?: boolean;
-  limit?: number;
-  offset?: number;
-} = {}): Promise<Post[]> {
-  return api<Post[]>("/posts/feed", { query: query as Record<string, string | number | boolean | null | undefined> });
+export async function listFeed(
+  query: {
+    community_id?: string;
+    mine_only?: boolean;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<Post[]> {
+  return api<Post[]>("/posts/feed", {
+    query: query as Record<
+      string,
+      string | number | boolean | null | undefined
+    >,
+  });
 }
 
 export async function getPost(id: string): Promise<Post> {
   return api<Post>(`/posts/${id}`);
 }
 
-export async function createPost(communityId: string, payload: {
-  title?: string;
-  content?: string;
-  attachments?: unknown[];
-  visibility?: string;
-  status?: string;
-  pinned?: boolean;
-  scheduled_at?: string;
-}): Promise<Post> {
-  return api<Post>("/posts", { method: "POST", query: { community_id: communityId }, body: payload });
+export async function createPost(
+  communityId: string,
+  payload: {
+    title?: string;
+    content?: string;
+    attachments?: unknown[];
+    visibility?: string;
+    status?: string;
+    pinned?: boolean;
+    scheduled_at?: string;
+  },
+): Promise<Post> {
+  return api<Post>("/posts", {
+    method: "POST",
+    query: { community_id: communityId },
+    body: payload,
+  });
 }
 
-export async function updatePost(id: string, payload: Record<string, unknown>): Promise<Post> {
+export async function updatePost(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<Post> {
   return api<Post>(`/posts/${id}`, { method: "PATCH", body: payload });
 }
 
@@ -2444,58 +3714,109 @@ export async function deletePost(id: string): Promise<Message> {
   return api<Message>(`/posts/${id}`, { method: "DELETE" });
 }
 
-export async function togglePostPin(id: string, pinned = true): Promise<{ pinned: boolean }> {
-  return api<{ pinned: boolean }>(`/posts/${id}/pin`, { method: "POST", query: { pinned } });
+export async function togglePostPin(
+  id: string,
+  pinned = true,
+): Promise<{ pinned: boolean }> {
+  return api<{ pinned: boolean }>(`/posts/${id}/pin`, {
+    method: "POST",
+    query: { pinned },
+  });
 }
 
-export async function togglePostBookmark(id: string): Promise<{ bookmarked: boolean; bookmark_count: number }> {
-  return api<{ bookmarked: boolean; bookmark_count: number }>(`/posts/${id}/bookmark`, { method: "POST" });
+export async function togglePostBookmark(
+  id: string,
+): Promise<{ bookmarked: boolean; bookmark_count: number }> {
+  return api<{ bookmarked: boolean; bookmark_count: number }>(
+    `/posts/${id}/bookmark`,
+    { method: "POST" },
+  );
 }
 
-export async function reactToPost(id: string, emoji: string): Promise<{ reacted: boolean; emoji: string }> {
-  return api<{ reacted: boolean; emoji: string }>(`/posts/${id}/reactions`, { method: "POST", body: { emoji } });
+export async function reactToPost(
+  id: string,
+  emoji: string,
+): Promise<{ reacted: boolean; emoji: string }> {
+  return api<{ reacted: boolean; emoji: string }>(`/posts/${id}/reactions`, {
+    method: "POST",
+    body: { emoji },
+  });
 }
 
-export async function listPostReactions(id: string): Promise<{ emoji: string; count: number }[]> {
+export async function listPostReactions(
+  id: string,
+): Promise<{ emoji: string; count: number }[]> {
   return api<{ emoji: string; count: number }[]>(`/posts/${id}/reactions`);
 }
 
-export async function listPostComments(id: string, limit = 200, offset = 0): Promise<PostComment[]> {
-  return api<PostComment[]>(`/posts/${id}/comments`, { query: { limit, offset } });
+export async function listPostComments(
+  id: string,
+  limit = 200,
+  offset = 0,
+): Promise<PostComment[]> {
+  return api<PostComment[]>(`/posts/${id}/comments`, {
+    query: { limit, offset },
+  });
 }
 
-export async function addPostComment(postId: string, content: string, parentId?: string, isResolution = false): Promise<PostComment> {
+export async function addPostComment(
+  postId: string,
+  content: string,
+  parentId?: string,
+  isResolution = false,
+): Promise<PostComment> {
   return api<PostComment>(`/posts/${postId}/comments`, {
     method: "POST",
     body: { content, parent_id: parentId, is_resolution: isResolution },
   });
 }
 
-export async function updatePostComment(postId: string, commentId: string, payload: Record<string, unknown>): Promise<PostComment> {
-  return api<PostComment>(`/posts/${postId}/comments/${commentId}`, { method: "PATCH", body: payload });
-}
-
-export async function deletePostComment(postId: string, commentId: string): Promise<Message> {
-  return api<Message>(`/posts/${postId}/comments/${commentId}`, { method: "DELETE" });
-}
-
-export async function reactToComment(postId: string, commentId: string, emoji: string): Promise<{ reacted: boolean; emoji: string }> {
-  return api<{ reacted: boolean; emoji: string }>(`/posts/${postId}/comments/${commentId}/reactions`, {
-    method: "POST",
-    body: { emoji },
+export async function updatePostComment(
+  postId: string,
+  commentId: string,
+  payload: Record<string, unknown>,
+): Promise<PostComment> {
+  return api<PostComment>(`/posts/${postId}/comments/${commentId}`, {
+    method: "PATCH",
+    body: payload,
   });
+}
+
+export async function deletePostComment(
+  postId: string,
+  commentId: string,
+): Promise<Message> {
+  return api<Message>(`/posts/${postId}/comments/${commentId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function reactToComment(
+  postId: string,
+  commentId: string,
+  emoji: string,
+): Promise<{ reacted: boolean; emoji: string }> {
+  return api<{ reacted: boolean; emoji: string }>(
+    `/posts/${postId}/comments/${commentId}/reactions`,
+    {
+      method: "POST",
+      body: { emoji },
+    },
+  );
 }
 
 // ---------------------------------------------------------------- announcements
 
-export async function listAnnouncements(query: {
-  status?: string;
-  type?: string;
-  priority?: string;
-  search?: string;
-  limit?: number;
-  offset?: number;
-} = {}): Promise<Announcement[]> {
+export async function listAnnouncements(
+  query: {
+    status?: string;
+    type?: string;
+    priority?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<Announcement[]> {
   return api<Announcement[]>("/announcements", { query });
 }
 
@@ -2520,8 +3841,14 @@ export async function createAnnouncement(payload: {
   return api<Announcement>("/announcements", { method: "POST", body: payload });
 }
 
-export async function updateAnnouncement(id: string, payload: Record<string, unknown>): Promise<Announcement> {
-  return api<Announcement>(`/announcements/${id}`, { method: "PATCH", body: payload });
+export async function updateAnnouncement(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<Announcement> {
+  return api<Announcement>(`/announcements/${id}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
 export async function deleteAnnouncement(id: string): Promise<Message> {
@@ -2532,32 +3859,49 @@ export async function publishAnnouncement(id: string): Promise<Announcement> {
   return api<Announcement>(`/announcements/${id}/publish`, { method: "POST" });
 }
 
-export async function markAnnouncementRead(id: string): Promise<{ read: boolean; read_at: string }> {
-  return api<{ read: boolean; read_at: string }>(`/announcements/${id}/read`, { method: "POST" });
+export async function markAnnouncementRead(
+  id: string,
+): Promise<{ read: boolean; read_at: string }> {
+  return api<{ read: boolean; read_at: string }>(`/announcements/${id}/read`, {
+    method: "POST",
+  });
 }
 
-export async function acknowledgeAnnouncement(id: string): Promise<{ acknowledged: boolean; acknowledged_at: string }> {
-  return api<{ acknowledged: boolean; acknowledged_at: string }>(`/announcements/${id}/acknowledge`, { method: "POST" });
+export async function acknowledgeAnnouncement(
+  id: string,
+): Promise<{ acknowledged: boolean; acknowledged_at: string }> {
+  return api<{ acknowledged: boolean; acknowledged_at: string }>(
+    `/announcements/${id}/acknowledge`,
+    { method: "POST" },
+  );
 }
 
-export async function listAnnouncementReceipts(id: string): Promise<AnnouncementReceipt[]> {
+export async function listAnnouncementReceipts(
+  id: string,
+): Promise<AnnouncementReceipt[]> {
   return api<AnnouncementReceipt[]>(`/announcements/${id}/receipts`);
 }
 
 // ---------------------------------------------------------------- forums
 
-export async function listForumCategories(): Promise<{ category: string; thread_count: number; last_activity: string }[]> {
-  return api<{ category: string; thread_count: number; last_activity: string }[]>("/forums/categories");
+export async function listForumCategories(): Promise<
+  { category: string; thread_count: number; last_activity: string }[]
+> {
+  return api<
+    { category: string; thread_count: number; last_activity: string }[]
+  >("/forums/categories");
 }
 
-export async function listForumThreads(query: {
-  category?: string;
-  status?: string;
-  search?: string;
-  tag?: string;
-  limit?: number;
-  offset?: number;
-} = {}): Promise<ForumThread[]> {
+export async function listForumThreads(
+  query: {
+    category?: string;
+    status?: string;
+    search?: string;
+    tag?: string;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<ForumThread[]> {
   return api<ForumThread[]>("/forums", { query });
 }
 
@@ -2574,7 +3918,10 @@ export async function createForumThread(payload: {
   return api<ForumThread>("/forums", { method: "POST", body: payload });
 }
 
-export async function updateForumThread(id: string, payload: Record<string, unknown>): Promise<ForumThread> {
+export async function updateForumThread(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<ForumThread> {
   return api<ForumThread>(`/forums/${id}`, { method: "PATCH", body: payload });
 }
 
@@ -2582,59 +3929,110 @@ export async function deleteForumThread(id: string): Promise<Message> {
   return api<Message>(`/forums/${id}`, { method: "DELETE" });
 }
 
-export async function recordThreadView(id: string): Promise<{ viewed: boolean }> {
+export async function recordThreadView(
+  id: string,
+): Promise<{ viewed: boolean }> {
   return api<{ viewed: boolean }>(`/forums/${id}/view`, { method: "POST" });
 }
 
-export async function toggleThreadPin(id: string, pinned = true): Promise<{ is_pinned: boolean }> {
-  return api<{ is_pinned: boolean }>(`/forums/${id}/pin`, { method: "POST", query: { pinned } });
-}
-
-export async function voteThread(id: string, value: number): Promise<{ voted: number | null; vote_count: number }> {
-  return api<{ voted: number | null; vote_count: number }>(`/forums/${id}/vote`, { method: "POST", body: { value } });
-}
-
-export async function acceptThreadReply(id: string, replyId?: string): Promise<{ accepted_reply_id: string | null; is_resolved: boolean }> {
-  return api<{ accepted_reply_id: string | null; is_resolved: boolean }>(`/forums/${id}/accept`, {
+export async function toggleThreadPin(
+  id: string,
+  pinned = true,
+): Promise<{ is_pinned: boolean }> {
+  return api<{ is_pinned: boolean }>(`/forums/${id}/pin`, {
     method: "POST",
-    query: { reply_id: replyId },
+    query: { pinned },
   });
 }
 
-export async function listForumReplies(threadId: string, limit = 300, offset = 0): Promise<ForumReply[]> {
-  return api<ForumReply[]>(`/forums/${threadId}/replies`, { query: { limit, offset } });
+export async function voteThread(
+  id: string,
+  value: number,
+): Promise<{ voted: number | null; vote_count: number }> {
+  return api<{ voted: number | null; vote_count: number }>(
+    `/forums/${id}/vote`,
+    { method: "POST", body: { value } },
+  );
 }
 
-export async function addForumReply(threadId: string, content: string, parentId?: string): Promise<ForumReply> {
+export async function acceptThreadReply(
+  id: string,
+  replyId?: string,
+): Promise<{ accepted_reply_id: string | null; is_resolved: boolean }> {
+  return api<{ accepted_reply_id: string | null; is_resolved: boolean }>(
+    `/forums/${id}/accept`,
+    {
+      method: "POST",
+      query: { reply_id: replyId },
+    },
+  );
+}
+
+export async function listForumReplies(
+  threadId: string,
+  limit = 300,
+  offset = 0,
+): Promise<ForumReply[]> {
+  return api<ForumReply[]>(`/forums/${threadId}/replies`, {
+    query: { limit, offset },
+  });
+}
+
+export async function addForumReply(
+  threadId: string,
+  content: string,
+  parentId?: string,
+): Promise<ForumReply> {
   return api<ForumReply>(`/forums/${threadId}/replies`, {
     method: "POST",
     body: { content, parent_id: parentId },
   });
 }
 
-export async function updateForumReply(threadId: string, replyId: string, content: string): Promise<ForumReply> {
-  return api<ForumReply>(`/forums/${threadId}/replies/${replyId}`, { method: "PATCH", body: { content } });
-}
-
-export async function deleteForumReply(threadId: string, replyId: string): Promise<Message> {
-  return api<Message>(`/forums/${threadId}/replies/${replyId}`, { method: "DELETE" });
-}
-
-export async function voteForumReply(threadId: string, replyId: string, value: number): Promise<{ voted: number | null; vote_count: number }> {
-  return api<{ voted: number | null; vote_count: number }>(`/forums/${threadId}/replies/${replyId}/vote`, {
-    method: "POST",
-    body: { value },
+export async function updateForumReply(
+  threadId: string,
+  replyId: string,
+  content: string,
+): Promise<ForumReply> {
+  return api<ForumReply>(`/forums/${threadId}/replies/${replyId}`, {
+    method: "PATCH",
+    body: { content },
   });
+}
+
+export async function deleteForumReply(
+  threadId: string,
+  replyId: string,
+): Promise<Message> {
+  return api<Message>(`/forums/${threadId}/replies/${replyId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function voteForumReply(
+  threadId: string,
+  replyId: string,
+  value: number,
+): Promise<{ voted: number | null; vote_count: number }> {
+  return api<{ voted: number | null; vote_count: number }>(
+    `/forums/${threadId}/replies/${replyId}/vote`,
+    {
+      method: "POST",
+      body: { value },
+    },
+  );
 }
 
 // ---------------------------------------------------------------- recognition
 
-export async function listRecognition(query: {
-  employee_id?: string;
-  category?: string;
-  limit?: number;
-  offset?: number;
-} = {}): Promise<Recognition[]> {
+export async function listRecognition(
+  query: {
+    employee_id?: string;
+    category?: string;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<Recognition[]> {
   return api<Recognition[]>("/recognition", { query });
 }
 
@@ -2656,7 +4054,11 @@ export async function getRecognitionStats(): Promise<{
   total: number;
   this_month: number;
   categories: { category: string; count: number }[];
-  top_recipients: { employee_id: string; count: number; employee_name: string }[];
+  top_recipients: {
+    employee_id: string;
+    count: number;
+    employee_name: string;
+  }[];
   top_givers: { employee_id: string; count: number; employee_name: string }[];
 }> {
   return api("/recognition/stats");
@@ -2670,18 +4072,26 @@ export async function getAllBadges(): Promise<Badge[]> {
   return api<Badge[]>("/recognition/badges/all");
 }
 
-export async function getRecognitionLeaderboard(limit = 20): Promise<{ employee_id: string; badge_count: number; employee_name: string }[]> {
-  return api<{ employee_id: string; badge_count: number; employee_name: string }[]>("/recognition/leaderboard", { query: { limit } });
+export async function getRecognitionLeaderboard(
+  limit = 20,
+): Promise<
+  { employee_id: string; badge_count: number; employee_name: string }[]
+> {
+  return api<
+    { employee_id: string; badge_count: number; employee_name: string }[]
+  >("/recognition/leaderboard", { query: { limit } });
 }
 
 // ---------------------------------------------------------------- innovation
 
-export async function listIdeas(query: {
-  status?: string;
-  search?: string;
-  limit?: number;
-  offset?: number;
-} = {}): Promise<Idea[]> {
+export async function listIdeas(
+  query: {
+    status?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<Idea[]> {
   return api<Idea[]>("/innovation", { query });
 }
 
@@ -2700,7 +4110,10 @@ export async function createIdea(payload: {
   return api<Idea>("/innovation", { method: "POST", body: payload });
 }
 
-export async function updateIdea(id: string, payload: Record<string, unknown>): Promise<Idea> {
+export async function updateIdea(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<Idea> {
   return api<Idea>(`/innovation/${id}`, { method: "PATCH", body: payload });
 }
 
@@ -2708,30 +4121,52 @@ export async function deleteIdea(id: string): Promise<Message> {
   return api<Message>(`/innovation/${id}`, { method: "DELETE" });
 }
 
-export async function voteIdea(id: string): Promise<{ voted: boolean; vote_count: number }> {
-  return api<{ voted: boolean; vote_count: number }>(`/innovation/${id}/vote`, { method: "POST" });
+export async function voteIdea(
+  id: string,
+): Promise<{ voted: boolean; vote_count: number }> {
+  return api<{ voted: boolean; vote_count: number }>(`/innovation/${id}/vote`, {
+    method: "POST",
+  });
 }
 
-export async function setIdeaStatus(id: string, status: string, feedback?: string): Promise<Idea> {
-  return api<Idea>(`/innovation/${id}/status`, { method: "PATCH", body: { status, feedback } });
+export async function setIdeaStatus(
+  id: string,
+  status: string,
+  feedback?: string,
+): Promise<Idea> {
+  return api<Idea>(`/innovation/${id}/status`, {
+    method: "PATCH",
+    body: { status, feedback },
+  });
 }
 
-export async function promoteIdea(id: string, projectId?: string): Promise<Idea> {
-  return api<Idea>(`/innovation/${id}/promote`, { method: "POST", body: { project_id: projectId } });
+export async function promoteIdea(
+  id: string,
+  projectId?: string,
+): Promise<Idea> {
+  return api<Idea>(`/innovation/${id}/promote`, {
+    method: "POST",
+    body: { project_id: projectId },
+  });
 }
 
-export async function getInnovationStats(): Promise<{ total: number; by_status: { status: string; count: number }[] }> {
+export async function getInnovationStats(): Promise<{
+  total: number;
+  by_status: { status: string; count: number }[];
+}> {
   return api("/innovation/stats");
 }
 
 // ---------------------------------------------------------------- polls
 
-export async function listPolls(query: {
-  status?: string;
-  community_id?: string;
-  limit?: number;
-  offset?: number;
-} = {}): Promise<Poll[]> {
+export async function listPolls(
+  query: {
+    status?: string;
+    community_id?: string;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<Poll[]> {
   return api<Poll[]>("/polls", { query });
 }
 
@@ -2753,7 +4188,10 @@ export async function createPoll(payload: {
   return api<Poll>("/polls", { method: "POST", body: payload });
 }
 
-export async function updatePoll(id: string, payload: Record<string, unknown>): Promise<Poll> {
+export async function updatePoll(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<Poll> {
   return api<Poll>(`/polls/${id}`, { method: "PATCH", body: payload });
 }
 
@@ -2761,8 +4199,14 @@ export async function deletePoll(id: string): Promise<Message> {
   return api<Message>(`/polls/${id}`, { method: "DELETE" });
 }
 
-export async function votePoll(id: string, optionIds: string[]): Promise<{ voted: boolean; vote_count: number }> {
-  return api<{ voted: boolean; vote_count: number }>(`/polls/${id}/vote`, { method: "POST", body: { option_ids: optionIds } });
+export async function votePoll(
+  id: string,
+  optionIds: string[],
+): Promise<{ voted: boolean; vote_count: number }> {
+  return api<{ voted: boolean; vote_count: number }>(`/polls/${id}/vote`, {
+    method: "POST",
+    body: { option_ids: optionIds },
+  });
 }
 
 export async function getPollResults(id: string): Promise<PollResult> {
@@ -2771,14 +4215,16 @@ export async function getPollResults(id: string): Promise<PollResult> {
 
 // ---------------------------------------------------------------- community events
 
-export async function listCommunityEvents(query: {
-  type?: string;
-  upcoming?: boolean;
-  community_id?: string;
-  search?: string;
-  limit?: number;
-  offset?: number;
-} = {}): Promise<CommunityEvent[]> {
+export async function listCommunityEvents(
+  query: {
+    type?: string;
+    upcoming?: boolean;
+    community_id?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<CommunityEvent[]> {
   return api<CommunityEvent[]>("/community-events", { query });
 }
 
@@ -2800,29 +4246,51 @@ export async function createCommunityEvent(payload: {
   registration_deadline?: string;
   team_based?: boolean;
 }): Promise<CommunityEvent> {
-  return api<CommunityEvent>("/community-events", { method: "POST", body: payload });
+  return api<CommunityEvent>("/community-events", {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function updateCommunityEvent(id: string, payload: Record<string, unknown>): Promise<CommunityEvent> {
-  return api<CommunityEvent>(`/community-events/${id}`, { method: "PATCH", body: payload });
+export async function updateCommunityEvent(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<CommunityEvent> {
+  return api<CommunityEvent>(`/community-events/${id}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
 export async function deleteCommunityEvent(id: string): Promise<Message> {
   return api<Message>(`/community-events/${id}`, { method: "DELETE" });
 }
 
-export async function registerForEvent(id: string, teamName?: string, role = "participant"): Promise<{ registered: boolean; registration_count: number }> {
-  return api<{ registered: boolean; registration_count: number }>(`/community-events/${id}/register`, {
-    method: "POST",
-    body: { team_name: teamName, role },
-  });
+export async function registerForEvent(
+  id: string,
+  teamName?: string,
+  role = "participant",
+): Promise<{ registered: boolean; registration_count: number }> {
+  return api<{ registered: boolean; registration_count: number }>(
+    `/community-events/${id}/register`,
+    {
+      method: "POST",
+      body: { team_name: teamName, role },
+    },
+  );
 }
 
-export async function listEventRegistrations(id: string): Promise<EventRegistration[]> {
+export async function listEventRegistrations(
+  id: string,
+): Promise<EventRegistration[]> {
   return api<EventRegistration[]>(`/community-events/${id}/registrations`);
 }
 
-export async function getCommunityEventStats(): Promise<{ total: number; upcoming: number; registrations: number }> {
+export async function getCommunityEventStats(): Promise<{
+  total: number;
+  upcoming: number;
+  registrations: number;
+}> {
   return api("/community-events/stats");
 }
 
@@ -2855,39 +4323,70 @@ export async function archiveConversation(id: string): Promise<Message> {
   return api<Message>(`/conversations/${id}/archive`, { method: "POST" });
 }
 
-export async function listConversationMembers(id: string): Promise<ConversationMember[]> {
+export async function listConversationMembers(
+  id: string,
+): Promise<ConversationMember[]> {
   return api<ConversationMember[]>(`/conversations/${id}/members`);
 }
 
-export async function addConversationMember(id: string, employeeId: string): Promise<{ employee_id: string; role: string }> {
-  return api<{ employee_id: string; role: string }>(`/conversations/${id}/members`, {
-    method: "POST",
-    body: { employee_id: employeeId },
+export async function addConversationMember(
+  id: string,
+  employeeId: string,
+): Promise<{ employee_id: string; role: string }> {
+  return api<{ employee_id: string; role: string }>(
+    `/conversations/${id}/members`,
+    {
+      method: "POST",
+      body: { employee_id: employeeId },
+    },
+  );
+}
+
+export async function removeConversationMember(
+  id: string,
+  employeeId: string,
+): Promise<Message> {
+  return api<Message>(`/conversations/${id}/members/${employeeId}`, {
+    method: "DELETE",
   });
 }
 
-export async function removeConversationMember(id: string, employeeId: string): Promise<Message> {
-  return api<Message>(`/conversations/${id}/members/${employeeId}`, { method: "DELETE" });
+export async function markConversationRead(
+  id: string,
+): Promise<{ read: boolean }> {
+  return api<{ read: boolean }>(`/conversations/${id}/read`, {
+    method: "POST",
+  });
 }
 
-export async function markConversationRead(id: string): Promise<{ read: boolean }> {
-  return api<{ read: boolean }>(`/conversations/${id}/read`, { method: "POST" });
+export async function listMessages(
+  conversationId: string,
+  limit = 100,
+  offset = 0,
+): Promise<ChatMessage[]> {
+  return api<ChatMessage[]>(`/conversations/${conversationId}/messages`, {
+    query: { limit, offset },
+  });
 }
 
-export async function listMessages(conversationId: string, limit = 100, offset = 0): Promise<ChatMessage[]> {
-  return api<ChatMessage[]>(`/conversations/${conversationId}/messages`, { query: { limit, offset } });
+export async function sendMessage(
+  conversationId: string,
+  payload: {
+    content?: string;
+    reply_to?: string;
+    attachments?: unknown[];
+    mentions?: string[];
+  },
+): Promise<ChatMessage> {
+  return api<ChatMessage>(`/conversations/${conversationId}/messages`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function sendMessage(conversationId: string, payload: {
-  content?: string;
-  reply_to?: string;
-  attachments?: unknown[];
-  mentions?: string[];
-}): Promise<ChatMessage> {
-  return api<ChatMessage>(`/conversations/${conversationId}/messages`, { method: "POST", body: payload });
-}
-
-export async function listPinnedMessages(conversationId: string): Promise<ChatMessage[]> {
+export async function listPinnedMessages(
+  conversationId: string,
+): Promise<ChatMessage[]> {
   return api<ChatMessage[]>(`/conversations/${conversationId}/pinned`);
 }
 
@@ -2899,19 +4398,33 @@ export async function getMessage(id: string): Promise<ChatMessage> {
   return api<ChatMessage>(`/messages/${id}`);
 }
 
-export async function editMessage(id: string, content: string): Promise<ChatMessage> {
-  return api<ChatMessage>(`/messages/${id}`, { method: "PATCH", body: { content } });
+export async function editMessage(
+  id: string,
+  content: string,
+): Promise<ChatMessage> {
+  return api<ChatMessage>(`/messages/${id}`, {
+    method: "PATCH",
+    body: { content },
+  });
 }
 
 export async function deleteMessage(id: string): Promise<Message> {
   return api<Message>(`/messages/${id}`, { method: "DELETE" });
 }
 
-export async function reactToMessage(id: string, emoji: string): Promise<{ reacted: boolean; reaction_count: number }> {
-  return api<{ reacted: boolean; reaction_count: number }>(`/messages/${id}/reactions`, { method: "POST", body: { emoji } });
+export async function reactToMessage(
+  id: string,
+  emoji: string,
+): Promise<{ reacted: boolean; reaction_count: number }> {
+  return api<{ reacted: boolean; reaction_count: number }>(
+    `/messages/${id}/reactions`,
+    { method: "POST", body: { emoji } },
+  );
 }
 
-export async function listMessageReactions(id: string): Promise<{ emoji: string; count: number }[]> {
+export async function listMessageReactions(
+  id: string,
+): Promise<{ emoji: string; count: number }[]> {
   return api<{ emoji: string; count: number }[]>(`/messages/${id}/reactions`);
 }
 
@@ -2919,7 +4432,9 @@ export async function markMessageRead(id: string): Promise<{ read: boolean }> {
   return api<{ read: boolean }>(`/messages/${id}/read`, { method: "POST" });
 }
 
-export async function toggleMessagePin(id: string): Promise<{ pinned: boolean }> {
+export async function toggleMessagePin(
+  id: string,
+): Promise<{ pinned: boolean }> {
   return api<{ pinned: boolean }>(`/messages/${id}/pin`, { method: "POST" });
 }
 
@@ -3203,19 +4718,32 @@ export async function getIntelligenceOverview(): Promise<IntelligenceOverview> {
   return api<IntelligenceOverview>("/intelligence/overview");
 }
 
-export async function listIntelligenceEvents(limit = 50, processed?: boolean): Promise<IntelligenceEvent[]> {
-  return api<IntelligenceEvent[]>("/intelligence/events", { query: { limit, processed } });
+export async function listIntelligenceEvents(
+  limit = 50,
+  processed?: boolean,
+): Promise<IntelligenceEvent[]> {
+  return api<IntelligenceEvent[]>("/intelligence/events", {
+    query: { limit, processed },
+  });
 }
 
 export async function getIntelligenceEventStats(): Promise<IntelligenceJobs> {
   return api<IntelligenceJobs>("/intelligence/events/stats");
 }
 
-export async function processPendingEvents(limit = 50): Promise<{ processed: number }> {
-  return api<{ processed: number }>("/intelligence/events/process", { method: "POST", query: { limit } });
+export async function processPendingEvents(
+  limit = 50,
+): Promise<{ processed: number }> {
+  return api<{ processed: number }>("/intelligence/events/process", {
+    method: "POST",
+    query: { limit },
+  });
 }
 
-export async function listIntelligenceJobs(limit = 50, status?: string): Promise<unknown[]> {
+export async function listIntelligenceJobs(
+  limit = 50,
+  status?: string,
+): Promise<unknown[]> {
   return api<unknown[]>("/intelligence/jobs", { query: { limit, status } });
 }
 
@@ -3223,92 +4751,194 @@ export async function listWorkers(): Promise<WorkerInfo[]> {
   return api<WorkerInfo[]>("/intelligence/workers");
 }
 
-export async function runWorkerOnDemand(name: string): Promise<{ worker: string; processed: number }> {
-  return api<{ worker: string; processed: number }>(`/intelligence/workers/${name}/run`, { method: "POST" });
+export async function runWorkerOnDemand(
+  name: string,
+): Promise<{ worker: string; processed: number }> {
+  return api<{ worker: string; processed: number }>(
+    `/intelligence/workers/${name}/run`,
+    { method: "POST" },
+  );
 }
 
-export async function getExpertiseLeaderboard(limit = 20): Promise<ExpertiseLeaderEntry[]> {
-  return api<ExpertiseLeaderEntry[]>("/intelligence/expertise/leaderboard", { query: { limit } });
+export async function getExpertiseLeaderboard(
+  limit = 20,
+): Promise<ExpertiseLeaderEntry[]> {
+  return api<ExpertiseLeaderEntry[]>("/intelligence/expertise/leaderboard", {
+    query: { limit },
+  });
 }
 
-export async function getExpertiseHistory(employeeId: string, limit = 50): Promise<ExpertiseHistoryEntry[]> {
-  return api<ExpertiseHistoryEntry[]>(`/intelligence/expertise/${employeeId}/history`, { query: { limit } });
+export async function getExpertiseHistory(
+  employeeId: string,
+  limit = 50,
+): Promise<ExpertiseHistoryEntry[]> {
+  return api<ExpertiseHistoryEntry[]>(
+    `/intelligence/expertise/${employeeId}/history`,
+    { query: { limit } },
+  );
 }
 
 export async function getGraphStats(): Promise<GraphStats> {
   return api<GraphStats>("/intelligence/graph");
 }
 
-export async function listGraphEdges(params: { relation?: string; entity_type?: string; limit?: number } = {}): Promise<GraphEdge[]> {
+export async function listGraphEdges(
+  params: { relation?: string; entity_type?: string; limit?: number } = {},
+): Promise<GraphEdge[]> {
   return api<GraphEdge[]>("/intelligence/graph/edges", { query: params });
 }
 
-export async function getGraphNeighbors(entityType: string, entityId: string): Promise<GraphEdge[]> {
-  return api<GraphEdge[]>("/intelligence/graph/neighbors", { query: { entity_type: entityType, entity_id: entityId } });
+export async function getGraphNeighbors(
+  entityType: string,
+  entityId: string,
+): Promise<GraphEdge[]> {
+  return api<GraphEdge[]>("/intelligence/graph/neighbors", {
+    query: { entity_type: entityType, entity_id: entityId },
+  });
 }
 
-export async function getCollaborationPath(fromEmployee: string, toEmployee: string): Promise<GraphPathStep[]> {
-  return api<GraphPathStep[]>("/intelligence/graph/path", { query: { from_employee: fromEmployee, to_employee: toEmployee } });
+export async function getCollaborationPath(
+  fromEmployee: string,
+  toEmployee: string,
+): Promise<GraphPathStep[]> {
+  return api<GraphPathStep[]>("/intelligence/graph/path", {
+    query: { from_employee: fromEmployee, to_employee: toEmployee },
+  });
 }
 
-export async function getGraphBottlenecks(limit = 10): Promise<GraphPathStep[]> {
-  return api<GraphPathStep[]>("/intelligence/graph/bottlenecks", { query: { limit } });
+export async function getGraphBottlenecks(
+  limit = 10,
+): Promise<GraphPathStep[]> {
+  return api<GraphPathStep[]>("/intelligence/graph/bottlenecks", {
+    query: { limit },
+  });
 }
 
-export async function deactivateGraphEdge(edgeId: string): Promise<{ ok: boolean }> {
-  return api<{ ok: boolean }>(`/intelligence/graph/edges/${edgeId}`, { method: "DELETE" });
+export async function deactivateGraphEdge(
+  edgeId: string,
+): Promise<{ ok: boolean }> {
+  return api<{ ok: boolean }>(`/intelligence/graph/edges/${edgeId}`, {
+    method: "DELETE",
+  });
 }
 
-export async function listKnowledgeInsights(params: { kind?: string; status?: string; limit?: number } = {}): Promise<KnowledgeInsight[]> {
-  return api<KnowledgeInsight[]>("/intelligence/knowledge/insights", { query: params });
+export async function listKnowledgeInsights(
+  params: { kind?: string; status?: string; limit?: number } = {},
+): Promise<KnowledgeInsight[]> {
+  return api<KnowledgeInsight[]>("/intelligence/knowledge/insights", {
+    query: params,
+  });
 }
 
-export async function setKnowledgeInsightStatus(insightId: string, status: string): Promise<KnowledgeInsight> {
-  return api<KnowledgeInsight>(`/intelligence/knowledge/insights/${insightId}`, { method: "PATCH", body: { status } });
+export async function setKnowledgeInsightStatus(
+  insightId: string,
+  status: string,
+): Promise<KnowledgeInsight> {
+  return api<KnowledgeInsight>(
+    `/intelligence/knowledge/insights/${insightId}`,
+    { method: "PATCH", body: { status } },
+  );
 }
 
-export async function listSearchInsights(kind?: string, limit = 50): Promise<SearchInsight[]> {
-  return api<SearchInsight[]>("/intelligence/search/insights", { query: { kind, limit } });
+export async function listSearchInsights(
+  kind?: string,
+  limit = 50,
+): Promise<SearchInsight[]> {
+  return api<SearchInsight[]>("/intelligence/search/insights", {
+    query: { kind, limit },
+  });
 }
 
 export async function getSearchStats(): Promise<SearchStats> {
   return api<SearchStats>("/intelligence/search/stats");
 }
 
-export async function listBurnoutSignals(minLevel = "moderate", status?: string, limit = 50): Promise<BurnoutSignal[]> {
-  return api<BurnoutSignal[]>("/intelligence/burnout/signals", { query: { min_level: minLevel, status, limit } });
+export async function listBurnoutSignals(
+  minLevel = "moderate",
+  status?: string,
+  limit = 50,
+): Promise<BurnoutSignal[]> {
+  return api<BurnoutSignal[]>("/intelligence/burnout/signals", {
+    query: { min_level: minLevel, status, limit },
+  });
 }
 
-export async function setBurnoutSignalStatus(signalId: string, status: string): Promise<BurnoutSignal> {
-  return api<BurnoutSignal>(`/intelligence/burnout/signals/${signalId}`, { method: "PATCH", body: { status } });
+export async function setBurnoutSignalStatus(
+  signalId: string,
+  status: string,
+): Promise<BurnoutSignal> {
+  return api<BurnoutSignal>(`/intelligence/burnout/signals/${signalId}`, {
+    method: "PATCH",
+    body: { status },
+  });
 }
 
-export async function listDuplicates(kind?: string, status = "open", limit = 50): Promise<DuplicateDetection[]> {
-  return api<DuplicateDetection[]>("/intelligence/duplicates", { query: { kind, status, limit } });
+export async function listDuplicates(
+  kind?: string,
+  status = "open",
+  limit = 50,
+): Promise<DuplicateDetection[]> {
+  return api<DuplicateDetection[]>("/intelligence/duplicates", {
+    query: { kind, status, limit },
+  });
 }
 
-export async function setDuplicateStatus(detectionId: string, status: string): Promise<DuplicateDetection> {
-  return api<DuplicateDetection>(`/intelligence/duplicates/${detectionId}`, { method: "PATCH", body: { status } });
+export async function setDuplicateStatus(
+  detectionId: string,
+  status: string,
+): Promise<DuplicateDetection> {
+  return api<DuplicateDetection>(`/intelligence/duplicates/${detectionId}`, {
+    method: "PATCH",
+    body: { status },
+  });
 }
 
-export async function listPatterns(patternType?: string, status = "open", limit = 50): Promise<PatternDetection[]> {
-  return api<PatternDetection[]>("/intelligence/patterns", { query: { pattern_type: patternType, status, limit } });
+export async function listPatterns(
+  patternType?: string,
+  status = "open",
+  limit = 50,
+): Promise<PatternDetection[]> {
+  return api<PatternDetection[]>("/intelligence/patterns", {
+    query: { pattern_type: patternType, status, limit },
+  });
 }
 
-export async function setPatternStatus(patternId: string, status: string): Promise<PatternDetection> {
-  return api<PatternDetection>(`/intelligence/patterns/${patternId}`, { method: "PATCH", body: { status } });
+export async function setPatternStatus(
+  patternId: string,
+  status: string,
+): Promise<PatternDetection> {
+  return api<PatternDetection>(`/intelligence/patterns/${patternId}`, {
+    method: "PATCH",
+    body: { status },
+  });
 }
 
-export async function listWorkflowInsights(status = "open", limit = 50): Promise<WorkflowInsight[]> {
-  return api<WorkflowInsight[]>("/intelligence/workflow/insights", { query: { status, limit } });
+export async function listWorkflowInsights(
+  status = "open",
+  limit = 50,
+): Promise<WorkflowInsight[]> {
+  return api<WorkflowInsight[]>("/intelligence/workflow/insights", {
+    query: { status, limit },
+  });
 }
 
-export async function setWorkflowInsightStatus(insightId: string, status: string): Promise<WorkflowInsight> {
-  return api<WorkflowInsight>(`/intelligence/workflow/insights/${insightId}`, { method: "PATCH", body: { status } });
+export async function setWorkflowInsightStatus(
+  insightId: string,
+  status: string,
+): Promise<WorkflowInsight> {
+  return api<WorkflowInsight>(`/intelligence/workflow/insights/${insightId}`, {
+    method: "PATCH",
+    body: { status },
+  });
 }
 
-export async function listLearningLessons(eventType?: string, limit = 50): Promise<LearningLesson[]> {
-  return api<LearningLesson[]>("/intelligence/learning/lessons", { query: { event_type: eventType, limit } });
+export async function listLearningLessons(
+  eventType?: string,
+  limit = 50,
+): Promise<LearningLesson[]> {
+  return api<LearningLesson[]>("/intelligence/learning/lessons", {
+    query: { event_type: eventType, limit },
+  });
 }
 
 export async function getLearningSummary(): Promise<LearningSummary> {
@@ -3320,7 +4950,9 @@ export async function getCollaborationMetrics(): Promise<CollaborationMetrics> {
 }
 
 export async function recomputeCollaboration(): Promise<CollaborationMetrics> {
-  return api<CollaborationMetrics>("/intelligence/collaboration/recompute", { method: "POST" });
+  return api<CollaborationMetrics>("/intelligence/collaboration/recompute", {
+    method: "POST",
+  });
 }
 
 export async function listDailyBriefs(limit = 20): Promise<DailyBrief[]> {
@@ -3336,23 +4968,43 @@ export async function getEmployeeBrief(): Promise<DailyBrief> {
 }
 
 export async function generateBriefs(): Promise<{ executive: DailyBrief }> {
-  return api<{ executive: DailyBrief }>("/intelligence/briefs/generate", { method: "POST" });
+  return api<{ executive: DailyBrief }>("/intelligence/briefs/generate", {
+    method: "POST",
+  });
 }
 
-export async function getMyRecommendations(limit = 25): Promise<RecommendationItem[]> {
-  return api<RecommendationItem[]>("/intelligence/recommendations", { query: { limit } });
+export async function getMyRecommendations(
+  limit = 25,
+): Promise<RecommendationItem[]> {
+  return api<RecommendationItem[]>("/intelligence/recommendations", {
+    query: { limit },
+  });
 }
 
-export async function refreshMyRecommendations(): Promise<{ generated: number }> {
-  return api<{ generated: number }>("/intelligence/recommendations/refresh", { method: "POST" });
+export async function refreshMyRecommendations(): Promise<{
+  generated: number;
+}> {
+  return api<{ generated: number }>("/intelligence/recommendations/refresh", {
+    method: "POST",
+  });
 }
 
-export async function setRecommendationStatus(itemId: string, status: string): Promise<RecommendationItem> {
-  return api<RecommendationItem>(`/intelligence/recommendations/${itemId}`, { method: "PATCH", body: { status } });
+export async function setRecommendationStatus(
+  itemId: string,
+  status: string,
+): Promise<RecommendationItem> {
+  return api<RecommendationItem>(`/intelligence/recommendations/${itemId}`, {
+    method: "PATCH",
+    body: { status },
+  });
 }
 
-export async function getEventCatalog(): Promise<{ name: string; description: string; points?: number | null }[]> {
-  return api<{ name: string; description: string; points?: number | null }[]>("/intelligence/catalog");
+export async function getEventCatalog(): Promise<
+  { name: string; description: string; points?: number | null }[]
+> {
+  return api<{ name: string; description: string; points?: number | null }[]>(
+    "/intelligence/catalog",
+  );
 }
 
 // ---------------------------------------------------------------- /insights (Phase 9.1 spec path)
@@ -3361,34 +5013,64 @@ export async function getInsightsFeed(limit = 10): Promise<InsightsFeed> {
   return api<InsightsFeed>("/insights", { query: { limit } });
 }
 
-export async function getInsightRisks(params: { level?: string; status?: string; limit?: number } = {}): Promise<{ total: number; risks: InsightRisk[] }> {
-  return api<{ total: number; risks: InsightRisk[] }>("/insights/risks", { query: params });
+export async function getInsightRisks(
+  params: { level?: string; status?: string; limit?: number } = {},
+): Promise<{ total: number; risks: InsightRisk[] }> {
+  return api<{ total: number; risks: InsightRisk[] }>("/insights/risks", {
+    query: params,
+  });
 }
 
-export async function scanInsightRisks(): Promise<{ scanned: boolean; new_risks: number }> {
-  return api<{ scanned: boolean; new_risks: number }>("/insights/risks/scan", { method: "POST" });
+export async function scanInsightRisks(): Promise<{
+  scanned: boolean;
+  new_risks: number;
+}> {
+  return api<{ scanned: boolean; new_risks: number }>("/insights/risks/scan", {
+    method: "POST",
+  });
 }
 
-export async function getAutonomousNotifications(type?: string, limit = 50): Promise<AutonomousNotification[]> {
-  return api<AutonomousNotification[]>("/insights/notifications", { query: { type, limit } });
+export async function getAutonomousNotifications(
+  type?: string,
+  limit = 50,
+): Promise<AutonomousNotification[]> {
+  return api<AutonomousNotification[]>("/insights/notifications", {
+    query: { type, limit },
+  });
 }
 
-export async function generateAutonomousNotifications(): Promise<{ generated: number }> {
-  return api<{ generated: number }>("/insights/notifications/generate", { method: "POST" });
+export async function generateAutonomousNotifications(): Promise<{
+  generated: number;
+}> {
+  return api<{ generated: number }>("/insights/notifications/generate", {
+    method: "POST",
+  });
 }
 
 // ---------------------------------------------------------------- /recommendations (Phase 9.1 spec path)
 
-export async function getMyRecommendationsFeed(limit = 25): Promise<RecommendationItem[]> {
+export async function getMyRecommendationsFeed(
+  limit = 25,
+): Promise<RecommendationItem[]> {
   return api<RecommendationItem[]>("/recommendations", { query: { limit } });
 }
 
-export async function refreshMyRecommendationsFeed(): Promise<{ generated: number }> {
-  return api<{ generated: number }>("/recommendations/refresh", { method: "POST" });
+export async function refreshMyRecommendationsFeed(): Promise<{
+  generated: number;
+}> {
+  return api<{ generated: number }>("/recommendations/refresh", {
+    method: "POST",
+  });
 }
 
-export async function setRecommendationFeedStatus(itemId: string, status: string): Promise<RecommendationItem> {
-  return api<RecommendationItem>(`/recommendations/${itemId}`, { method: "PATCH", body: { status } });
+export async function setRecommendationFeedStatus(
+  itemId: string,
+  status: string,
+): Promise<RecommendationItem> {
+  return api<RecommendationItem>(`/recommendations/${itemId}`, {
+    method: "PATCH",
+    body: { status },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -3443,7 +5125,12 @@ export interface Course {
   enrollments?: number;
   my_progress?: number | null;
   my_enrollment_id?: string | null;
-  modules?: { id: string; title: string; description?: string | null; position: number }[];
+  modules?: {
+    id: string;
+    title: string;
+    description?: string | null;
+    position: number;
+  }[];
   lessons?: {
     id: string;
     title: string;
@@ -3453,7 +5140,13 @@ export interface Course {
     position: number;
     duration_minutes?: number;
   }[];
-  quizzes?: { id: string; title: string; module_id?: string | null; question_count: number; passing_score: number }[];
+  quizzes?: {
+    id: string;
+    title: string;
+    module_id?: string | null;
+    question_count: number;
+    passing_score: number;
+  }[];
 }
 
 export interface CourseEnrollment {
@@ -3528,7 +5221,12 @@ export interface LearningSkillGap {
 export interface OrgSkillMap {
   date?: string;
   snapshot_id?: string | null;
-  skills?: { name: string; category?: string | null; total_employees: number; average_level: number }[];
+  skills?: {
+    name: string;
+    category?: string | null;
+    total_employees: number;
+    average_level: number;
+  }[];
 }
 
 export interface Assessment {
@@ -3544,7 +5242,13 @@ export interface Assessment {
   question_count: number;
   status: string;
   linked_certification_id?: string | null;
-  questions?: { id?: string; question: string; options?: string[]; type?: string; points?: number }[];
+  questions?: {
+    id?: string;
+    question: string;
+    options?: string[];
+    type?: string;
+    points?: number;
+  }[];
 }
 
 export interface AssessmentAttempt {
@@ -3649,8 +5353,22 @@ export interface CareerProgress {
   employee_id?: string;
   path_id?: string;
   path_title?: string;
-  current?: { id: string; title: string; position: number; level?: string; required_skills: { name?: string; skill?: string; level: number }[]; required_years?: number } | null;
-  next?: { id: string; title: string; position: number; level?: string; required_skills: { name?: string; skill?: string; level: number }[]; required_years?: number } | null;
+  current?: {
+    id: string;
+    title: string;
+    position: number;
+    level?: string;
+    required_skills: { name?: string; skill?: string; level: number }[];
+    required_years?: number;
+  } | null;
+  next?: {
+    id: string;
+    title: string;
+    position: number;
+    level?: string;
+    required_skills: { name?: string; skill?: string; level: number }[];
+    required_years?: number;
+  } | null;
   current_role?: string | null;
   next_role?: string | null;
   readiness: number;
@@ -3730,14 +5448,42 @@ export interface LearningDashboard {
     weekly_learning_hours?: number;
     learning_goals: string[];
   };
-  my_courses: { id: string; title: string; category?: string | null; difficulty?: string; duration_minutes?: number; progress: number; status: string; enrollment_id: string }[];
-  recommended_courses: { id: string; title: string; category?: string | null; difficulty?: string }[];
+  my_courses: {
+    id: string;
+    title: string;
+    category?: string | null;
+    difficulty?: string;
+    duration_minutes?: number;
+    progress: number;
+    status: string;
+    enrollment_id: string;
+  }[];
+  recommended_courses: {
+    id: string;
+    title: string;
+    category?: string | null;
+    difficulty?: string;
+  }[];
   recommendations: LearningRecommendationItem[];
   certificates: EarnedCertification[];
-  mentor?: { employee_id: string; name: string; designation?: string | null } | null;
+  mentor?: {
+    employee_id: string;
+    name: string;
+    designation?: string | null;
+  } | null;
   career: CareerProgress;
-  learning_paths: { path_id: string; title?: string | null; progress: number; status: string }[];
-  upcoming_assessments: { id: string; title: string; kind?: string | null; status: string }[];
+  learning_paths: {
+    path_id: string;
+    title?: string | null;
+    progress: number;
+    status: string;
+  }[];
+  upcoming_assessments: {
+    id: string;
+    title: string;
+    kind?: string | null;
+    status: string;
+  }[];
   skill_gaps: { skill: string; priority: string; gap: number }[];
   trending: { id: string; title: string }[];
 }
@@ -3747,9 +5493,19 @@ export interface AiLearningAnswer {
   response?: string;
   answer?: string;
   suggestions?: string[];
-  gaps?: { skill: string; current: number; required: number; priority: string }[];
+  gaps?: {
+    skill: string;
+    current: number;
+    required: number;
+    priority: string;
+  }[];
   courses?: { id: string; title: string; category?: string | null }[];
-  mentors?: { employee_id: string; name: string; topics: string[]; availability: string }[];
+  mentors?: {
+    employee_id: string;
+    name: string;
+    topics: string[];
+    availability: string;
+  }[];
   readiness?: number;
   next?: unknown;
   evidence?: { category: string; label: string; value: string; met: boolean }[];
@@ -3764,11 +5520,18 @@ export async function getLearningProfile(): Promise<LearningProfile> {
   return api<LearningProfile>("/learning/profile");
 }
 
-export async function updateLearningProfile(payload: Record<string, unknown>): Promise<LearningProfile> {
-  return api<LearningProfile>("/learning/profile", { method: "PATCH", body: payload });
+export async function updateLearningProfile(
+  payload: Record<string, unknown>,
+): Promise<LearningProfile> {
+  return api<LearningProfile>("/learning/profile", {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
-export async function getLearningHistory(limit = 50): Promise<LearningHistoryEntry[]> {
+export async function getLearningHistory(
+  limit = 50,
+): Promise<LearningHistoryEntry[]> {
   return api<LearningHistoryEntry[]>("/learning/history", { query: { limit } });
 }
 
@@ -3776,19 +5539,26 @@ export async function getLearningDashboard(): Promise<LearningDashboard> {
   return api<LearningDashboard>("/learning/dashboard");
 }
 
-export async function askLearningAi(question: string): Promise<AiLearningAnswer> {
-  return api<AiLearningAnswer>("/learning/ai/ask", { method: "POST", body: { question } });
+export async function askLearningAi(
+  question: string,
+): Promise<AiLearningAnswer> {
+  return api<AiLearningAnswer>("/learning/ai/ask", {
+    method: "POST",
+    body: { question },
+  });
 }
 
 // ---------------------------------------------------------------- courses
 
-export async function listCourses(query: {
-  category?: string;
-  difficulty?: string;
-  search?: string;
-  status?: string;
-  limit?: number;
-} = {}): Promise<Course[]> {
+export async function listCourses(
+  query: {
+    category?: string;
+    difficulty?: string;
+    search?: string;
+    status?: string;
+    limit?: number;
+  } = {},
+): Promise<Course[]> {
   return api<Course[]>("/learning/courses", { query });
 }
 
@@ -3796,39 +5566,85 @@ export async function getCourse(id: string): Promise<Course> {
   return api<Course>(`/learning/courses/${id}`);
 }
 
-export async function createCourse(payload: Record<string, unknown>): Promise<Course> {
+export async function createCourse(
+  payload: Record<string, unknown>,
+): Promise<Course> {
   return api<Course>("/learning/courses", { method: "POST", body: payload });
 }
 
-export async function updateCourse(id: string, payload: Record<string, unknown>): Promise<Course> {
-  return api<Course>(`/learning/courses/${id}`, { method: "PATCH", body: payload });
+export async function updateCourse(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<Course> {
+  return api<Course>(`/learning/courses/${id}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
 export async function deleteCourse(id: string): Promise<{ deleted: boolean }> {
-  return api<{ deleted: boolean }>(`/learning/courses/${id}`, { method: "DELETE" });
+  return api<{ deleted: boolean }>(`/learning/courses/${id}`, {
+    method: "DELETE",
+  });
 }
 
 export async function getCourseCategories(): Promise<string[]> {
   return api<string[]>("/learning/courses/categories");
 }
 
-export async function listTrendingCourses(limit = 6): Promise<{ id: string; title: string; category?: string | null; difficulty?: string; duration_minutes?: number; enrollments?: number }[]> {
+export async function listTrendingCourses(
+  limit = 6,
+): Promise<
+  {
+    id: string;
+    title: string;
+    category?: string | null;
+    difficulty?: string;
+    duration_minutes?: number;
+    enrollments?: number;
+  }[]
+> {
   return api("/learning/courses/trending", { query: { limit } });
 }
 
-export async function addCourseModule(courseId: string, payload: Record<string, unknown>) {
-  return api(`/learning/courses/${courseId}/modules`, { method: "POST", body: payload });
+export async function addCourseModule(
+  courseId: string,
+  payload: Record<string, unknown>,
+) {
+  return api(`/learning/courses/${courseId}/modules`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function addCourseLesson(courseId: string, payload: Record<string, unknown>) {
-  return api(`/learning/courses/${courseId}/lessons`, { method: "POST", body: payload });
+export async function addCourseLesson(
+  courseId: string,
+  payload: Record<string, unknown>,
+) {
+  return api(`/learning/courses/${courseId}/lessons`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function addCourseQuiz(courseId: string, payload: Record<string, unknown>) {
-  return api(`/learning/courses/${courseId}/quizzes`, { method: "POST", body: payload });
+export async function addCourseQuiz(
+  courseId: string,
+  payload: Record<string, unknown>,
+) {
+  return api(`/learning/courses/${courseId}/quizzes`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function enrollCourse(courseId: string): Promise<{ id: string; course_id: string; status: string; progress: number }> {
+export async function enrollCourse(
+  courseId: string,
+): Promise<{
+  id: string;
+  course_id: string;
+  status: string;
+  progress: number;
+}> {
   return api(`/learning/courses/${courseId}/enroll`, { method: "POST" });
 }
 
@@ -3836,17 +5652,29 @@ export async function myCourseEnrollments(): Promise<CourseEnrollment[]> {
   return api<CourseEnrollment[]>("/learning/courses/my/enrollments");
 }
 
-export async function completeCourseLesson(enrollmentId: string, lessonId: string): Promise<{ id: string; status: string; progress: number }> {
-  return api(`/learning/courses/enrollments/${enrollmentId}/lessons/${lessonId}/complete`, { method: "POST" });
+export async function completeCourseLesson(
+  enrollmentId: string,
+  lessonId: string,
+): Promise<{ id: string; status: string; progress: number }> {
+  return api(
+    `/learning/courses/enrollments/${enrollmentId}/lessons/${lessonId}/complete`,
+    { method: "POST" },
+  );
 }
 
-export async function completeCourse(enrollmentId: string): Promise<{ id: string; status: string; progress: number }> {
-  return api(`/learning/courses/enrollments/${enrollmentId}/complete`, { method: "POST" });
+export async function completeCourse(
+  enrollmentId: string,
+): Promise<{ id: string; status: string; progress: number }> {
+  return api(`/learning/courses/enrollments/${enrollmentId}/complete`, {
+    method: "POST",
+  });
 }
 
 // ---------------------------------------------------------------- learning paths
 
-export async function listLearningPaths(query: { status?: string; search?: string; limit?: number } = {}): Promise<LearningPath[]> {
+export async function listLearningPaths(
+  query: { status?: string; search?: string; limit?: number } = {},
+): Promise<LearningPath[]> {
   return api<LearningPath[]>("/learning/paths", { query });
 }
 
@@ -3854,20 +5682,35 @@ export async function getLearningPath(id: string): Promise<LearningPath> {
   return api<LearningPath>(`/learning/paths/${id}`);
 }
 
-export async function createLearningPath(payload: Record<string, unknown>): Promise<LearningPath> {
-  return api<LearningPath>("/learning/paths", { method: "POST", body: payload });
+export async function createLearningPath(
+  payload: Record<string, unknown>,
+): Promise<LearningPath> {
+  return api<LearningPath>("/learning/paths", {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function myLearningPathEnrollments(): Promise<LearningPathEnrollment[]> {
+export async function myLearningPathEnrollments(): Promise<
+  LearningPathEnrollment[]
+> {
   return api<LearningPathEnrollment[]>("/learning/paths/my/enrollments");
 }
 
-export async function enrollLearningPath(pathId: string): Promise<{ id: string; path_id: string; status: string }> {
+export async function enrollLearningPath(
+  pathId: string,
+): Promise<{ id: string; path_id: string; status: string }> {
   return api(`/learning/paths/${pathId}/enroll`, { method: "POST" });
 }
 
-export async function completePathStep(enrollmentId: string, stepId: string): Promise<{ id: string; status: string; progress: number }> {
-  return api(`/learning/paths/enrollments/${enrollmentId}/steps/${stepId}/complete`, { method: "POST" });
+export async function completePathStep(
+  enrollmentId: string,
+  stepId: string,
+): Promise<{ id: string; status: string; progress: number }> {
+  return api(
+    `/learning/paths/enrollments/${enrollmentId}/steps/${stepId}/complete`,
+    { method: "POST" },
+  );
 }
 
 // ---------------------------------------------------------------- skills
@@ -3880,41 +5723,97 @@ export async function getOrgSkillMap(): Promise<OrgSkillMap> {
   return api<OrgSkillMap>("/learning/skills/org-map");
 }
 
-export async function refreshSkillSnapshot(): Promise<{ snapshot_id: string | null; date: string | null; skill_count: number }> {
+export async function refreshSkillSnapshot(): Promise<{
+  snapshot_id: string | null;
+  date: string | null;
+  skill_count: number;
+}> {
   return api("/learning/skills/snapshot/refresh", { method: "POST" });
 }
 
-export async function getMySkillGaps(status = "open"): Promise<LearningSkillGap[]> {
-  return api<LearningSkillGap[]>("/learning/skills/gaps", { query: { status } });
+export async function getMySkillGaps(
+  status = "open",
+): Promise<LearningSkillGap[]> {
+  return api<LearningSkillGap[]>("/learning/skills/gaps", {
+    query: { status },
+  });
 }
 
-export async function refreshSkillGaps(): Promise<{ employee_id: string; gaps: number }> {
+export async function refreshSkillGaps(): Promise<{
+  employee_id: string;
+  gaps: number;
+}> {
   return api("/learning/skills/gaps/refresh", { method: "POST" });
 }
 
-export async function closeSkillGap(gapId: string, status = "closed"): Promise<{ id: string; skill_name: string; status: string }> {
-  return api(`/learning/skills/gaps/${gapId}/close`, { method: "POST", query: { status } });
+export async function closeSkillGap(
+  gapId: string,
+  status = "closed",
+): Promise<{ id: string; skill_name: string; status: string }> {
+  return api(`/learning/skills/gaps/${gapId}/close`, {
+    method: "POST",
+    query: { status },
+  });
 }
 
-export async function whoHasSkill(skillName: string, minLevel = 3, limit = 20): Promise<{ employee_id: string; name: string; designation?: string | null; level: number }[]> {
-  return api(`/learning/skills/who/${encodeURIComponent(skillName)}`, { query: { min_level: minLevel, limit } });
+export async function whoHasSkill(
+  skillName: string,
+  minLevel = 3,
+  limit = 20,
+): Promise<
+  {
+    employee_id: string;
+    name: string;
+    designation?: string | null;
+    level: number;
+  }[]
+> {
+  return api(`/learning/skills/who/${encodeURIComponent(skillName)}`, {
+    query: { min_level: minLevel, limit },
+  });
 }
 
-export async function canMentorSkill(skillName: string, minLevel = 4): Promise<{ employee_id: string; name: string; designation?: string | null; level: number }[]> {
-  return api(`/learning/skills/mentors/${encodeURIComponent(skillName)}`, { query: { min_level: minLevel } });
+export async function canMentorSkill(
+  skillName: string,
+  minLevel = 4,
+): Promise<
+  {
+    employee_id: string;
+    name: string;
+    designation?: string | null;
+    level: number;
+  }[]
+> {
+  return api(`/learning/skills/mentors/${encodeURIComponent(skillName)}`, {
+    query: { min_level: minLevel },
+  });
 }
 
-export async function boostSkill(skillName: string, payload: { employee_id?: string; points?: number; reason?: string } = {}): Promise<{ skill_name: string; level: number; verified: boolean }> {
-  return api(`/learning/skills/${encodeURIComponent(skillName)}/boost`, { method: "POST", body: payload });
+export async function boostSkill(
+  skillName: string,
+  payload: { employee_id?: string; points?: number; reason?: string } = {},
+): Promise<{ skill_name: string; level: number; verified: boolean }> {
+  return api(`/learning/skills/${encodeURIComponent(skillName)}/boost`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function setSkillLevel(skillName: string, payload: { employee_id?: string; level: number }): Promise<{ skill_name: string; level: number; verified: boolean }> {
-  return api(`/learning/skills/${encodeURIComponent(skillName)}/set-level`, { method: "POST", body: payload });
+export async function setSkillLevel(
+  skillName: string,
+  payload: { employee_id?: string; level: number },
+): Promise<{ skill_name: string; level: number; verified: boolean }> {
+  return api(`/learning/skills/${encodeURIComponent(skillName)}/set-level`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
 // ---------------------------------------------------------------- assessments
 
-export async function listAssessments(query: { category?: string; status?: string; limit?: number } = {}): Promise<Assessment[]> {
+export async function listAssessments(
+  query: { category?: string; status?: string; limit?: number } = {},
+): Promise<Assessment[]> {
   return api<Assessment[]>("/learning/assessments", { query });
 }
 
@@ -3922,29 +5821,70 @@ export async function getAssessment(id: string): Promise<Assessment> {
   return api<Assessment>(`/learning/assessments/${id}`);
 }
 
-export async function createAssessment(payload: Record<string, unknown>): Promise<Assessment> {
-  return api<Assessment>("/learning/assessments", { method: "POST", body: payload });
+export async function createAssessment(
+  payload: Record<string, unknown>,
+): Promise<Assessment> {
+  return api<Assessment>("/learning/assessments", {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function myAssessmentAttempts(status?: string): Promise<AssessmentAttempt[]> {
-  return api<AssessmentAttempt[]>("/learning/assessments/my/attempts", { query: { status } });
+export async function myAssessmentAttempts(
+  status?: string,
+): Promise<AssessmentAttempt[]> {
+  return api<AssessmentAttempt[]>("/learning/assessments/my/attempts", {
+    query: { status },
+  });
 }
 
-export async function assignAssessment(assessmentId: string, employeeId?: string): Promise<{ id: string; assessment_id: string; status: string }> {
-  return api(`/learning/assessments/${assessmentId}/assign`, { method: "POST", body: { employee_id: employeeId } });
+export async function assignAssessment(
+  assessmentId: string,
+  employeeId?: string,
+): Promise<{ id: string; assessment_id: string; status: string }> {
+  return api(`/learning/assessments/${assessmentId}/assign`, {
+    method: "POST",
+    body: { employee_id: employeeId },
+  });
 }
 
-export async function submitAssessmentAttempt(attemptId: string, answers: Record<string, unknown>): Promise<{ id: string; status: string; score: number | null; passed: boolean | null; submitted_at: string | null }> {
-  return api(`/learning/assessments/attempts/${attemptId}/submit`, { method: "POST", body: { answers } });
+export async function submitAssessmentAttempt(
+  attemptId: string,
+  answers: Record<string, unknown>,
+): Promise<{
+  id: string;
+  status: string;
+  score: number | null;
+  passed: boolean | null;
+  submitted_at: string | null;
+}> {
+  return api(`/learning/assessments/attempts/${attemptId}/submit`, {
+    method: "POST",
+    body: { answers },
+  });
 }
 
-export async function evaluateAssessmentAttempt(attemptId: string, payload: { reviewer_id?: string; score?: number; feedback?: string } = {}): Promise<{ id: string; status: string; score: number | null; passed: boolean | null; finalized_at: string | null }> {
-  return api(`/learning/assessments/attempts/${attemptId}/evaluate`, { method: "POST", body: payload });
+export async function evaluateAssessmentAttempt(
+  attemptId: string,
+  payload: { reviewer_id?: string; score?: number; feedback?: string } = {},
+): Promise<{
+  id: string;
+  status: string;
+  score: number | null;
+  passed: boolean | null;
+  finalized_at: string | null;
+}> {
+  return api(`/learning/assessments/attempts/${attemptId}/evaluate`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
 // ---------------------------------------------------------------- certifications
 
-export async function listCertifications(query: { category?: string; status?: string; limit?: number } = {}): Promise<Certification[]> {
+export async function listCertifications(
+  query: { category?: string; status?: string; limit?: number } = {},
+): Promise<Certification[]> {
   return api<Certification[]>("/learning/certifications", { query });
 }
 
@@ -3952,24 +5892,58 @@ export async function getCertification(id: string): Promise<Certification> {
   return api<Certification>(`/learning/certifications/${id}`);
 }
 
-export async function createCertification(payload: Record<string, unknown>): Promise<Certification> {
-  return api<Certification>("/learning/certifications", { method: "POST", body: payload });
+export async function createCertification(
+  payload: Record<string, unknown>,
+): Promise<Certification> {
+  return api<Certification>("/learning/certifications", {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function myEarnedCertifications(status?: string): Promise<EarnedCertification[]> {
-  return api<EarnedCertification[]>("/learning/certifications/my/earned", { query: { status } });
+export async function myEarnedCertifications(
+  status?: string,
+): Promise<EarnedCertification[]> {
+  return api<EarnedCertification[]>("/learning/certifications/my/earned", {
+    query: { status },
+  });
 }
 
-export async function recommendedCertifications(limit = 5): Promise<Certification[]> {
-  return api<Certification[]>("/learning/certifications/my/recommended", { query: { limit } });
+export async function recommendedCertifications(
+  limit = 5,
+): Promise<Certification[]> {
+  return api<Certification[]>("/learning/certifications/my/recommended", {
+    query: { limit },
+  });
 }
 
-export async function startCertificationAttempt(certificationId: string): Promise<{ id: string; certification_id: string; status: string; started_at: string | null }> {
-  return api(`/learning/certifications/${certificationId}/attempts`, { method: "POST" });
+export async function startCertificationAttempt(
+  certificationId: string,
+): Promise<{
+  id: string;
+  certification_id: string;
+  status: string;
+  started_at: string | null;
+}> {
+  return api(`/learning/certifications/${certificationId}/attempts`, {
+    method: "POST",
+  });
 }
 
-export async function completeCertificationAttempt(attemptId: string, payload: { score: number; passed: boolean; evidence?: string }): Promise<{ id: string; status: string; score: number | null; passed: boolean; credential_id?: string | null }> {
-  return api(`/learning/certifications/attempts/${attemptId}/complete`, { method: "POST", body: payload });
+export async function completeCertificationAttempt(
+  attemptId: string,
+  payload: { score: number; passed: boolean; evidence?: string },
+): Promise<{
+  id: string;
+  status: string;
+  score: number | null;
+  passed: boolean;
+  credential_id?: string | null;
+}> {
+  return api(`/learning/certifications/attempts/${attemptId}/complete`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
 // ---------------------------------------------------------------- mentorship
@@ -3978,45 +5952,94 @@ export async function getMentorProfile(): Promise<MentorProfile> {
   return api<MentorProfile>("/learning/mentorship/profile");
 }
 
-export async function upsertMentorProfile(payload: Record<string, unknown>): Promise<{ id: string; employee_id: string; is_active: boolean }> {
+export async function upsertMentorProfile(
+  payload: Record<string, unknown>,
+): Promise<{ id: string; employee_id: string; is_active: boolean }> {
   return api(`/learning/mentorship/profile`, { method: "POST", body: payload });
 }
 
-export async function listMentors(query: { category?: string; search?: string; limit?: number } = {}): Promise<MentorMatch[]> {
+export async function listMentors(
+  query: { category?: string; search?: string; limit?: number } = {},
+): Promise<MentorMatch[]> {
   return api<MentorMatch[]>("/learning/mentorship/mentors", { query });
 }
 
-export async function recommendMentors(skill?: string, limit = 5): Promise<MentorMatch[]> {
-  return api<MentorMatch[]>("/learning/mentorship/mentors/recommend", { query: { skill, limit } });
+export async function recommendMentors(
+  skill?: string,
+  limit = 5,
+): Promise<MentorMatch[]> {
+  return api<MentorMatch[]>("/learning/mentorship/mentors/recommend", {
+    query: { skill, limit },
+  });
 }
 
-export async function requestMentorship(mentorId: string, payload: { topic: string; goals?: string[] }): Promise<{ id: string; status: string; topic: string }> {
-  return api(`/learning/mentorship/mentors/${mentorId}/request`, { method: "POST", body: payload });
+export async function requestMentorship(
+  mentorId: string,
+  payload: { topic: string; goals?: string[] },
+): Promise<{ id: string; status: string; topic: string }> {
+  return api(`/learning/mentorship/mentors/${mentorId}/request`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function listMentorshipRequests(role = "mentee", status?: string): Promise<MentorshipRequest[]> {
-  return api<MentorshipRequest[]>("/learning/mentorship/requests", { query: { role, status } });
+export async function listMentorshipRequests(
+  role = "mentee",
+  status?: string,
+): Promise<MentorshipRequest[]> {
+  return api<MentorshipRequest[]>("/learning/mentorship/requests", {
+    query: { role, status },
+  });
 }
 
-export async function respondToMentorship(mentorshipId: string, accept: boolean): Promise<{ id: string; status: string }> {
-  return api(`/learning/mentorship/${mentorshipId}/respond`, { method: "POST", body: { accept } });
+export async function respondToMentorship(
+  mentorshipId: string,
+  accept: boolean,
+): Promise<{ id: string; status: string }> {
+  return api(`/learning/mentorship/${mentorshipId}/respond`, {
+    method: "POST",
+    body: { accept },
+  });
 }
 
-export async function addMentorshipSession(mentorshipId: string, payload: { title?: string; notes?: string; kind?: string; duration_minutes?: number }): Promise<{ id: string; title: string; kind: string }> {
-  return api(`/learning/mentorship/${mentorshipId}/sessions`, { method: "POST", body: payload });
+export async function addMentorshipSession(
+  mentorshipId: string,
+  payload: {
+    title?: string;
+    notes?: string;
+    kind?: string;
+    duration_minutes?: number;
+  },
+): Promise<{ id: string; title: string; kind: string }> {
+  return api(`/learning/mentorship/${mentorshipId}/sessions`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function addMentorshipFeedback(mentorshipId: string, payload: { rating: number; comment?: string }): Promise<{ id: string; rating: number }> {
-  return api(`/learning/mentorship/${mentorshipId}/feedback`, { method: "POST", body: payload });
+export async function addMentorshipFeedback(
+  mentorshipId: string,
+  payload: { rating: number; comment?: string },
+): Promise<{ id: string; rating: number }> {
+  return api(`/learning/mentorship/${mentorshipId}/feedback`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function completeMentorship(mentorshipId: string): Promise<{ id: string; status: string; progress: number }> {
-  return api(`/learning/mentorship/${mentorshipId}/complete`, { method: "POST" });
+export async function completeMentorship(
+  mentorshipId: string,
+): Promise<{ id: string; status: string; progress: number }> {
+  return api(`/learning/mentorship/${mentorshipId}/complete`, {
+    method: "POST",
+  });
 }
 
 // ---------------------------------------------------------------- career
 
-export async function listCareerPaths(department?: string): Promise<CareerPath[]> {
+export async function listCareerPaths(
+  department?: string,
+): Promise<CareerPath[]> {
   return api<CareerPath[]>("/learning/career", { query: { department } });
 }
 
@@ -4024,7 +6047,9 @@ export async function getCareerPath(id: string): Promise<CareerPath> {
   return api<CareerPath>(`/learning/career/${id}`);
 }
 
-export async function createCareerPath(payload: Record<string, unknown>): Promise<CareerPath> {
+export async function createCareerPath(
+  payload: Record<string, unknown>,
+): Promise<CareerPath> {
   return api<CareerPath>("/learning/career", { method: "POST", body: payload });
 }
 
@@ -4032,25 +6057,43 @@ export async function getMyCareerProgress(): Promise<CareerProgress> {
   return api<CareerProgress>("/learning/career/my/progress");
 }
 
-export async function getMyRequiredSkills(): Promise<{ skill: string; level: number }[]> {
-  return api<{ skill: string; level: number }[]>("/learning/career/my/required-skills");
+export async function getMyRequiredSkills(): Promise<
+  { skill: string; level: number }[]
+> {
+  return api<{ skill: string; level: number }[]>(
+    "/learning/career/my/required-skills",
+  );
 }
 
 export async function detectPromotionSignal(): Promise<PromotionSignal> {
-  return api<PromotionSignal>("/learning/career/my/promotion-signals/detect", { method: "POST" });
+  return api<PromotionSignal>("/learning/career/my/promotion-signals/detect", {
+    method: "POST",
+  });
 }
 
-export async function listPromotionSignals(status = "open"): Promise<PromotionSignal[]> {
-  return api<PromotionSignal[]>("/learning/career/signals", { query: { status } });
+export async function listPromotionSignals(
+  status = "open",
+): Promise<PromotionSignal[]> {
+  return api<PromotionSignal[]>("/learning/career/signals", {
+    query: { status },
+  });
 }
 
-export async function reviewPromotionSignal(signalId: string, status: string): Promise<{ id: string; status: string }> {
-  return api(`/learning/career/signals/${signalId}/review`, { method: "POST", body: { status } });
+export async function reviewPromotionSignal(
+  signalId: string,
+  status: string,
+): Promise<{ id: string; status: string }> {
+  return api(`/learning/career/signals/${signalId}/review`, {
+    method: "POST",
+    body: { status },
+  });
 }
 
 // ---------------------------------------------------------------- academies
 
-export async function listAcademies(query: { category?: string; status?: string; limit?: number } = {}): Promise<Academy[]> {
+export async function listAcademies(
+  query: { category?: string; status?: string; limit?: number } = {},
+): Promise<Academy[]> {
   return api<Academy[]>("/learning/academies", { query });
 }
 
@@ -4058,7 +6101,9 @@ export async function getAcademy(id: string): Promise<Academy> {
   return api<Academy>(`/learning/academies/${id}`);
 }
 
-export async function createAcademy(payload: Record<string, unknown>): Promise<Academy> {
+export async function createAcademy(
+  payload: Record<string, unknown>,
+): Promise<Academy> {
   return api<Academy>("/learning/academies", { method: "POST", body: payload });
 }
 
@@ -4066,29 +6111,56 @@ export async function myAcademies(): Promise<Academy[]> {
   return api<Academy[]>("/learning/academies/my");
 }
 
-export async function addAcademyCourse(academyId: string, courseId: string): Promise<{ id: string; academy_id: string; course_id: string }> {
-  return api(`/learning/academies/${academyId}/courses`, { method: "POST", body: { course_id: courseId } });
+export async function addAcademyCourse(
+  academyId: string,
+  courseId: string,
+): Promise<{ id: string; academy_id: string; course_id: string }> {
+  return api(`/learning/academies/${academyId}/courses`, {
+    method: "POST",
+    body: { course_id: courseId },
+  });
 }
 
-export async function removeAcademyCourse(academyId: string, courseId: string): Promise<{ removed: boolean }> {
-  return api(`/learning/academies/${academyId}/courses/${courseId}`, { method: "DELETE" });
+export async function removeAcademyCourse(
+  academyId: string,
+  courseId: string,
+): Promise<{ removed: boolean }> {
+  return api(`/learning/academies/${academyId}/courses/${courseId}`, {
+    method: "DELETE",
+  });
 }
 
-export async function joinAcademy(academyId: string): Promise<{ id: string; academy_id: string; joined: boolean }> {
+export async function joinAcademy(
+  academyId: string,
+): Promise<{ id: string; academy_id: string; joined: boolean }> {
   return api(`/learning/academies/${academyId}/join`, { method: "POST" });
 }
 
-export async function leaveAcademy(academyId: string): Promise<{ left: boolean }> {
-  return api<{ left: boolean }>(`/learning/academies/${academyId}/leave`, { method: "POST" });
+export async function leaveAcademy(
+  academyId: string,
+): Promise<{ left: boolean }> {
+  return api<{ left: boolean }>(`/learning/academies/${academyId}/leave`, {
+    method: "POST",
+  });
 }
 
 // ---------------------------------------------------------------- onboarding
 
-export async function createOnboardingPlan(employeeId: string, targetDays = 14): Promise<{ id: string; employee_id: string; status: string }> {
-  return api(`/learning/onboarding/plans`, { method: "POST", body: { employee_id: employeeId, target_days: targetDays } });
+export async function createOnboardingPlan(
+  employeeId: string,
+  targetDays = 14,
+): Promise<{ id: string; employee_id: string; status: string }> {
+  return api(`/learning/onboarding/plans`, {
+    method: "POST",
+    body: { employee_id: employeeId, target_days: targetDays },
+  });
 }
 
-export async function listOnboardingPlans(status = "active"): Promise<{ id: string; employee_id: string; status: string; progress: number }[]> {
+export async function listOnboardingPlans(
+  status = "active",
+): Promise<
+  { id: string; employee_id: string; status: string; progress: number }[]
+> {
   return api(`/learning/onboarding/plans`, { query: { status } });
 }
 
@@ -4096,22 +6168,46 @@ export async function getOnboardingPlan(id: string): Promise<OnboardingPlan> {
   return api<OnboardingPlan>(`/learning/onboarding/plans/${id}`);
 }
 
-export async function completeOnboardingTask(planId: string, taskId: string): Promise<{ plan_id: string; task_id: string; plan_progress: number; plan_status: string }> {
-  return api(`/learning/onboarding/plans/${planId}/tasks/${taskId}/complete`, { method: "POST" });
+export async function completeOnboardingTask(
+  planId: string,
+  taskId: string,
+): Promise<{
+  plan_id: string;
+  task_id: string;
+  plan_progress: number;
+  plan_status: string;
+}> {
+  return api(`/learning/onboarding/plans/${planId}/tasks/${taskId}/complete`, {
+    method: "POST",
+  });
 }
 
 // ---------------------------------------------------------------- learning recommendations (Phase 10 feed)
 
-export async function getLearningRecommendations(limit = 25): Promise<LearningRecommendationItem[]> {
-  return api<LearningRecommendationItem[]>("/recommendations", { query: { limit } });
+export async function getLearningRecommendations(
+  limit = 25,
+): Promise<LearningRecommendationItem[]> {
+  return api<LearningRecommendationItem[]>("/recommendations", {
+    query: { limit },
+  });
 }
 
-export async function refreshLearningRecommendations(): Promise<{ generated: number }> {
-  return api<{ generated: number }>("/recommendations/refresh", { method: "POST" });
+export async function refreshLearningRecommendations(): Promise<{
+  generated: number;
+}> {
+  return api<{ generated: number }>("/recommendations/refresh", {
+    method: "POST",
+  });
 }
 
-export async function setLearningRecommendationStatus(itemId: string, status: string): Promise<LearningRecommendationItem> {
-  return api<LearningRecommendationItem>(`/recommendations/${itemId}`, { method: "PATCH", body: { status } });
+export async function setLearningRecommendationStatus(
+  itemId: string,
+  status: string,
+): Promise<LearningRecommendationItem> {
+  return api<LearningRecommendationItem>(`/recommendations/${itemId}`, {
+    method: "PATCH",
+    body: { status },
+  });
 }
 
 // ---------------------------------------------------------------- HR hub
@@ -4122,10 +6218,21 @@ export interface HrDashboard {
     hires_month: number;
     exits_month: number;
     attrition_rate: number;
-    trend: { date: string; headcount: number; hires: number; exits: number; attrition: number }[];
+    trend: {
+      date: string;
+      headcount: number;
+      hires: number;
+      exits: number;
+      attrition: number;
+    }[];
     succession_pipeline: { total: number; ready: number; developing: number };
     hiring_needs: {
-      by_department: { department: string; open_positions: number; plan_growth: number; priority: string }[];
+      by_department: {
+        department: string;
+        open_positions: number;
+        plan_growth: number;
+        priority: string;
+      }[];
       total_open_positions: number;
       attrition_rate: number;
       attrition_pressure: boolean;
@@ -4152,10 +6259,21 @@ export interface HrDashboard {
   };
   performance: {
     cycles: { total: number; open: number; reviewing: number };
-    reviews: { total: number; draft: number; submitted: number; completed: number; average_rating: number };
+    reviews: {
+      total: number;
+      draft: number;
+      submitted: number;
+      completed: number;
+      average_rating: number;
+    };
     goals: { total: number; active: number; completed: number };
   };
-  offboarding: { active: number; completed: number; in_progress: number; list: OffboardingItem[] };
+  offboarding: {
+    active: number;
+    completed: number;
+    in_progress: number;
+    list: OffboardingItem[];
+  };
   compliance: {
     expired_documents: number;
     expiring_30: number;
@@ -4212,16 +6330,43 @@ export async function askHrAi(question: string): Promise<HrAiAnswer> {
   return api<HrAiAnswer>("/hr/ai/ask", { method: "POST", body: { question } });
 }
 
-export async function promoteEmployee(employeeId: string, payload: Record<string, unknown>): Promise<{ employee_id: string; previous_designation: string | null; new_designation: string | null }> {
-  return api(`/hr/employees/${employeeId}/promote`, { method: "POST", body: payload });
+export async function promoteEmployee(
+  employeeId: string,
+  payload: Record<string, unknown>,
+): Promise<{
+  employee_id: string;
+  previous_designation: string | null;
+  new_designation: string | null;
+}> {
+  return api(`/hr/employees/${employeeId}/promote`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function transferEmployee(employeeId: string, payload: Record<string, unknown>): Promise<{ employee_id: string; department_id: string | null; team_id: string | null; manager_id: string | null }> {
-  return api(`/hr/employees/${employeeId}/transfer`, { method: "POST", body: payload });
+export async function transferEmployee(
+  employeeId: string,
+  payload: Record<string, unknown>,
+): Promise<{
+  employee_id: string;
+  department_id: string | null;
+  team_id: string | null;
+  manager_id: string | null;
+}> {
+  return api(`/hr/employees/${employeeId}/transfer`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
 export interface EmployeeLifecycle {
-  employee: { id: string; name: string; designation: string | null; status: string; joining_date: string | null };
+  employee: {
+    id: string;
+    name: string;
+    designation: string | null;
+    status: string;
+    joining_date: string | null;
+  };
   attendance: {
     employee_id: string;
     start: string;
@@ -4243,11 +6388,16 @@ export interface EmployeeLifecycle {
     goal_progress: number;
   };
   assets: Asset[];
-  compliance: { documents: ComplianceDocument[]; trainings: TrainingCompletion[] };
+  compliance: {
+    documents: ComplianceDocument[];
+    trainings: TrainingCompletion[];
+  };
   offboarding: OffboardingItem | null;
 }
 
-export async function getEmployeeLifecycle(employeeId: string): Promise<EmployeeLifecycle> {
+export async function getEmployeeLifecycle(
+  employeeId: string,
+): Promise<EmployeeLifecycle> {
   return api<EmployeeLifecycle>(`/hr/employees/${employeeId}/lifecycle`);
 }
 
@@ -4329,18 +6479,30 @@ export interface AttendanceCorrection {
 }
 
 export async function listShifts(activeOnly = false): Promise<Shift[]> {
-  return api<Shift[]>("/attendance/shifts", { query: { active_only: activeOnly } });
+  return api<Shift[]>("/attendance/shifts", {
+    query: { active_only: activeOnly },
+  });
 }
 
-export async function createShift(payload: Record<string, unknown>): Promise<{ id: string; name: string }> {
+export async function createShift(
+  payload: Record<string, unknown>,
+): Promise<{ id: string; name: string }> {
   return api(`/attendance/shifts`, { method: "POST", body: payload });
 }
 
-export async function updateShift(shiftId: string, payload: Record<string, unknown>): Promise<{ id: string; name: string }> {
-  return api(`/attendance/shifts/${shiftId}`, { method: "PATCH", body: payload });
+export async function updateShift(
+  shiftId: string,
+  payload: Record<string, unknown>,
+): Promise<{ id: string; name: string }> {
+  return api(`/attendance/shifts/${shiftId}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
-export async function deleteShift(shiftId: string): Promise<{ deleted: boolean }> {
+export async function deleteShift(
+  shiftId: string,
+): Promise<{ deleted: boolean }> {
   return api(`/attendance/shifts/${shiftId}`, { method: "DELETE" });
 }
 
@@ -4348,27 +6510,54 @@ export async function listHolidays(year?: number): Promise<Holiday[]> {
   return api<Holiday[]>("/attendance/holidays", { query: { year } });
 }
 
-export async function addHoliday(payload: Record<string, unknown>): Promise<{ id: string; name: string; date: string }> {
+export async function addHoliday(
+  payload: Record<string, unknown>,
+): Promise<{ id: string; name: string; date: string }> {
   return api(`/attendance/holidays`, { method: "POST", body: payload });
 }
 
-export async function deleteHoliday(holidayId: string): Promise<{ deleted: boolean }> {
+export async function deleteHoliday(
+  holidayId: string,
+): Promise<{ deleted: boolean }> {
   return api(`/attendance/holidays/${holidayId}`, { method: "DELETE" });
 }
 
-export async function clockIn(payload: Record<string, unknown> = {}): Promise<{ id: string; date: string; check_in: string | null; status: string; work_mode: string }> {
+export async function clockIn(
+  payload: Record<string, unknown> = {},
+): Promise<{
+  id: string;
+  date: string;
+  check_in: string | null;
+  status: string;
+  work_mode: string;
+}> {
   return api(`/attendance/clock-in`, { method: "POST", body: payload });
 }
 
-export async function clockOut(payload: Record<string, unknown> = {}): Promise<{ id: string; date: string; check_in: string | null; check_out: string | null; work_minutes: number; late_minutes: number; overtime_minutes: number }> {
+export async function clockOut(
+  payload: Record<string, unknown> = {},
+): Promise<{
+  id: string;
+  date: string;
+  check_in: string | null;
+  check_out: string | null;
+  work_minutes: number;
+  late_minutes: number;
+  overtime_minutes: number;
+}> {
   return api(`/attendance/clock-out`, { method: "POST", body: payload });
 }
 
-export async function startBreak(minutes = 30): Promise<{ on_break: boolean; breaks: unknown[] }> {
+export async function startBreak(
+  minutes = 30,
+): Promise<{ on_break: boolean; breaks: unknown[] }> {
   return api(`/attendance/breaks`, { method: "POST", body: { minutes } });
 }
 
-export async function endBreak(): Promise<{ on_break: boolean; breaks: unknown[] }> {
+export async function endBreak(): Promise<{
+  on_break: boolean;
+  breaks: unknown[];
+}> {
   return api(`/attendance/breaks/end`, { method: "POST" });
 }
 
@@ -4376,32 +6565,55 @@ export async function getTodayStatus(): Promise<TodayStatus> {
   return api<TodayStatus>("/attendance/today");
 }
 
-export async function myAttendanceRecords(query: { start?: string; end?: string; limit?: number } = {}): Promise<AttendanceRecord[]> {
+export async function myAttendanceRecords(
+  query: { start?: string; end?: string; limit?: number } = {},
+): Promise<AttendanceRecord[]> {
   return api<AttendanceRecord[]>("/attendance/my", { query });
 }
 
-export async function listAttendanceRecords(query: { employee_id?: string; start?: string; end?: string; limit?: number } = {}): Promise<AttendanceRecord[]> {
+export async function listAttendanceRecords(
+  query: {
+    employee_id?: string;
+    start?: string;
+    end?: string;
+    limit?: number;
+  } = {},
+): Promise<AttendanceRecord[]> {
   return api<AttendanceRecord[]>("/attendance", { query });
 }
 
-export async function recordManualAttendance(payload: Record<string, unknown>): Promise<{ id: string; date: string; status: string }> {
+export async function recordManualAttendance(
+  payload: Record<string, unknown>,
+): Promise<{ id: string; date: string; status: string }> {
   return api(`/attendance/manual`, { method: "POST", body: payload });
 }
 
-export async function getAttendanceSummary(query: { employee_id?: string; start?: string; end?: string } = {}): Promise<AttendanceSummary> {
+export async function getAttendanceSummary(
+  query: { employee_id?: string; start?: string; end?: string } = {},
+): Promise<AttendanceSummary> {
   return api<AttendanceSummary>("/attendance/summary", { query });
 }
 
-export async function requestAttendanceCorrection(payload: Record<string, unknown>): Promise<{ id: string; requested_date: string; status: string }> {
+export async function requestAttendanceCorrection(
+  payload: Record<string, unknown>,
+): Promise<{ id: string; requested_date: string; status: string }> {
   return api(`/attendance/corrections`, { method: "POST", body: payload });
 }
 
-export async function listAttendanceCorrections(query: { employee_id?: string; status?: string } = {}): Promise<AttendanceCorrection[]> {
+export async function listAttendanceCorrections(
+  query: { employee_id?: string; status?: string } = {},
+): Promise<AttendanceCorrection[]> {
   return api<AttendanceCorrection[]>("/attendance/corrections", { query });
 }
 
-export async function reviewAttendanceCorrection(correctionId: string, decision: string): Promise<{ id: string; status: string }> {
-  return api(`/attendance/corrections/${correctionId}/review`, { method: "POST", body: { decision } });
+export async function reviewAttendanceCorrection(
+  correctionId: string,
+  decision: string,
+): Promise<{ id: string; status: string }> {
+  return api(`/attendance/corrections/${correctionId}/review`, {
+    method: "POST",
+    body: { decision },
+  });
 }
 
 // ---------------------------------------------------------------- leave
@@ -4462,11 +6674,16 @@ export async function listLeaveTypes(): Promise<LeaveType[]> {
   return api<LeaveType[]>("/leave/types");
 }
 
-export async function createLeaveType(payload: Record<string, unknown>): Promise<{ id: string; name: string; code: string }> {
+export async function createLeaveType(
+  payload: Record<string, unknown>,
+): Promise<{ id: string; name: string; code: string }> {
   return api(`/leave/types`, { method: "POST", body: payload });
 }
 
-export async function updateLeaveType(leaveTypeId: string, payload: Record<string, unknown>): Promise<{ id: string; name: string }> {
+export async function updateLeaveType(
+  leaveTypeId: string,
+  payload: Record<string, unknown>,
+): Promise<{ id: string; name: string }> {
   return api(`/leave/types/${leaveTypeId}`, { method: "PATCH", body: payload });
 }
 
@@ -4474,19 +6691,42 @@ export async function myLeaveBalances(year?: number): Promise<LeaveBalance[]> {
   return api<LeaveBalance[]>("/leave/balances", { query: { year } });
 }
 
-export async function employeeLeaveBalances(employeeId: string, year?: number): Promise<LeaveBalance[]> {
-  return api<LeaveBalance[]>(`/leave/balances/${employeeId}`, { query: { year } });
+export async function employeeLeaveBalances(
+  employeeId: string,
+  year?: number,
+): Promise<LeaveBalance[]> {
+  return api<LeaveBalance[]>(`/leave/balances/${employeeId}`, {
+    query: { year },
+  });
 }
 
-export async function requestLeave(payload: Record<string, unknown>): Promise<{ id: string; start_date: string; end_date: string; days: number; status: string }> {
+export async function requestLeave(
+  payload: Record<string, unknown>,
+): Promise<{
+  id: string;
+  start_date: string;
+  end_date: string;
+  days: number;
+  status: string;
+}> {
   return api(`/leave/requests`, { method: "POST", body: payload });
 }
 
-export async function listLeaveRequests(query: { employee_id?: string; status?: string; start?: string; end?: string; mine?: boolean } = {}): Promise<LeaveRequestItem[]> {
+export async function listLeaveRequests(
+  query: {
+    employee_id?: string;
+    status?: string;
+    start?: string;
+    end?: string;
+    mine?: boolean;
+  } = {},
+): Promise<LeaveRequestItem[]> {
   return api<LeaveRequestItem[]>("/leave/requests", { query });
 }
 
-export async function getLeaveRequest(requestId: string): Promise<LeaveRequestItem> {
+export async function getLeaveRequest(
+  requestId: string,
+): Promise<LeaveRequestItem> {
   return api<LeaveRequestItem>(`/leave/requests/${requestId}`);
 }
 
@@ -4494,15 +6734,29 @@ export async function pendingLeaveRequests(): Promise<LeaveRequestItem[]> {
   return api<LeaveRequestItem[]>("/leave/pending");
 }
 
-export async function approveLeaveRequest(requestId: string, note?: string): Promise<{ id: string; status: string }> {
-  return api(`/leave/requests/${requestId}/approve`, { method: "POST", body: { note } });
+export async function approveLeaveRequest(
+  requestId: string,
+  note?: string,
+): Promise<{ id: string; status: string }> {
+  return api(`/leave/requests/${requestId}/approve`, {
+    method: "POST",
+    body: { note },
+  });
 }
 
-export async function rejectLeaveRequest(requestId: string, note?: string): Promise<{ id: string; status: string }> {
-  return api(`/leave/requests/${requestId}/reject`, { method: "POST", body: { note } });
+export async function rejectLeaveRequest(
+  requestId: string,
+  note?: string,
+): Promise<{ id: string; status: string }> {
+  return api(`/leave/requests/${requestId}/reject`, {
+    method: "POST",
+    body: { note },
+  });
 }
 
-export async function cancelLeaveRequest(requestId: string): Promise<{ id: string; status: string }> {
+export async function cancelLeaveRequest(
+  requestId: string,
+): Promise<{ id: string; status: string }> {
   return api(`/leave/requests/${requestId}/cancel`, { method: "POST" });
 }
 
@@ -4593,52 +6847,95 @@ export async function listRecruitmentJobs(status?: string): Promise<Job[]> {
   return api<Job[]>("/recruitment/jobs", { query: { status } });
 }
 
-export async function createRecruitmentJob(payload: Record<string, unknown>): Promise<{ id: string; title: string; status: string }> {
+export async function createRecruitmentJob(
+  payload: Record<string, unknown>,
+): Promise<{ id: string; title: string; status: string }> {
   return api(`/recruitment/jobs`, { method: "POST", body: payload });
 }
 
-export async function updateRecruitmentJob(jobId: string, payload: Record<string, unknown>): Promise<{ id: string; title: string; status: string }> {
+export async function updateRecruitmentJob(
+  jobId: string,
+  payload: Record<string, unknown>,
+): Promise<{ id: string; title: string; status: string }> {
   return api(`/recruitment/jobs/${jobId}`, { method: "PATCH", body: payload });
 }
 
-export async function closeRecruitmentJob(jobId: string): Promise<{ id: string; status: string }> {
+export async function closeRecruitmentJob(
+  jobId: string,
+): Promise<{ id: string; status: string }> {
   return api(`/recruitment/jobs/${jobId}/close`, { method: "POST" });
 }
 
-export async function listCandidates(query: { job_id?: string; stage?: string } = {}): Promise<Candidate[]> {
+export async function listCandidates(
+  query: { job_id?: string; stage?: string } = {},
+): Promise<Candidate[]> {
   return api<Candidate[]>("/recruitment/candidates", { query });
 }
 
-export async function addCandidate(payload: Record<string, unknown>): Promise<{ id: string; name: string; stage: string; match_score: number }> {
+export async function addCandidate(
+  payload: Record<string, unknown>,
+): Promise<{ id: string; name: string; stage: string; match_score: number }> {
   return api(`/recruitment/candidates`, { method: "POST", body: payload });
 }
 
-export async function updateCandidate(candidateId: string, payload: Record<string, unknown>): Promise<{ id: string; stage: string; match_score: number }> {
-  return api(`/recruitment/candidates/${candidateId}`, { method: "PATCH", body: payload });
+export async function updateCandidate(
+  candidateId: string,
+  payload: Record<string, unknown>,
+): Promise<{ id: string; stage: string; match_score: number }> {
+  return api(`/recruitment/candidates/${candidateId}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
-export async function listInterviews(query: { job_id?: string; candidate_id?: string } = {}): Promise<Interview[]> {
+export async function listInterviews(
+  query: { job_id?: string; candidate_id?: string } = {},
+): Promise<Interview[]> {
   return api<Interview[]>("/recruitment/interviews", { query });
 }
 
-export async function scheduleInterview(payload: Record<string, unknown>): Promise<{ id: string; status: string; scheduled_at: string | null }> {
+export async function scheduleInterview(
+  payload: Record<string, unknown>,
+): Promise<{ id: string; status: string; scheduled_at: string | null }> {
   return api(`/recruitment/interviews`, { method: "POST", body: payload });
 }
 
-export async function completeInterview(interviewId: string, payload: Record<string, unknown>): Promise<{ id: string; status: string; rating: number | null }> {
-  return api(`/recruitment/interviews/${interviewId}/complete`, { method: "POST", body: payload });
+export async function completeInterview(
+  interviewId: string,
+  payload: Record<string, unknown>,
+): Promise<{ id: string; status: string; rating: number | null }> {
+  return api(`/recruitment/interviews/${interviewId}/complete`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function listOffers(query: { candidate_id?: string; status?: string } = {}): Promise<Offer[]> {
+export async function listOffers(
+  query: { candidate_id?: string; status?: string } = {},
+): Promise<Offer[]> {
   return api<Offer[]>("/recruitment/offers", { query });
 }
 
-export async function createOffer(payload: Record<string, unknown>): Promise<{ id: string; status: string; candidate_id: string }> {
+export async function createOffer(
+  payload: Record<string, unknown>,
+): Promise<{ id: string; status: string; candidate_id: string }> {
   return api(`/recruitment/offers`, { method: "POST", body: payload });
 }
 
-export async function updateOfferStatus(offerId: string, status: string, notes?: string): Promise<{ id: string; status: string; hired_employee_id: string | null; hired_employee_name: string | null }> {
-  return api(`/recruitment/offers/${offerId}/status`, { method: "POST", body: { status, notes } });
+export async function updateOfferStatus(
+  offerId: string,
+  status: string,
+  notes?: string,
+): Promise<{
+  id: string;
+  status: string;
+  hired_employee_id: string | null;
+  hired_employee_name: string | null;
+}> {
+  return api(`/recruitment/offers/${offerId}/status`, {
+    method: "POST",
+    body: { status, notes },
+  });
 }
 
 export async function getRecruitmentStats(): Promise<RecruitmentStats> {
@@ -4690,47 +6987,90 @@ export interface PerformanceReview {
 
 export interface PerformanceSummary {
   cycles: { total: number; open: number; reviewing: number };
-  reviews: { total: number; draft: number; submitted: number; completed: number; average_rating: number };
+  reviews: {
+    total: number;
+    draft: number;
+    submitted: number;
+    completed: number;
+    average_rating: number;
+  };
   goals: { total: number; active: number; completed: number };
 }
 
-export async function listPerformanceCycles(status?: string): Promise<PerformanceCycle[]> {
+export async function listPerformanceCycles(
+  status?: string,
+): Promise<PerformanceCycle[]> {
   return api<PerformanceCycle[]>("/performance/cycles", { query: { status } });
 }
 
-export async function createPerformanceCycle(payload: Record<string, unknown>): Promise<{ id: string; name: string; status: string }> {
+export async function createPerformanceCycle(
+  payload: Record<string, unknown>,
+): Promise<{ id: string; name: string; status: string }> {
   return api(`/performance/cycles`, { method: "POST", body: payload });
 }
 
-export async function setCycleStatus(cycleId: string, status: string): Promise<{ id: string; status: string }> {
-  return api(`/performance/cycles/${cycleId}/status`, { method: "POST", body: { status } });
+export async function setCycleStatus(
+  cycleId: string,
+  status: string,
+): Promise<{ id: string; status: string }> {
+  return api(`/performance/cycles/${cycleId}/status`, {
+    method: "POST",
+    body: { status },
+  });
 }
 
-export async function listPerformanceGoals(query: { employee_id?: string; cycle_id?: string; status?: string } = {}): Promise<PerformanceGoal[]> {
+export async function listPerformanceGoals(
+  query: { employee_id?: string; cycle_id?: string; status?: string } = {},
+): Promise<PerformanceGoal[]> {
   return api<PerformanceGoal[]>("/performance/goals", { query });
 }
 
-export async function createPerformanceGoal(payload: Record<string, unknown>): Promise<{ id: string; title: string; status: string }> {
+export async function createPerformanceGoal(
+  payload: Record<string, unknown>,
+): Promise<{ id: string; title: string; status: string }> {
   return api(`/performance/goals`, { method: "POST", body: payload });
 }
 
-export async function updateGoalProgress(goalId: string, progress: number): Promise<{ id: string; progress: number; status: string }> {
-  return api(`/performance/goals/${goalId}/progress`, { method: "PATCH", body: { progress } });
+export async function updateGoalProgress(
+  goalId: string,
+  progress: number,
+): Promise<{ id: string; progress: number; status: string }> {
+  return api(`/performance/goals/${goalId}/progress`, {
+    method: "PATCH",
+    body: { progress },
+  });
 }
 
-export async function listPerformanceReviews(query: { employee_id?: string; reviewer_id?: string; cycle_id?: string; status?: string } = {}): Promise<PerformanceReview[]> {
+export async function listPerformanceReviews(
+  query: {
+    employee_id?: string;
+    reviewer_id?: string;
+    cycle_id?: string;
+    status?: string;
+  } = {},
+): Promise<PerformanceReview[]> {
   return api<PerformanceReview[]>("/performance/reviews", { query });
 }
 
-export async function createPerformanceReview(payload: Record<string, unknown>): Promise<{ id: string; kind: string; status: string }> {
+export async function createPerformanceReview(
+  payload: Record<string, unknown>,
+): Promise<{ id: string; kind: string; status: string }> {
   return api(`/performance/reviews`, { method: "POST", body: payload });
 }
 
-export async function submitPerformanceReview(reviewId: string, payload: Record<string, unknown>): Promise<{ id: string; status: string; rating: number | null }> {
-  return api(`/performance/reviews/${reviewId}/submit`, { method: "POST", body: payload });
+export async function submitPerformanceReview(
+  reviewId: string,
+  payload: Record<string, unknown>,
+): Promise<{ id: string; status: string; rating: number | null }> {
+  return api(`/performance/reviews/${reviewId}/submit`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function completePerformanceReview(reviewId: string): Promise<{ id: string; status: string; ai_summary: string | null }> {
+export async function completePerformanceReview(
+  reviewId: string,
+): Promise<{ id: string; status: string; ai_summary: string | null }> {
   return api(`/performance/reviews/${reviewId}/complete`, { method: "POST" });
 }
 
@@ -4767,20 +7107,37 @@ export interface AssetSummary {
   by_category: Record<string, number>;
 }
 
-export async function listAssets(query: { employee_id?: string; status?: string; category?: string } = {}): Promise<Asset[]> {
+export async function listAssets(
+  query: { employee_id?: string; status?: string; category?: string } = {},
+): Promise<Asset[]> {
   return api<Asset[]>("/assets", { query });
 }
 
-export async function createAsset(payload: Record<string, unknown>): Promise<{ id: string; name: string; status: string }> {
+export async function createAsset(
+  payload: Record<string, unknown>,
+): Promise<{ id: string; name: string; status: string }> {
   return api(`/assets`, { method: "POST", body: payload });
 }
 
-export async function assignAsset(assetId: string, employeeId?: string): Promise<{ id: string; status: string; employee_id: string | null }> {
-  return api(`/assets/${assetId}/assign`, { method: "POST", body: { employee_id: employeeId } });
+export async function assignAsset(
+  assetId: string,
+  employeeId?: string,
+): Promise<{ id: string; status: string; employee_id: string | null }> {
+  return api(`/assets/${assetId}/assign`, {
+    method: "POST",
+    body: { employee_id: employeeId },
+  });
 }
 
-export async function updateAssetStatus(assetId: string, status: string, notes?: string): Promise<{ id: string; status: string }> {
-  return api(`/assets/${assetId}/status`, { method: "POST", body: { status, notes } });
+export async function updateAssetStatus(
+  assetId: string,
+  status: string,
+  notes?: string,
+): Promise<{ id: string; status: string }> {
+  return api(`/assets/${assetId}/status`, {
+    method: "POST",
+    body: { status, notes },
+  });
 }
 
 export async function getAssetSummary(): Promise<AssetSummary> {
@@ -4830,43 +7187,80 @@ export interface AlumniProfile {
   last_activity: string | null;
 }
 
-export async function listOffboardings(status?: string): Promise<OffboardingItem[]> {
+export async function listOffboardings(
+  status?: string,
+): Promise<OffboardingItem[]> {
   return api<OffboardingItem[]>("/offboarding", { query: { status } });
 }
 
-export async function startOffboarding(payload: Record<string, unknown>): Promise<{ id: string; status: string; employee_id: string }> {
+export async function startOffboarding(
+  payload: Record<string, unknown>,
+): Promise<{ id: string; status: string; employee_id: string }> {
   return api(`/offboarding`, { method: "POST", body: payload });
 }
 
-export async function getOffboarding(offboardingId: string): Promise<OffboardingItem> {
+export async function getOffboarding(
+  offboardingId: string,
+): Promise<OffboardingItem> {
   return api<OffboardingItem>(`/offboarding/${offboardingId}`);
 }
 
-export async function addOffboardingTask(offboardingId: string, payload: Record<string, unknown>): Promise<{ id: string; title: string; status: string }> {
-  return api(`/offboarding/${offboardingId}/tasks`, { method: "POST", body: payload });
+export async function addOffboardingTask(
+  offboardingId: string,
+  payload: Record<string, unknown>,
+): Promise<{ id: string; title: string; status: string }> {
+  return api(`/offboarding/${offboardingId}/tasks`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function completeOffboardingTask(offboardingId: string, taskId: string, notes?: string): Promise<{ id: string; status: string }> {
-  return api(`/offboarding/${offboardingId}/tasks/${taskId}/complete`, { method: "POST", body: { notes } });
+export async function completeOffboardingTask(
+  offboardingId: string,
+  taskId: string,
+  notes?: string,
+): Promise<{ id: string; status: string }> {
+  return api(`/offboarding/${offboardingId}/tasks/${taskId}/complete`, {
+    method: "POST",
+    body: { notes },
+  });
 }
 
-export async function submitExitInterview(offboardingId: string, payload: Record<string, unknown>): Promise<{ id: string; exit_interview_completed: boolean }> {
-  return api(`/offboarding/${offboardingId}/exit-interview`, { method: "POST", body: payload });
+export async function submitExitInterview(
+  offboardingId: string,
+  payload: Record<string, unknown>,
+): Promise<{ id: string; exit_interview_completed: boolean }> {
+  return api(`/offboarding/${offboardingId}/exit-interview`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function completeOffboarding(offboardingId: string): Promise<{ id: string; status: string; alumni_transitioned: boolean }> {
+export async function completeOffboarding(
+  offboardingId: string,
+): Promise<{ id: string; status: string; alumni_transitioned: boolean }> {
   return api(`/offboarding/${offboardingId}/complete`, { method: "POST" });
 }
 
 export async function listAlumni(status?: string): Promise<AlumniProfile[]> {
-  return api<AlumniProfile[]>("/offboarding/alumni/list", { query: { status } });
+  return api<AlumniProfile[]>("/offboarding/alumni/list", {
+    query: { status },
+  });
 }
 
-export async function updateAlumni(alumniId: string, payload: Record<string, unknown>): Promise<{ id: string; status: string }> {
-  return api(`/offboarding/alumni/${alumniId}`, { method: "PATCH", body: payload });
+export async function updateAlumni(
+  alumniId: string,
+  payload: Record<string, unknown>,
+): Promise<{ id: string; status: string }> {
+  return api(`/offboarding/alumni/${alumniId}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
-export async function markAlumniBoomerang(alumniId: string): Promise<{ id: string; status: string }> {
+export async function markAlumniBoomerang(
+  alumniId: string,
+): Promise<{ id: string; status: string }> {
   return api(`/offboarding/alumni/${alumniId}/boomerang`, { method: "POST" });
 }
 
@@ -4920,40 +7314,75 @@ export interface ComplianceOverview {
     missing: number;
     by_type: Record<string, number>;
   };
-  trainings: { total_completions: number; expired_completions: number; missing: number };
+  trainings: {
+    total_completions: number;
+    expired_completions: number;
+    missing: number;
+  };
   urgent: {
     expired_documents: ComplianceDocument[];
     expiring_30_days: ComplianceDocument[];
-    missing_trainings: { employee_id: string; employee_name: string; requirement_id: string; requirement: string; category: string; last_completed: string | null }[];
+    missing_trainings: {
+      employee_id: string;
+      employee_name: string;
+      requirement_id: string;
+      requirement: string;
+      category: string;
+      last_completed: string | null;
+    }[];
   };
 }
 
-export async function listComplianceDocuments(query: { employee_id?: string; document_type?: string; status?: string } = {}): Promise<ComplianceDocument[]> {
+export async function listComplianceDocuments(
+  query: { employee_id?: string; document_type?: string; status?: string } = {},
+): Promise<ComplianceDocument[]> {
   return api<ComplianceDocument[]>("/compliance/documents", { query });
 }
 
-export async function recordComplianceDocument(payload: Record<string, unknown>): Promise<{ id: string; title: string; status: string }> {
+export async function recordComplianceDocument(
+  payload: Record<string, unknown>,
+): Promise<{ id: string; title: string; status: string }> {
   return api(`/compliance/documents`, { method: "POST", body: payload });
 }
 
-export async function renewComplianceDocument(recordId: string, payload: Record<string, unknown> = {}): Promise<{ id: string; status: string }> {
-  return api(`/compliance/documents/${recordId}/renew`, { method: "POST", body: payload });
+export async function renewComplianceDocument(
+  recordId: string,
+  payload: Record<string, unknown> = {},
+): Promise<{ id: string; status: string }> {
+  return api(`/compliance/documents/${recordId}/renew`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function listTrainingRequirements(): Promise<TrainingRequirement[]> {
+export async function listTrainingRequirements(): Promise<
+  TrainingRequirement[]
+> {
   return api<TrainingRequirement[]>("/compliance/requirements");
 }
 
-export async function createTrainingRequirement(payload: Record<string, unknown>): Promise<{ id: string; name: string }> {
+export async function createTrainingRequirement(
+  payload: Record<string, unknown>,
+): Promise<{ id: string; name: string }> {
   return api(`/compliance/requirements`, { method: "POST", body: payload });
 }
 
-export async function completeTraining(payload: Record<string, unknown>): Promise<{ id: string; requirement_id: string; completed_at: string | null }> {
+export async function completeTraining(
+  payload: Record<string, unknown>,
+): Promise<{
+  id: string;
+  requirement_id: string;
+  completed_at: string | null;
+}> {
   return api(`/compliance/trainings`, { method: "POST", body: payload });
 }
 
-export async function listTrainingCompletions(employeeId?: string): Promise<TrainingCompletion[]> {
-  return api<TrainingCompletion[]>("/compliance/trainings", { query: { employee_id: employeeId } });
+export async function listTrainingCompletions(
+  employeeId?: string,
+): Promise<TrainingCompletion[]> {
+  return api<TrainingCompletion[]>("/compliance/trainings", {
+    query: { employee_id: employeeId },
+  });
 }
 
 export async function getComplianceOverview(): Promise<ComplianceOverview> {
@@ -4998,7 +7427,12 @@ export interface WorkforceSnapshot {
 }
 
 export interface HiringNeeds {
-  by_department: { department: string; open_positions: number; plan_growth: number; priority: string }[];
+  by_department: {
+    department: string;
+    open_positions: number;
+    plan_growth: number;
+    priority: string;
+  }[];
   total_open_positions: number;
   attrition_rate: number;
   attrition_pressure: boolean;
@@ -5010,41 +7444,75 @@ export interface WorkforceAnalytics {
   hires_month: number;
   exits_month: number;
   attrition_rate: number;
-  trend: { date: string; headcount: number; hires: number; exits: number; attrition: number }[];
+  trend: {
+    date: string;
+    headcount: number;
+    hires: number;
+    exits: number;
+    attrition: number;
+  }[];
   succession_pipeline: { total: number; ready: number; developing: number };
   hiring_needs: HiringNeeds;
   headcount_status: { active: number; total: number };
 }
 
-export async function listWorkforcePlans(status?: string): Promise<WorkforcePlan[]> {
+export async function listWorkforcePlans(
+  status?: string,
+): Promise<WorkforcePlan[]> {
   return api<WorkforcePlan[]>("/workforce/plans", { query: { status } });
 }
 
-export async function createWorkforcePlan(payload: Record<string, unknown>): Promise<{ id: string; title: string; status: string }> {
+export async function createWorkforcePlan(
+  payload: Record<string, unknown>,
+): Promise<{ id: string; title: string; status: string }> {
   return api(`/workforce/plans`, { method: "POST", body: payload });
 }
 
-export async function updateWorkforcePlan(planId: string, payload: Record<string, unknown>): Promise<{ id: string; status: string }> {
+export async function updateWorkforcePlan(
+  planId: string,
+  payload: Record<string, unknown>,
+): Promise<{ id: string; status: string }> {
   return api(`/workforce/plans/${planId}`, { method: "PATCH", body: payload });
 }
 
-export async function listSuccessionCandidates(positionTitle?: string): Promise<SuccessionCandidate[]> {
-  return api<SuccessionCandidate[]>("/workforce/succession", { query: { position_title: positionTitle } });
+export async function listSuccessionCandidates(
+  positionTitle?: string,
+): Promise<SuccessionCandidate[]> {
+  return api<SuccessionCandidate[]>("/workforce/succession", {
+    query: { position_title: positionTitle },
+  });
 }
 
-export async function addSuccessionCandidate(payload: Record<string, unknown>): Promise<{ id: string; position_title: string; status: string }> {
+export async function addSuccessionCandidate(
+  payload: Record<string, unknown>,
+): Promise<{ id: string; position_title: string; status: string }> {
   return api(`/workforce/succession`, { method: "POST", body: payload });
 }
 
-export async function updateSuccessionCandidate(candidateId: string, payload: Record<string, unknown>): Promise<{ id: string; readiness: number; status: string }> {
-  return api(`/workforce/succession/${candidateId}`, { method: "PATCH", body: payload });
+export async function updateSuccessionCandidate(
+  candidateId: string,
+  payload: Record<string, unknown>,
+): Promise<{ id: string; readiness: number; status: string }> {
+  return api(`/workforce/succession/${candidateId}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
-export async function computeWorkforceSnapshot(): Promise<{ id: string; date: string; headcount: number; hires_month: number; exits_month: number; attrition_rate: number }> {
+export async function computeWorkforceSnapshot(): Promise<{
+  id: string;
+  date: string;
+  headcount: number;
+  hires_month: number;
+  exits_month: number;
+  attrition_rate: number;
+}> {
   return api(`/workforce/snapshots`, { method: "POST" });
 }
 
-export async function listWorkforceSnapshots(limit = 12): Promise<WorkforceSnapshot[]> {
+export async function listWorkforceSnapshots(
+  limit = 12,
+): Promise<WorkforceSnapshot[]> {
   return api<WorkforceSnapshot[]>("/workforce/snapshots", { query: { limit } });
 }
 
@@ -5079,7 +7547,14 @@ export interface WellbeingOverview {
   latest_high: WellbeingCheck[];
 }
 
-export async function createWellbeingCheckIn(payload: Record<string, unknown>): Promise<{ id: string; check_date: string; risk_level: string; signals: string[] }> {
+export async function createWellbeingCheckIn(
+  payload: Record<string, unknown>,
+): Promise<{
+  id: string;
+  check_date: string;
+  risk_level: string;
+  signals: string[];
+}> {
   return api(`/wellbeing/check-ins`, { method: "POST", body: payload });
 }
 
@@ -5087,7 +7562,9 @@ export async function myWellbeingChecks(): Promise<WellbeingCheck[]> {
   return api<WellbeingCheck[]>("/wellbeing/my");
 }
 
-export async function listWellbeingChecks(query: { risk_level?: string; limit?: number } = {}): Promise<WellbeingCheck[]> {
+export async function listWellbeingChecks(
+  query: { risk_level?: string; limit?: number } = {},
+): Promise<WellbeingCheck[]> {
   return api<WellbeingCheck[]>("/wellbeing", { query });
 }
 
@@ -5095,7 +7572,9 @@ export async function getWellbeingOverview(): Promise<WellbeingOverview> {
   return api<WellbeingOverview>("/wellbeing/overview");
 }
 
-export async function getWellbeingRecommendations(): Promise<{ priority: string; title: string; description: string }[]> {
+export async function getWellbeingRecommendations(): Promise<
+  { priority: string; title: string; description: string }[]
+> {
   return api(`/wellbeing/recommendations`);
 }
 
@@ -5130,31 +7609,55 @@ export interface PayrollOverview {
   latest_synced_gross: number;
 }
 
-export async function listPayrollProviders(activeOnly = false): Promise<PayrollProvider[]> {
-  return api<PayrollProvider[]>("/payroll/providers", { query: { active_only: activeOnly } });
+export async function listPayrollProviders(
+  activeOnly = false,
+): Promise<PayrollProvider[]> {
+  return api<PayrollProvider[]>("/payroll/providers", {
+    query: { active_only: activeOnly },
+  });
 }
 
-export async function createPayrollProvider(payload: Record<string, unknown>): Promise<{ id: string; name: string; provider: string }> {
+export async function createPayrollProvider(
+  payload: Record<string, unknown>,
+): Promise<{ id: string; name: string; provider: string }> {
   return api(`/payroll/providers`, { method: "POST", body: payload });
 }
 
-export async function updatePayrollProvider(providerId: string, payload: Record<string, unknown>): Promise<{ id: string; is_active: boolean }> {
-  return api(`/payroll/providers/${providerId}`, { method: "PATCH", body: payload });
+export async function updatePayrollProvider(
+  providerId: string,
+  payload: Record<string, unknown>,
+): Promise<{ id: string; is_active: boolean }> {
+  return api(`/payroll/providers/${providerId}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
-export async function listPayrollRuns(query: { provider_id?: string; status?: string; limit?: number } = {}): Promise<PayrollRun[]> {
+export async function listPayrollRuns(
+  query: { provider_id?: string; status?: string; limit?: number } = {},
+): Promise<PayrollRun[]> {
   return api<PayrollRun[]>("/payroll/runs", { query });
 }
 
-export async function createPayrollRun(payload: Record<string, unknown>): Promise<{ id: string; status: string; reference_id: string | null }> {
+export async function createPayrollRun(
+  payload: Record<string, unknown>,
+): Promise<{ id: string; status: string; reference_id: string | null }> {
   return api(`/payroll/runs`, { method: "POST", body: payload });
 }
 
-export async function markPayrollRunSynced(runId: string, referenceId?: string): Promise<{ id: string; status: string }> {
-  return api(`/payroll/runs/${runId}/synced`, { method: "POST", body: { reference_id: referenceId } });
+export async function markPayrollRunSynced(
+  runId: string,
+  referenceId?: string,
+): Promise<{ id: string; status: string }> {
+  return api(`/payroll/runs/${runId}/synced`, {
+    method: "POST",
+    body: { reference_id: referenceId },
+  });
 }
 
-export async function markPayrollRunFailed(runId: string): Promise<{ id: string; status: string }> {
+export async function markPayrollRunFailed(
+  runId: string,
+): Promise<{ id: string; status: string }> {
   return api(`/payroll/runs/${runId}/failed`, { method: "POST" });
 }
 
@@ -5313,7 +7816,9 @@ export interface CustomerRenewal {
   days_left?: number;
 }
 
-export async function listCustomers(query: Record<string, string | number | boolean | null | undefined> = {}): Promise<Customer[]> {
+export async function listCustomers(
+  query: Record<string, string | number | boolean | null | undefined> = {},
+): Promise<Customer[]> {
   return api<Customer[]>("/customers", { query });
 }
 
@@ -5321,83 +7826,166 @@ export async function getCustomer(customerId: string): Promise<Customer> {
   return api<Customer>(`/customers/${customerId}`);
 }
 
-export async function createCustomer(payload: Record<string, unknown>): Promise<{ id: string; company_name: string; status: string }> {
+export async function createCustomer(
+  payload: Record<string, unknown>,
+): Promise<{ id: string; company_name: string; status: string }> {
   return api(`/customers`, { method: "POST", body: payload });
 }
 
-export async function updateCustomer(customerId: string, payload: Record<string, unknown>): Promise<{ id: string }> {
+export async function updateCustomer(
+  customerId: string,
+  payload: Record<string, unknown>,
+): Promise<{ id: string }> {
   return api(`/customers/${customerId}`, { method: "PATCH", body: payload });
 }
 
-export async function deleteCustomer(customerId: string): Promise<{ ok: boolean }> {
+export async function deleteCustomer(
+  customerId: string,
+): Promise<{ ok: boolean }> {
   return api(`/customers/${customerId}`, { method: "DELETE" });
 }
 
-export async function listCustomerTags(): Promise<{ id: string; name: string; color: string }[]> {
+export async function listCustomerTags(): Promise<
+  { id: string; name: string; color: string }[]
+> {
   return api(`/customers/tags`);
 }
 
-export async function addCustomerTags(customerId: string, tags: string[]): Promise<{ tags: string[] }> {
-  return api(`/customers/${customerId}/tags`, { method: "POST", body: { tags } });
+export async function addCustomerTags(
+  customerId: string,
+  tags: string[],
+): Promise<{ tags: string[] }> {
+  return api(`/customers/${customerId}/tags`, {
+    method: "POST",
+    body: { tags },
+  });
 }
 
-export async function removeCustomerTag(customerId: string, tag: string): Promise<{ ok: boolean }> {
-  return api(`/customers/${customerId}/tags/${encodeURIComponent(tag)}`, { method: "DELETE" });
+export async function removeCustomerTag(
+  customerId: string,
+  tag: string,
+): Promise<{ ok: boolean }> {
+  return api(`/customers/${customerId}/tags/${encodeURIComponent(tag)}`, {
+    method: "DELETE",
+  });
 }
 
-export async function addCustomerNote(customerId: string, content: string, kind = "note"): Promise<{ id: string }> {
-  return api(`/customers/${customerId}/notes`, { method: "POST", body: { content, kind } });
+export async function addCustomerNote(
+  customerId: string,
+  content: string,
+  kind = "note",
+): Promise<{ id: string }> {
+  return api(`/customers/${customerId}/notes`, {
+    method: "POST",
+    body: { content, kind },
+  });
 }
 
-export async function listCustomerNotes(customerId: string): Promise<CustomerNote[]> {
+export async function listCustomerNotes(
+  customerId: string,
+): Promise<CustomerNote[]> {
   return api<CustomerNote[]>(`/customers/${customerId}/notes`);
 }
 
-export async function addCustomerAddress(customerId: string, payload: Record<string, unknown>): Promise<{ id: string }> {
-  return api(`/customers/${customerId}/addresses`, { method: "POST", body: payload });
+export async function addCustomerAddress(
+  customerId: string,
+  payload: Record<string, unknown>,
+): Promise<{ id: string }> {
+  return api(`/customers/${customerId}/addresses`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function listCustomerAddresses(customerId: string): Promise<CustomerAddress[]> {
+export async function listCustomerAddresses(
+  customerId: string,
+): Promise<CustomerAddress[]> {
   return api<CustomerAddress[]>(`/customers/${customerId}/addresses`);
 }
 
-export async function deleteCustomerAddress(customerId: string, addressId: string): Promise<{ ok: boolean }> {
-  return api(`/customers/${customerId}/addresses/${addressId}`, { method: "DELETE" });
+export async function deleteCustomerAddress(
+  customerId: string,
+  addressId: string,
+): Promise<{ ok: boolean }> {
+  return api(`/customers/${customerId}/addresses/${addressId}`, {
+    method: "DELETE",
+  });
 }
 
-export async function addCustomerRelation(customerId: string, payload: Record<string, unknown>): Promise<{ id: string }> {
-  return api(`/customers/${customerId}/relationships`, { method: "POST", body: payload });
+export async function addCustomerRelation(
+  customerId: string,
+  payload: Record<string, unknown>,
+): Promise<{ id: string }> {
+  return api(`/customers/${customerId}/relationships`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function listCustomerRelations(customerId: string): Promise<CustomerRelation[]> {
+export async function listCustomerRelations(
+  customerId: string,
+): Promise<CustomerRelation[]> {
   return api<CustomerRelation[]>(`/customers/${customerId}/relationships`);
 }
 
-export async function linkCustomerProject(customerId: string, projectId: string): Promise<{ customer_id: string; project_id: string }> {
-  return api(`/customers/${customerId}/projects/${projectId}`, { method: "POST" });
+export async function linkCustomerProject(
+  customerId: string,
+  projectId: string,
+): Promise<{ customer_id: string; project_id: string }> {
+  return api(`/customers/${customerId}/projects/${projectId}`, {
+    method: "POST",
+  });
 }
 
-export async function unlinkCustomerProject(customerId: string, projectId: string): Promise<{ ok: boolean }> {
-  return api(`/customers/${customerId}/projects/${projectId}`, { method: "DELETE" });
+export async function unlinkCustomerProject(
+  customerId: string,
+  projectId: string,
+): Promise<{ ok: boolean }> {
+  return api(`/customers/${customerId}/projects/${projectId}`, {
+    method: "DELETE",
+  });
 }
 
-export async function linkCustomerMeeting(customerId: string, meetingId: string): Promise<{ customer_id: string; meeting_id: string }> {
-  return api(`/customers/${customerId}/meetings/${meetingId}`, { method: "POST" });
+export async function linkCustomerMeeting(
+  customerId: string,
+  meetingId: string,
+): Promise<{ customer_id: string; meeting_id: string }> {
+  return api(`/customers/${customerId}/meetings/${meetingId}`, {
+    method: "POST",
+  });
 }
 
-export async function linkCustomerDocument(customerId: string, documentId: string): Promise<{ customer_id: string; document_id: string }> {
-  return api(`/customers/${customerId}/documents/${documentId}`, { method: "POST" });
+export async function linkCustomerDocument(
+  customerId: string,
+  documentId: string,
+): Promise<{ customer_id: string; document_id: string }> {
+  return api(`/customers/${customerId}/documents/${documentId}`, {
+    method: "POST",
+  });
 }
 
-export async function unlinkCustomerDocument(customerId: string, documentId: string): Promise<{ ok: boolean }> {
-  return api(`/customers/${customerId}/documents/${documentId}`, { method: "DELETE" });
+export async function unlinkCustomerDocument(
+  customerId: string,
+  documentId: string,
+): Promise<{ ok: boolean }> {
+  return api(`/customers/${customerId}/documents/${documentId}`, {
+    method: "DELETE",
+  });
 }
 
-export async function addCustomerTimeline(customerId: string, payload: Record<string, unknown>): Promise<{ id: string }> {
-  return api(`/customers/${customerId}/timeline`, { method: "POST", body: payload });
+export async function addCustomerTimeline(
+  customerId: string,
+  payload: Record<string, unknown>,
+): Promise<{ id: string }> {
+  return api(`/customers/${customerId}/timeline`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function listCustomerTimeline(customerId: string): Promise<CustomerTimelineItem[]> {
+export async function listCustomerTimeline(
+  customerId: string,
+): Promise<CustomerTimelineItem[]> {
   return api<CustomerTimelineItem[]>(`/customers/${customerId}/timeline`);
 }
 
@@ -5419,7 +8007,9 @@ export interface Lead {
   updated_at: string | null;
 }
 
-export async function listLeads(query: Record<string, string | number | boolean | null | undefined> = {}): Promise<Lead[]> {
+export async function listLeads(
+  query: Record<string, string | number | boolean | null | undefined> = {},
+): Promise<Lead[]> {
   return api<Lead[]>("/leads", { query });
 }
 
@@ -5427,11 +8017,16 @@ export async function getLead(leadId: string): Promise<Lead> {
   return api<Lead>(`/leads/${leadId}`);
 }
 
-export async function createLead(payload: Record<string, unknown>): Promise<{ id: string; company_name: string }> {
+export async function createLead(
+  payload: Record<string, unknown>,
+): Promise<{ id: string; company_name: string }> {
   return api(`/leads`, { method: "POST", body: payload });
 }
 
-export async function updateLead(leadId: string, payload: Record<string, unknown>): Promise<{ id: string }> {
+export async function updateLead(
+  leadId: string,
+  payload: Record<string, unknown>,
+): Promise<{ id: string }> {
   return api(`/leads/${leadId}`, { method: "PATCH", body: payload });
 }
 
@@ -5439,11 +8034,18 @@ export async function deleteLead(leadId: string): Promise<{ ok: boolean }> {
   return api(`/leads/${leadId}`, { method: "DELETE" });
 }
 
-export async function listLeadActivities(leadId: string): Promise<{ id: string; kind: string; note: string | null; created_at: string | null }[]> {
+export async function listLeadActivities(
+  leadId: string,
+): Promise<
+  { id: string; kind: string; note: string | null; created_at: string | null }[]
+> {
   return api(`/leads/${leadId}/activities`);
 }
 
-export async function addLeadActivity(leadId: string, payload: Record<string, unknown>): Promise<{ id: string }> {
+export async function addLeadActivity(
+  leadId: string,
+  payload: Record<string, unknown>,
+): Promise<{ id: string }> {
   return api(`/leads/${leadId}/activities`, { method: "POST", body: payload });
 }
 
@@ -5471,7 +8073,9 @@ export interface OpportunityPipeline {
   won_value?: number;
 }
 
-export async function listOpportunities(query: Record<string, string | number | boolean | null | undefined> = {}): Promise<Opportunity[]> {
+export async function listOpportunities(
+  query: Record<string, string | number | boolean | null | undefined> = {},
+): Promise<Opportunity[]> {
   return api<Opportunity[]>("/opportunities", { query });
 }
 
@@ -5479,27 +8083,47 @@ export async function getOpportunityPipeline(): Promise<OpportunityPipeline> {
   return api<OpportunityPipeline>("/opportunities/pipeline");
 }
 
-export async function getOpportunity(opportunityId: string): Promise<Opportunity> {
+export async function getOpportunity(
+  opportunityId: string,
+): Promise<Opportunity> {
   return api<Opportunity>(`/opportunities/${opportunityId}`);
 }
 
-export async function createOpportunity(payload: Record<string, unknown>): Promise<{ id: string; title: string }> {
+export async function createOpportunity(
+  payload: Record<string, unknown>,
+): Promise<{ id: string; title: string }> {
   return api(`/opportunities`, { method: "POST", body: payload });
 }
 
-export async function updateOpportunity(opportunityId: string, payload: Record<string, unknown>): Promise<{ id: string }> {
-  return api(`/opportunities/${opportunityId}`, { method: "PATCH", body: payload });
+export async function updateOpportunity(
+  opportunityId: string,
+  payload: Record<string, unknown>,
+): Promise<{ id: string }> {
+  return api(`/opportunities/${opportunityId}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
-export async function winOpportunity(opportunityId: string): Promise<{ id: string; stage: string }> {
+export async function winOpportunity(
+  opportunityId: string,
+): Promise<{ id: string; stage: string }> {
   return api(`/opportunities/${opportunityId}/won`, { method: "POST" });
 }
 
-export async function loseOpportunity(opportunityId: string, reason?: string): Promise<{ id: string; stage: string }> {
-  return api(`/opportunities/${opportunityId}/lost`, { method: "POST", body: { reason } });
+export async function loseOpportunity(
+  opportunityId: string,
+  reason?: string,
+): Promise<{ id: string; stage: string }> {
+  return api(`/opportunities/${opportunityId}/lost`, {
+    method: "POST",
+    body: { reason },
+  });
 }
 
-export async function deleteOpportunity(opportunityId: string): Promise<{ ok: boolean }> {
+export async function deleteOpportunity(
+  opportunityId: string,
+): Promise<{ ok: boolean }> {
   return api(`/opportunities/${opportunityId}`, { method: "DELETE" });
 }
 
@@ -5524,7 +8148,9 @@ export interface Contract {
   updated_at: string | null;
 }
 
-export async function listContracts(query: Record<string, string | number | boolean | null | undefined> = {}): Promise<Contract[]> {
+export async function listContracts(
+  query: Record<string, string | number | boolean | null | undefined> = {},
+): Promise<Contract[]> {
   return api<Contract[]>("/contracts", { query });
 }
 
@@ -5532,19 +8158,28 @@ export async function getContract(contractId: string): Promise<Contract> {
   return api<Contract>(`/contracts/${contractId}`);
 }
 
-export async function createContract(payload: Record<string, unknown>): Promise<{ id: string; title: string }> {
+export async function createContract(
+  payload: Record<string, unknown>,
+): Promise<{ id: string; title: string }> {
   return api(`/contracts`, { method: "POST", body: payload });
 }
 
-export async function updateContract(contractId: string, payload: Record<string, unknown>): Promise<{ id: string }> {
+export async function updateContract(
+  contractId: string,
+  payload: Record<string, unknown>,
+): Promise<{ id: string }> {
   return api(`/contracts/${contractId}`, { method: "PATCH", body: payload });
 }
 
-export async function signContract(contractId: string): Promise<{ id: string; status: string }> {
+export async function signContract(
+  contractId: string,
+): Promise<{ id: string; status: string }> {
   return api(`/contracts/${contractId}/sign`, { method: "POST" });
 }
 
-export async function deleteContract(contractId: string): Promise<{ ok: boolean }> {
+export async function deleteContract(
+  contractId: string,
+): Promise<{ ok: boolean }> {
   return api(`/contracts/${contractId}`, { method: "DELETE" });
 }
 
@@ -5570,7 +8205,9 @@ export interface SupportTicket {
   updated_at: string | null;
 }
 
-export async function listTickets(query: Record<string, string | number | boolean | null | undefined> = {}): Promise<SupportTicket[]> {
+export async function listTickets(
+  query: Record<string, string | number | boolean | null | undefined> = {},
+): Promise<SupportTicket[]> {
   return api<SupportTicket[]>("/support/tickets", { query });
 }
 
@@ -5578,19 +8215,33 @@ export async function getTicket(ticketId: string): Promise<SupportTicket> {
   return api<SupportTicket>(`/support/tickets/${ticketId}`);
 }
 
-export async function createTicket(payload: Record<string, unknown>): Promise<{ id: string; subject: string; status: string }> {
+export async function createTicket(
+  payload: Record<string, unknown>,
+): Promise<{ id: string; subject: string; status: string }> {
   return api(`/support/tickets`, { method: "POST", body: payload });
 }
 
-export async function updateTicket(ticketId: string, payload: Record<string, unknown>): Promise<{ id: string }> {
-  return api(`/support/tickets/${ticketId}`, { method: "PATCH", body: payload });
+export async function updateTicket(
+  ticketId: string,
+  payload: Record<string, unknown>,
+): Promise<{ id: string }> {
+  return api(`/support/tickets/${ticketId}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
 export async function deleteTicket(ticketId: string): Promise<{ ok: boolean }> {
   return api(`/support/tickets/${ticketId}`, { method: "DELETE" });
 }
 
-export async function getSupportSummary(): Promise<{ total: number; open: number; escalated: number; overdue: number; by_priority: Record<string, number> }> {
+export async function getSupportSummary(): Promise<{
+  total: number;
+  open: number;
+  escalated: number;
+  overdue: number;
+  by_priority: Record<string, number>;
+}> {
   return api(`/support/summary`);
 }
 
@@ -5611,7 +8262,9 @@ export interface Partner {
   updated_at: string | null;
 }
 
-export async function listPartners(query: Record<string, string | number | boolean | null | undefined> = {}): Promise<Partner[]> {
+export async function listPartners(
+  query: Record<string, string | number | boolean | null | undefined> = {},
+): Promise<Partner[]> {
   return api<Partner[]>("/partners", { query });
 }
 
@@ -5619,19 +8272,30 @@ export async function getPartner(partnerId: string): Promise<Partner> {
   return api<Partner>(`/partners/${partnerId}`);
 }
 
-export async function createPartner(payload: Record<string, unknown>): Promise<{ id: string; name: string; kind: string }> {
+export async function createPartner(
+  payload: Record<string, unknown>,
+): Promise<{ id: string; name: string; kind: string }> {
   return api(`/partners`, { method: "POST", body: payload });
 }
 
-export async function updatePartner(partnerId: string, payload: Record<string, unknown>): Promise<{ id: string }> {
+export async function updatePartner(
+  partnerId: string,
+  payload: Record<string, unknown>,
+): Promise<{ id: string }> {
   return api(`/partners/${partnerId}`, { method: "PATCH", body: payload });
 }
 
-export async function deletePartner(partnerId: string): Promise<{ ok: boolean }> {
+export async function deletePartner(
+  partnerId: string,
+): Promise<{ ok: boolean }> {
   return api(`/partners/${partnerId}`, { method: "DELETE" });
 }
 
-export async function getPartnerSummary(): Promise<{ total: number; active: number; by_kind: Record<string, number> }> {
+export async function getPartnerSummary(): Promise<{
+  total: number;
+  active: number;
+  by_kind: Record<string, number>;
+}> {
   return api(`/partners/summary`);
 }
 
@@ -5649,27 +8313,45 @@ export async function getCustomerHealth(): Promise<CustomerHealthRow[]> {
   return api<CustomerHealthRow[]>("/analytics/health");
 }
 
-export async function recomputeCustomerHealth(): Promise<{ updated: number; customers: CustomerHealthRow[] }> {
+export async function recomputeCustomerHealth(): Promise<{
+  updated: number;
+  customers: CustomerHealthRow[];
+}> {
   return api(`/analytics/health/recompute`, { method: "POST" });
 }
 
-export async function getCustomerRenewals(): Promise<{ total_due: number; contracts: CustomerRenewal[]; horizon_days: number }> {
+export async function getCustomerRenewals(): Promise<{
+  total_due: number;
+  contracts: CustomerRenewal[];
+  horizon_days: number;
+}> {
   return api(`/analytics/renewals`);
 }
 
-export async function getRelationshipHealth(): Promise<{ relationships: Record<string, unknown>[]; total: number }> {
+export async function getRelationshipHealth(): Promise<{
+  relationships: Record<string, unknown>[];
+  total: number;
+}> {
   return api(`/analytics/relationships`);
 }
 
-export async function buildRelationshipGraph(): Promise<{ customers: number; edges: number }> {
+export async function buildRelationshipGraph(): Promise<{
+  customers: number;
+  edges: number;
+}> {
   return api(`/analytics/relationships/build`, { method: "POST" });
 }
 
-export async function getRelationshipRisks(): Promise<{ single_points_of_failure: Record<string, unknown>[]; total: number }> {
+export async function getRelationshipRisks(): Promise<{
+  single_points_of_failure: Record<string, unknown>[];
+  total: number;
+}> {
   return api(`/analytics/relationships/risks`);
 }
 
-export async function askCustomerAI(question: string): Promise<{ answer: string }> {
+export async function askCustomerAI(
+  question: string,
+): Promise<{ answer: string }> {
   return api(`/analytics/ask`, { method: "POST", body: { question } });
 }
 
@@ -5754,12 +8436,37 @@ export interface Vendor {
   description: string | null;
   risk?: { level: string; score: number; factors: Record<string, unknown> };
   contracts?: {
-    id: string; title: string; value: number | null; currency: string;
-    effective_from: string | null; expires_at: string | null; renewal_status: string; status: string;
+    id: string;
+    title: string;
+    value: number | null;
+    currency: string;
+    effective_from: string | null;
+    expires_at: string | null;
+    renewal_status: string;
+    status: string;
   }[];
-  orders?: { id: string; po_number: string; title: string; total_amount: number; status: string }[];
-  invoices?: { id: string; invoice_number: string | null; title: string; amount: number; status: string; due_at: string | null }[];
-  payments?: { id: string; amount: number; method: string; status: string; paid_at: string | null }[];
+  orders?: {
+    id: string;
+    po_number: string;
+    title: string;
+    total_amount: number;
+    status: string;
+  }[];
+  invoices?: {
+    id: string;
+    invoice_number: string | null;
+    title: string;
+    amount: number;
+    status: string;
+    due_at: string | null;
+  }[];
+  payments?: {
+    id: string;
+    amount: number;
+    method: string;
+    status: string;
+    paid_at: string | null;
+  }[];
   total_spend?: number;
 }
 
@@ -5955,7 +8662,9 @@ export async function getFinanceDashboard(): Promise<FinanceDashboard> {
   return api<FinanceDashboard>("/finance/analytics/dashboard");
 }
 
-export async function getFinanceMetrics(metricType?: string): Promise<FinancialMetric[]> {
+export async function getFinanceMetrics(
+  metricType?: string,
+): Promise<FinancialMetric[]> {
   const query = metricType ? { metric_type: metricType } : undefined;
   return api(`/finance/analytics/metrics`, { query });
 }
@@ -5969,7 +8678,10 @@ export interface FinancialMetric {
   created_at?: string | null;
 }
 
-export async function scanFinanceRisks(): Promise<{ total: number; risks: RiskItem[] }> {
+export async function scanFinanceRisks(): Promise<{
+  total: number;
+  risks: RiskItem[];
+}> {
   return api(`/finance/risks/scan`, { method: "POST" });
 }
 
@@ -5977,7 +8689,9 @@ export async function getRiskSummary(): Promise<RiskSummary> {
   return api<RiskSummary>("/finance/risks/summary");
 }
 
-export async function listBudgets(query: Record<string, string | number | boolean | null | undefined> = {}): Promise<Budget[]> {
+export async function listBudgets(
+  query: Record<string, string | number | boolean | null | undefined> = {},
+): Promise<Budget[]> {
   return api<Budget[]>("/finance/budgets", { query });
 }
 
@@ -5989,31 +8703,54 @@ export async function getBudget(budgetId: string): Promise<Budget> {
   return api<Budget>(`/finance/budgets/${budgetId}`);
 }
 
-export async function createBudget(payload: Record<string, unknown>): Promise<Budget> {
+export async function createBudget(
+  payload: Record<string, unknown>,
+): Promise<Budget> {
   return api<Budget>("/finance/budgets", { method: "POST", body: payload });
 }
 
-export async function updateBudget(budgetId: string, payload: Record<string, unknown>): Promise<Budget> {
-  return api<Budget>(`/finance/budgets/${budgetId}`, { method: "PATCH", body: payload });
+export async function updateBudget(
+  budgetId: string,
+  payload: Record<string, unknown>,
+): Promise<Budget> {
+  return api<Budget>(`/finance/budgets/${budgetId}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
-export async function deleteBudget(budgetId: string): Promise<{ deleted: string }> {
+export async function deleteBudget(
+  budgetId: string,
+): Promise<{ deleted: string }> {
   return api(`/finance/budgets/${budgetId}`, { method: "DELETE" });
 }
 
-export async function listExpenses(query: Record<string, string | number | boolean | null | undefined> = {}): Promise<Expense[]> {
+export async function listExpenses(
+  query: Record<string, string | number | boolean | null | undefined> = {},
+): Promise<Expense[]> {
   return api<Expense[]>("/finance/expenses", { query });
 }
 
-export async function createExpense(payload: Record<string, unknown>): Promise<Expense> {
+export async function createExpense(
+  payload: Record<string, unknown>,
+): Promise<Expense> {
   return api<Expense>("/finance/expenses", { method: "POST", body: payload });
 }
 
-export async function decideExpense(expenseId: string, decision: string, note?: string): Promise<Expense> {
-  return api<Expense>(`/finance/expenses/${expenseId}/decide`, { method: "POST", body: { decision, note } });
+export async function decideExpense(
+  expenseId: string,
+  decision: string,
+  note?: string,
+): Promise<Expense> {
+  return api<Expense>(`/finance/expenses/${expenseId}/decide`, {
+    method: "POST",
+    body: { decision, note },
+  });
 }
 
-export async function listVendors(query: Record<string, string | number | boolean | null | undefined> = {}): Promise<Vendor[]> {
+export async function listVendors(
+  query: Record<string, string | number | boolean | null | undefined> = {},
+): Promise<Vendor[]> {
   return api<Vendor[]>("/finance/vendors", { query });
 }
 
@@ -6025,23 +8762,40 @@ export async function getVendor(vendorId: string): Promise<Vendor> {
   return api<Vendor>(`/finance/vendors/${vendorId}`);
 }
 
-export async function createVendor(payload: Record<string, unknown>): Promise<Vendor> {
+export async function createVendor(
+  payload: Record<string, unknown>,
+): Promise<Vendor> {
   return api<Vendor>("/finance/vendors", { method: "POST", body: payload });
 }
 
-export async function listVendorContracts(query: Record<string, string | number | boolean | null | undefined> = {}): Promise<VendorContract[]> {
+export async function listVendorContracts(
+  query: Record<string, string | number | boolean | null | undefined> = {},
+): Promise<VendorContract[]> {
   return api<VendorContract[]>("/finance/vendor-contracts", { query });
 }
 
-export async function createVendorContract(payload: Record<string, unknown>): Promise<VendorContract> {
-  return api<VendorContract>("/finance/vendor-contracts", { method: "POST", body: payload });
+export async function createVendorContract(
+  payload: Record<string, unknown>,
+): Promise<VendorContract> {
+  return api<VendorContract>("/finance/vendor-contracts", {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function renewVendorContract(contractId: string, payload: Record<string, unknown>): Promise<VendorContract> {
-  return api<VendorContract>(`/finance/vendor-contracts/${contractId}/renew`, { method: "POST", body: payload });
+export async function renewVendorContract(
+  contractId: string,
+  payload: Record<string, unknown>,
+): Promise<VendorContract> {
+  return api<VendorContract>(`/finance/vendor-contracts/${contractId}/renew`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function listInvoices(query: Record<string, string | number | boolean | null | undefined> = {}): Promise<Invoice[]> {
+export async function listInvoices(
+  query: Record<string, string | number | boolean | null | undefined> = {},
+): Promise<Invoice[]> {
   return api<Invoice[]>("/finance/invoices", { query });
 }
 
@@ -6049,51 +8803,90 @@ export async function getInvoiceSummary(): Promise<InvoiceSummary> {
   return api<InvoiceSummary>("/finance/invoices/summary");
 }
 
-export async function createInvoice(payload: Record<string, unknown>): Promise<Invoice> {
+export async function createInvoice(
+  payload: Record<string, unknown>,
+): Promise<Invoice> {
   return api<Invoice>("/finance/invoices", { method: "POST", body: payload });
 }
 
-export async function markInvoicesOverdue(): Promise<{ marked_overdue: number }> {
+export async function markInvoicesOverdue(): Promise<{
+  marked_overdue: number;
+}> {
   return api(`/finance/invoices/mark-overdue`, { method: "POST" });
 }
 
-export async function listPayments(query: Record<string, string | number | boolean | null | undefined> = {}): Promise<Payment[]> {
+export async function listPayments(
+  query: Record<string, string | number | boolean | null | undefined> = {},
+): Promise<Payment[]> {
   return api<Payment[]>("/finance/payments", { query });
 }
 
-export async function createPayment(payload: Record<string, unknown>): Promise<Payment> {
+export async function createPayment(
+  payload: Record<string, unknown>,
+): Promise<Payment> {
   return api<Payment>("/finance/payments", { method: "POST", body: payload });
 }
 
-export async function listPurchaseRequests(query: Record<string, string | number | boolean | null | undefined> = {}): Promise<PurchaseRequest[]> {
+export async function listPurchaseRequests(
+  query: Record<string, string | number | boolean | null | undefined> = {},
+): Promise<PurchaseRequest[]> {
   return api<PurchaseRequest[]>("/finance/requests", { query });
 }
 
-export async function createPurchaseRequest(payload: Record<string, unknown>): Promise<PurchaseRequest> {
-  return api<PurchaseRequest>("/finance/requests", { method: "POST", body: payload });
+export async function createPurchaseRequest(
+  payload: Record<string, unknown>,
+): Promise<PurchaseRequest> {
+  return api<PurchaseRequest>("/finance/requests", {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function decidePurchaseRequest(requestId: string, decision: string, note?: string): Promise<PurchaseRequest> {
-  return api<PurchaseRequest>(`/finance/requests/${requestId}/decide`, { method: "POST", body: { decision, note } });
+export async function decidePurchaseRequest(
+  requestId: string,
+  decision: string,
+  note?: string,
+): Promise<PurchaseRequest> {
+  return api<PurchaseRequest>(`/finance/requests/${requestId}/decide`, {
+    method: "POST",
+    body: { decision, note },
+  });
 }
 
-export async function listPurchaseOrders(query: Record<string, string | number | boolean | null | undefined> = {}): Promise<PurchaseOrder[]> {
+export async function listPurchaseOrders(
+  query: Record<string, string | number | boolean | null | undefined> = {},
+): Promise<PurchaseOrder[]> {
   return api<PurchaseOrder[]>("/finance/purchase-orders", { query });
 }
 
-export async function createPurchaseOrder(payload: Record<string, unknown>): Promise<PurchaseOrder> {
-  return api<PurchaseOrder>("/finance/purchase-orders", { method: "POST", body: payload });
+export async function createPurchaseOrder(
+  payload: Record<string, unknown>,
+): Promise<PurchaseOrder> {
+  return api<PurchaseOrder>("/finance/purchase-orders", {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function updatePurchaseOrder(orderId: string, payload: Record<string, unknown>): Promise<PurchaseOrder> {
-  return api<PurchaseOrder>(`/finance/purchase-orders/${orderId}`, { method: "PATCH", body: payload });
+export async function updatePurchaseOrder(
+  orderId: string,
+  payload: Record<string, unknown>,
+): Promise<PurchaseOrder> {
+  return api<PurchaseOrder>(`/finance/purchase-orders/${orderId}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
-export async function generateForecasts(payload: Record<string, unknown>): Promise<{ generated: FinancialForecast[] }> {
+export async function generateForecasts(
+  payload: Record<string, unknown>,
+): Promise<{ generated: FinancialForecast[] }> {
   return api(`/finance/forecasts/generate`, { method: "POST", body: payload });
 }
 
-export async function listForecasts(query: Record<string, string | number | boolean | null | undefined> = {}): Promise<FinancialForecast[]> {
+export async function listForecasts(
+  query: Record<string, string | number | boolean | null | undefined> = {},
+): Promise<FinancialForecast[]> {
   return api<FinancialForecast[]>("/finance/forecasts", { query });
 }
 
@@ -6101,24 +8894,49 @@ export async function listIntegrations(): Promise<FinanceIntegration[]> {
   return api<FinanceIntegration[]>("/finance/integrations");
 }
 
-export async function getIntegrationsHealth(): Promise<{ connected: number; syncing: number; error: number; total: number }> {
+export async function getIntegrationsHealth(): Promise<{
+  connected: number;
+  syncing: number;
+  error: number;
+  total: number;
+}> {
   return api(`/finance/integrations/health`);
 }
 
-export async function createIntegration(payload: Record<string, unknown>): Promise<FinanceIntegration> {
-  return api<FinanceIntegration>("/finance/integrations", { method: "POST", body: payload });
+export async function createIntegration(
+  payload: Record<string, unknown>,
+): Promise<FinanceIntegration> {
+  return api<FinanceIntegration>("/finance/integrations", {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function syncIntegration(integrationId: string, dryRun = false): Promise<Record<string, unknown>> {
-  return api(`/finance/integrations/${integrationId}/sync`, { method: "POST", body: { dry_run: dryRun } });
+export async function syncIntegration(
+  integrationId: string,
+  dryRun = false,
+): Promise<Record<string, unknown>> {
+  return api(`/finance/integrations/${integrationId}/sync`, {
+    method: "POST",
+    body: { dry_run: dryRun },
+  });
 }
 
-export async function importFinanceCsv(kind: string, content: string): Promise<{ imported: number; errors: number }> {
-  return api(`/finance/integrations/import`, { method: "POST", body: { kind, content } });
+export async function importFinanceCsv(
+  kind: string,
+  content: string,
+): Promise<{ imported: number; errors: number }> {
+  return api(`/finance/integrations/import`, {
+    method: "POST",
+    body: { kind, content },
+  });
 }
 
 export async function askFinanceAi(message: string): Promise<FinanceAiReply> {
-  return api<FinanceAiReply>("/finance/ask", { method: "POST", body: { message } });
+  return api<FinanceAiReply>("/finance/ask", {
+    method: "POST",
+    body: { message },
+  });
 }
 
 // ------------------------------------------------------------- enterprise (Phase 15)
@@ -6377,82 +9195,291 @@ export async function listIdentityProviders(): Promise<IdentityProvider[]> {
   return api<IdentityProvider[]>("/enterprise/identity/providers");
 }
 
-export async function createIdentityProvider(payload: Record<string, unknown>): Promise<IdentityProvider> {
-  return api<IdentityProvider>("/enterprise/identity/providers", { method: "POST", body: payload });
+export async function createIdentityProvider(
+  payload: Record<string, unknown>,
+): Promise<IdentityProvider> {
+  return api<IdentityProvider>("/enterprise/identity/providers", {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function updateIdentityProvider(providerId: string, payload: Record<string, unknown>): Promise<IdentityProvider> {
-  return api<IdentityProvider>(`/enterprise/identity/providers/${providerId}`, { method: "PATCH", body: payload });
+export async function updateIdentityProvider(
+  providerId: string,
+  payload: Record<string, unknown>,
+): Promise<IdentityProvider> {
+  return api<IdentityProvider>(`/enterprise/identity/providers/${providerId}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
-export async function deleteIdentityProvider(providerId: string): Promise<void> {
-  return api(`/enterprise/identity/providers/${providerId}`, { method: "DELETE" });
+export async function deleteIdentityProvider(
+  providerId: string,
+): Promise<void> {
+  return api(`/enterprise/identity/providers/${providerId}`, {
+    method: "DELETE",
+  });
 }
 
 export async function listIdentityBindings(): Promise<IdentityBinding[]> {
   return api<IdentityBinding[]>("/enterprise/identity/bindings");
 }
 
-export async function enrollMfa(): Promise<{ mfa_method: string; mfa_secret: string; mfa_enabled: boolean }> {
+export async function enrollMfa(): Promise<{
+  mfa_method: string;
+  mfa_secret: string;
+  mfa_enabled: boolean;
+}> {
   return api("/enterprise/identity/mfa/enroll", { method: "POST" });
 }
 
-export async function verifyMfa(code: string): Promise<{ mfa_enabled: boolean }> {
-  return api("/enterprise/identity/mfa/verify", { method: "POST", body: { code } });
+export async function verifyMfa(
+  code: string,
+): Promise<{ mfa_enabled: boolean }> {
+  return api("/enterprise/identity/mfa/verify", {
+    method: "POST",
+    body: { code },
+  });
 }
 
-export async function registerPasskey(credentialId: string): Promise<{ passkeys: string[] }> {
-  return api("/enterprise/identity/passkeys", { method: "POST", body: { credential_id: credentialId } });
+export async function registerPasskey(
+  credentialId: string,
+): Promise<{ passkeys: string[] }> {
+  return api("/enterprise/identity/passkeys", {
+    method: "POST",
+    body: { credential_id: credentialId },
+  });
 }
 
 export async function listDevices(): Promise<TrustedDevice[]> {
   return api<TrustedDevice[]>("/enterprise/identity/devices");
 }
 
-export async function trustDevice(payload: Record<string, unknown>): Promise<TrustedDevice> {
-  return api<TrustedDevice>("/enterprise/identity/devices", { method: "POST", body: payload });
+export async function trustDevice(
+  payload: Record<string, unknown>,
+): Promise<TrustedDevice> {
+  return api<TrustedDevice>("/enterprise/identity/devices", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+// ------------------------------------------------------------------------- User-facing MFA (self-service)
+
+export interface MFAMethod {
+  id: string;
+  method_type: "totp" | "passkey";
+  device_name: string | null;
+  device_type: string | null;
+  is_primary: boolean;
+  is_verified: boolean;
+  verified_at: string | null;
+  last_used_at: string | null;
+  use_count: number;
+  created_at: string;
+}
+
+export interface TOTPSetupResponse {
+  method_id: string;
+  provisioning_uri: string;
+  secret: string;
+  backup_codes: string[];
+}
+
+export interface BackupCodesResponse {
+  backup_codes: string[];
+}
+
+export interface PasskeyRegistrationStartResponse {
+  challenge: string;
+  challenge_hash: string;
+  options: Record<string, unknown>;
+}
+
+export interface PasskeyRegistrationCompleteRequest {
+  credential: Record<string, unknown>;
+  challenge_hash: string;
+  device_name?: string;
+}
+
+export interface PasskeyAuthenticationStartResponse {
+  challenge: string;
+  challenge_hash: string;
+  options: Record<string, unknown>;
+}
+
+export interface PasskeyAuthenticationCompleteRequest {
+  credential: Record<string, unknown>;
+  challenge_hash: string;
+}
+
+export async function setupTotp(
+  deviceName?: string,
+): Promise<TOTPSetupResponse> {
+  return api("/security/mfa/totp/setup", {
+    method: "POST",
+    body: { device_name: deviceName },
+  });
+}
+
+export async function verifyTotpSetup(
+  code: string,
+  methodId: string,
+): Promise<{ valid: boolean }> {
+  return api("/security/mfa/totp/verify-setup", {
+    method: "POST",
+    body: { code, method_id: methodId },
+  });
+}
+
+export async function verifyTotp(
+  code: string,
+  methodId?: string,
+): Promise<{ valid: boolean }> {
+  return api("/security/mfa/totp/verify", {
+    method: "POST",
+    body: { code, method_id: methodId },
+  });
+}
+
+export async function listMfaMethods(): Promise<MFAMethod[]> {
+  return api<MFAMethod[]>("/security/mfa/methods");
+}
+
+export async function removeMfaMethod(
+  methodId: string,
+): Promise<{ success: boolean }> {
+  return api(`/security/mfa/methods/${methodId}`, { method: "DELETE" });
+}
+
+export async function generateBackupCodes(
+  methodId: string,
+): Promise<BackupCodesResponse> {
+  return api("/security/mfa/backup-codes/generate", {
+    method: "POST",
+    body: { method_id: methodId },
+  });
+}
+
+export async function startPasskeyRegistration(
+  deviceName?: string,
+): Promise<PasskeyRegistrationStartResponse> {
+  return api("/security/mfa/passkey/register/start", {
+    method: "POST",
+    body: { device_name: deviceName },
+  });
+}
+
+export async function completePasskeyRegistration(
+  payload: PasskeyRegistrationCompleteRequest,
+): Promise<MFAMethod> {
+  return api<MFAMethod>("/security/mfa/passkey/register/complete", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export async function startPasskeyAuthentication(): Promise<PasskeyAuthenticationStartResponse> {
+  return api("/security/mfa/passkey/authenticate/start", { method: "POST" });
+}
+
+export async function verifyPasskeyAuthentication(
+  payload: PasskeyAuthenticationCompleteRequest,
+): Promise<{ valid: boolean }> {
+  return api("/security/mfa/passkey/authenticate/complete", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export async function listSecurityEvents(params?: {
+  user_id?: string;
+  event_type?: string;
+  severity?: string;
+  start_date?: string;
+  end_date?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<SecurityEvent[]> {
+  return api<SecurityEvent[]>("/security/events", { query: params });
 }
 
 export async function getAuthPolicy(): Promise<{ policy: AuthPolicy | null }> {
   return api("/enterprise/identity/policies");
 }
 
-export async function createAuthPolicy(payload: Record<string, unknown>): Promise<AuthPolicy> {
-  return api<AuthPolicy>("/enterprise/identity/policies", { method: "POST", body: payload });
+export async function createAuthPolicy(
+  payload: Record<string, unknown>,
+): Promise<AuthPolicy> {
+  return api<AuthPolicy>("/enterprise/identity/policies", {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function ssoInitiate(providerId: string, redirectUri = "/"): Promise<Record<string, unknown>> {
-  return api("/enterprise/sso/initiate", { method: "POST", body: { provider_id: providerId, redirect_uri: redirectUri } });
+export async function ssoInitiate(
+  providerId: string,
+  redirectUri = "/",
+): Promise<Record<string, unknown>> {
+  return api("/enterprise/sso/initiate", {
+    method: "POST",
+    body: { provider_id: providerId, redirect_uri: redirectUri },
+  });
 }
 
-export async function ssoComplete(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+export async function ssoComplete(
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
   return api("/enterprise/sso/complete", { method: "POST", body: payload });
 }
 
 // ------------------------------------------------------------------------- SCIM
 
-export async function scimListUsers(): Promise<{ totalResults: number; Resources: ScimUserResource[] }> {
+export async function scimListUsers(): Promise<{
+  totalResults: number;
+  Resources: ScimUserResource[];
+}> {
   return api("/enterprise/scim/users");
 }
 
-export async function scimCreateUser(payload: Record<string, unknown>): Promise<ScimUserResource> {
-  return api<ScimUserResource>("/enterprise/scim/users", { method: "POST", body: payload });
+export async function scimCreateUser(
+  payload: Record<string, unknown>,
+): Promise<ScimUserResource> {
+  return api<ScimUserResource>("/enterprise/scim/users", {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function scimUpdateUser(externalId: string, payload: Record<string, unknown>): Promise<ScimUserResource> {
-  return api<ScimUserResource>(`/enterprise/scim/users/${externalId}`, { method: "PATCH", body: payload });
+export async function scimUpdateUser(
+  externalId: string,
+  payload: Record<string, unknown>,
+): Promise<ScimUserResource> {
+  return api<ScimUserResource>(`/enterprise/scim/users/${externalId}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
 export async function scimDeleteUser(externalId: string): Promise<void> {
   return api(`/enterprise/scim/users/${externalId}`, { method: "DELETE" });
 }
 
-export async function scimListGroups(): Promise<{ totalResults: number; Resources: ScimGroupResource[] }> {
+export async function scimListGroups(): Promise<{
+  totalResults: number;
+  Resources: ScimGroupResource[];
+}> {
   return api("/enterprise/scim/groups");
 }
 
-export async function scimCreateGroup(payload: Record<string, unknown>): Promise<ScimGroupResource> {
-  return api<ScimGroupResource>("/enterprise/scim/groups", { method: "POST", body: payload });
+export async function scimCreateGroup(
+  payload: Record<string, unknown>,
+): Promise<ScimGroupResource> {
+  return api<ScimGroupResource>("/enterprise/scim/groups", {
+    method: "POST",
+    body: payload,
+  });
 }
 
 export async function scimDeleteGroup(externalId: string): Promise<void> {
@@ -6465,7 +9492,9 @@ export async function listPlugins(status?: string): Promise<Plugin[]> {
   return api<Plugin[]>("/enterprise/plugins", { query: { status } });
 }
 
-export async function installPlugin(payload: Record<string, unknown>): Promise<Plugin> {
+export async function installPlugin(
+  payload: Record<string, unknown>,
+): Promise<Plugin> {
   return api<Plugin>("/enterprise/plugins", { method: "POST", body: payload });
 }
 
@@ -6474,19 +9503,35 @@ export async function getPlugin(pluginId: string): Promise<Plugin> {
 }
 
 export async function enablePlugin(pluginId: string): Promise<Plugin> {
-  return api<Plugin>(`/enterprise/plugins/${pluginId}/enable`, { method: "POST" });
+  return api<Plugin>(`/enterprise/plugins/${pluginId}/enable`, {
+    method: "POST",
+  });
 }
 
 export async function disablePlugin(pluginId: string): Promise<Plugin> {
-  return api<Plugin>(`/enterprise/plugins/${pluginId}/disable`, { method: "POST" });
+  return api<Plugin>(`/enterprise/plugins/${pluginId}/disable`, {
+    method: "POST",
+  });
 }
 
-export async function updatePlugin(pluginId: string, payload: Record<string, unknown>): Promise<Plugin> {
-  return api<Plugin>(`/enterprise/plugins/${pluginId}/update`, { method: "POST", body: payload });
+export async function updatePlugin(
+  pluginId: string,
+  payload: Record<string, unknown>,
+): Promise<Plugin> {
+  return api<Plugin>(`/enterprise/plugins/${pluginId}/update`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function updatePluginSettings(pluginId: string, settings: Record<string, unknown>): Promise<Plugin> {
-  return api<Plugin>(`/enterprise/plugins/${pluginId}/settings`, { method: "PATCH", body: { settings } });
+export async function updatePluginSettings(
+  pluginId: string,
+  settings: Record<string, unknown>,
+): Promise<Plugin> {
+  return api<Plugin>(`/enterprise/plugins/${pluginId}/settings`, {
+    method: "PATCH",
+    body: { settings },
+  });
 }
 
 export async function removePlugin(pluginId: string): Promise<void> {
@@ -6495,28 +9540,54 @@ export async function removePlugin(pluginId: string): Promise<void> {
 
 // -------------------------------------------------------------------- marketplace
 
-export async function listMarketplaceItems(category?: string, search?: string): Promise<MarketplaceItem[]> {
-  return api<MarketplaceItem[]>("/enterprise/marketplace/items", { query: { category, search } });
+export async function listMarketplaceItems(
+  category?: string,
+  search?: string,
+): Promise<MarketplaceItem[]> {
+  return api<MarketplaceItem[]>("/enterprise/marketplace/items", {
+    query: { category, search },
+  });
 }
 
-export async function getMarketplaceItem(itemId: string): Promise<MarketplaceItem> {
+export async function getMarketplaceItem(
+  itemId: string,
+): Promise<MarketplaceItem> {
   return api<MarketplaceItem>(`/enterprise/marketplace/items/${itemId}`);
 }
 
-export async function publishMarketplaceItem(payload: Record<string, unknown>): Promise<MarketplaceItem> {
-  return api<MarketplaceItem>("/enterprise/marketplace/items", { method: "POST", body: payload });
+export async function publishMarketplaceItem(
+  payload: Record<string, unknown>,
+): Promise<MarketplaceItem> {
+  return api<MarketplaceItem>("/enterprise/marketplace/items", {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function reviewMarketplaceItem(itemId: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
-  return api(`/enterprise/marketplace/items/${itemId}/reviews`, { method: "POST", body: payload });
+export async function reviewMarketplaceItem(
+  itemId: string,
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  return api(`/enterprise/marketplace/items/${itemId}/reviews`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
 export async function installMarketplaceItem(itemId: string): Promise<Plugin> {
-  return api<Plugin>(`/enterprise/marketplace/items/${itemId}/install`, { method: "POST" });
+  return api<Plugin>(`/enterprise/marketplace/items/${itemId}/install`, {
+    method: "POST",
+  });
 }
 
-export async function updateMarketplaceItem(itemId: string, payload: Record<string, unknown>): Promise<MarketplaceItem> {
-  return api<MarketplaceItem>(`/enterprise/marketplace/items/${itemId}`, { method: "PATCH", body: payload });
+export async function updateMarketplaceItem(
+  itemId: string,
+  payload: Record<string, unknown>,
+): Promise<MarketplaceItem> {
+  return api<MarketplaceItem>(`/enterprise/marketplace/items/${itemId}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
 // -------------------------------------------------------------------- API gateway
@@ -6525,12 +9596,19 @@ export async function listApiKeys(status?: string): Promise<ApiKeyRow[]> {
   return api<ApiKeyRow[]>("/enterprise/api-keys", { query: { status } });
 }
 
-export async function createApiKey(payload: Record<string, unknown>): Promise<ApiKeyRow> {
-  return api<ApiKeyRow>("/enterprise/api-keys", { method: "POST", body: payload });
+export async function createApiKey(
+  payload: Record<string, unknown>,
+): Promise<ApiKeyRow> {
+  return api<ApiKeyRow>("/enterprise/api-keys", {
+    method: "POST",
+    body: payload,
+  });
 }
 
 export async function rotateApiKey(keyId: string): Promise<ApiKeyRow> {
-  return api<ApiKeyRow>(`/enterprise/api-keys/${keyId}/rotate`, { method: "POST" });
+  return api<ApiKeyRow>(`/enterprise/api-keys/${keyId}/rotate`, {
+    method: "POST",
+  });
 }
 
 export async function revokeApiKey(keyId: string): Promise<void> {
@@ -6541,30 +9619,58 @@ export async function gatewayVersions(): Promise<GatewayVersionInfo> {
   return api<GatewayVersionInfo>("/enterprise/gateway/versions");
 }
 
-export async function gatewayCheck(apiKey: string): Promise<Record<string, unknown>> {
-  return api("/enterprise/gateway/check", { method: "POST", body: { api_key: apiKey } });
+export async function gatewayCheck(
+  apiKey: string,
+): Promise<Record<string, unknown>> {
+  return api("/enterprise/gateway/check", {
+    method: "POST",
+    body: { api_key: apiKey },
+  });
 }
 
 // ------------------------------------------------------------------- integrations
 
-export async function listEnterpriseIntegrations(status?: string): Promise<IntegrationConnection[]> {
-  return api<IntegrationConnection[]>("/enterprise/integrations", { query: { status } });
+export async function listEnterpriseIntegrations(
+  status?: string,
+): Promise<IntegrationConnection[]> {
+  return api<IntegrationConnection[]>("/enterprise/integrations", {
+    query: { status },
+  });
 }
 
-export async function createEnterpriseIntegration(payload: Record<string, unknown>): Promise<IntegrationConnection> {
-  return api<IntegrationConnection>("/enterprise/integrations", { method: "POST", body: payload });
+export async function createEnterpriseIntegration(
+  payload: Record<string, unknown>,
+): Promise<IntegrationConnection> {
+  return api<IntegrationConnection>("/enterprise/integrations", {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function testEnterpriseIntegration(connectionId: string): Promise<Record<string, unknown>> {
-  return api(`/enterprise/integrations/${connectionId}/test`, { method: "POST" });
+export async function testEnterpriseIntegration(
+  connectionId: string,
+): Promise<Record<string, unknown>> {
+  return api(`/enterprise/integrations/${connectionId}/test`, {
+    method: "POST",
+  });
 }
 
-export async function syncEnterpriseIntegration(connectionId: string): Promise<Record<string, unknown>> {
-  return api(`/enterprise/integrations/${connectionId}/sync`, { method: "POST" });
+export async function syncEnterpriseIntegration(
+  connectionId: string,
+): Promise<Record<string, unknown>> {
+  return api(`/enterprise/integrations/${connectionId}/sync`, {
+    method: "POST",
+  });
 }
 
-export async function updateIntegration(connectionId: string, payload: Record<string, unknown>): Promise<IntegrationConnection> {
-  return api<IntegrationConnection>(`/enterprise/integrations/${connectionId}`, { method: "PATCH", body: payload });
+export async function updateIntegration(
+  connectionId: string,
+  payload: Record<string, unknown>,
+): Promise<IntegrationConnection> {
+  return api<IntegrationConnection>(
+    `/enterprise/integrations/${connectionId}`,
+    { method: "PATCH", body: payload },
+  );
 }
 
 export async function deleteIntegration(connectionId: string): Promise<void> {
@@ -6577,12 +9683,22 @@ export async function monitoringHealth(): Promise<MonitoringHealth> {
   return api<MonitoringHealth>("/enterprise/monitoring/health");
 }
 
-export async function listMetrics(name?: string, limit = 100): Promise<SystemMetric[]> {
-  return api<SystemMetric[]>("/enterprise/monitoring/metrics", { query: { name, limit } });
+export async function listMetrics(
+  name?: string,
+  limit = 100,
+): Promise<SystemMetric[]> {
+  return api<SystemMetric[]>("/enterprise/monitoring/metrics", {
+    query: { name, limit },
+  });
 }
 
-export async function ingestMetric(payload: Record<string, unknown>): Promise<SystemMetric> {
-  return api<SystemMetric>("/enterprise/monitoring/metrics", { method: "POST", body: payload });
+export async function ingestMetric(
+  payload: Record<string, unknown>,
+): Promise<SystemMetric> {
+  return api<SystemMetric>("/enterprise/monitoring/metrics", {
+    method: "POST",
+    body: payload,
+  });
 }
 
 export async function monitoringAlerts(): Promise<MonitoringAlert[]> {
@@ -6591,12 +9707,24 @@ export async function monitoringAlerts(): Promise<MonitoringAlert[]> {
 
 // ---------------------------------------------------------------- observability
 
-export async function ingestLog(payload: Record<string, unknown>): Promise<ObservabilityLog> {
-  return api<ObservabilityLog>("/enterprise/observability/logs", { method: "POST", body: payload });
+export async function ingestLog(
+  payload: Record<string, unknown>,
+): Promise<ObservabilityLog> {
+  return api<ObservabilityLog>("/enterprise/observability/logs", {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function queryLogs(level?: string, source?: string, search?: string, limit = 50): Promise<ObservabilityLog[]> {
-  return api<ObservabilityLog[]>("/enterprise/observability/logs", { query: { level, source, search, limit } });
+export async function queryLogs(
+  level?: string,
+  source?: string,
+  search?: string,
+  limit = 50,
+): Promise<ObservabilityLog[]> {
+  return api<ObservabilityLog[]>("/enterprise/observability/logs", {
+    query: { level, source, search, limit },
+  });
 }
 
 export async function getLog(logId: string): Promise<ObservabilityLog> {
@@ -6607,48 +9735,88 @@ export async function getTrace(traceId: string): Promise<ObservabilityLog[]> {
   return api<ObservabilityLog[]>(`/enterprise/observability/traces/${traceId}`);
 }
 
-// ---------------------------------------------------------------------- security
+// ---------------------------------------------------------------------- security (enterprise)
 
-export async function listSecurityEvents(status?: string, severity?: string): Promise<SecurityEvent[]> {
-  return api<SecurityEvent[]>("/enterprise/security/events", { query: { status, severity } });
+export async function listEnterpriseSecurityEvents(
+  status?: string,
+  severity?: string,
+): Promise<SecurityEvent[]> {
+  return api<SecurityEvent[]>("/enterprise/security/events", {
+    query: { status, severity },
+  });
 }
 
-export async function recordSecurityEvent(payload: Record<string, unknown>): Promise<SecurityEvent> {
-  return api<SecurityEvent>("/enterprise/security/events", { method: "POST", body: payload });
+export async function recordSecurityEvent(
+  payload: Record<string, unknown>,
+): Promise<SecurityEvent> {
+  return api<SecurityEvent>("/enterprise/security/events", {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function detectFailedLogin(email: string, sourceIp: string): Promise<{ event_id: string; failed_count: number; brute_force: boolean }> {
-  return api("/enterprise/security/detect/failed-login", { method: "POST", body: { email, source_ip: sourceIp } });
+export async function detectFailedLogin(
+  email: string,
+  sourceIp: string,
+): Promise<{ event_id: string; failed_count: number; brute_force: boolean }> {
+  return api("/enterprise/security/detect/failed-login", {
+    method: "POST",
+    body: { email, source_ip: sourceIp },
+  });
 }
 
-export async function resolveSecurityEvent(eventId: string): Promise<SecurityEvent> {
-  return api<SecurityEvent>(`/enterprise/security/events/${eventId}/resolve`, { method: "POST" });
+export async function resolveSecurityEvent(
+  eventId: string,
+): Promise<SecurityEvent> {
+  return api<SecurityEvent>(`/enterprise/security/events/${eventId}/resolve`, {
+    method: "POST",
+  });
 }
 
 export async function securityRules(): Promise<SecurityRules> {
   return api<SecurityRules>("/enterprise/security/rules");
 }
 
-export async function checkIp(ip: string): Promise<{ allowed: boolean; ip: string }> {
+export async function checkIp(
+  ip: string,
+): Promise<{ allowed: boolean; ip: string }> {
   return api("/enterprise/security/check-ip", { method: "POST", body: { ip } });
 }
 
 // --------------------------------------------------------------------- compliance
 
-export async function complianceFrameworks(): Promise<Record<string, string[]>> {
+export async function complianceFrameworks(): Promise<
+  Record<string, string[]>
+> {
   return api("/enterprise/compliance/frameworks");
 }
 
-export async function listComplianceRecords(framework?: string, status?: string): Promise<ComplianceControl[]> {
-  return api<ComplianceControl[]>("/enterprise/compliance/records", { query: { framework, status } });
+export async function listComplianceRecords(
+  framework?: string,
+  status?: string,
+): Promise<ComplianceControl[]> {
+  return api<ComplianceControl[]>("/enterprise/compliance/records", {
+    query: { framework, status },
+  });
 }
 
-export async function upsertComplianceRecord(payload: Record<string, unknown>): Promise<ComplianceControl> {
-  return api<ComplianceControl>("/enterprise/compliance/records", { method: "POST", body: payload });
+export async function upsertComplianceRecord(
+  payload: Record<string, unknown>,
+): Promise<ComplianceControl> {
+  return api<ComplianceControl>("/enterprise/compliance/records", {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function updateComplianceRecord(recordId: string, payload: Record<string, unknown>): Promise<ComplianceControl> {
-  return api<ComplianceControl>(`/enterprise/compliance/records/${recordId}`, { method: "PATCH", body: payload });
+export async function updateComplianceRecord(
+  recordId: string,
+  payload: Record<string, unknown>,
+): Promise<ComplianceControl> {
+  return api<ComplianceControl>(`/enterprise/compliance/records/${recordId}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
 export async function complianceReport(): Promise<ComplianceReport> {
@@ -6665,8 +9833,13 @@ export async function refreshLicense(): Promise<Record<string, unknown>> {
   return api("/enterprise/license/refresh", { method: "POST" });
 }
 
-export async function changeLicensePlan(payload: Record<string, unknown>): Promise<OrganizationLicense> {
-  return api<OrganizationLicense>("/enterprise/license", { method: "PATCH", body: payload });
+export async function changeLicensePlan(
+  payload: Record<string, unknown>,
+): Promise<OrganizationLicense> {
+  return api<OrganizationLicense>("/enterprise/license", {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
 export async function licensePlans(): Promise<Record<string, unknown>> {
@@ -6676,23 +9849,53 @@ export async function licensePlans(): Promise<Record<string, unknown>> {
 // ------------------------------------------------------------------ feature flags
 
 export async function listFeatureFlags(): Promise<FeatureFlag[]> {
-  return api<FeatureFlag[]>("/enterprise/feature-flags");
+  return api<FeatureFlag[]>("/feature-flags");
 }
 
-export async function createFeatureFlag(payload: Record<string, unknown>): Promise<FeatureFlag> {
-  return api<FeatureFlag>("/enterprise/feature-flags", { method: "POST", body: payload });
+export async function createFeatureFlag(
+  payload: Record<string, unknown>,
+): Promise<FeatureFlag> {
+  return api<FeatureFlag>("/feature-flags", { method: "POST", body: payload });
 }
 
-export async function updateFeatureFlag(flagId: string, payload: Record<string, unknown>): Promise<FeatureFlag> {
-  return api<FeatureFlag>(`/enterprise/feature-flags/${flagId}`, { method: "PATCH", body: payload });
+export async function updateFeatureFlag(
+  flagId: string,
+  payload: Record<string, unknown>,
+): Promise<FeatureFlag> {
+  return api<FeatureFlag>(`/feature-flags/${flagId}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
 export async function deleteFeatureFlag(flagId: string): Promise<void> {
-  return api(`/enterprise/feature-flags/${flagId}`, { method: "DELETE" });
+  return api(`/feature-flags/${flagId}`, { method: "DELETE" });
 }
 
-export async function evaluateFeatureFlag(key: string, roles?: string[]): Promise<{ key: string; enabled: boolean; reason: string }> {
-  return api("/enterprise/feature-flags/evaluate", { method: "POST", body: { key, roles } });
+export async function evaluateFeatureFlag(
+  key: string,
+  actorRoles?: string[],
+): Promise<{
+  key: string;
+  available: boolean;
+  reason: string;
+  flag_status: string;
+}> {
+  const result = await api<{
+    flag_key: string;
+    available: boolean;
+    reason: string;
+    flag_status: string;
+  }>("/feature-flags/evaluate", {
+    method: "POST",
+    body: { key, actor_roles: actorRoles ?? [] },
+  });
+  return {
+    key: result.flag_key,
+    available: result.available,
+    reason: result.reason,
+    flag_status: result.flag_status,
+  };
 }
 
 // ---------------------------------------------------------------------------- AI
@@ -6705,8 +9908,14 @@ export async function aiUsage(): Promise<Record<string, unknown>> {
   return api("/enterprise/ai/usage");
 }
 
-export async function setAiConsent(scope: string, granted: boolean): Promise<Record<string, unknown>> {
-  return api("/enterprise/ai/consent", { method: "POST", body: { scope, granted } });
+export async function setAiConsent(
+  scope: string,
+  granted: boolean,
+): Promise<Record<string, unknown>> {
+  return api("/enterprise/ai/consent", {
+    method: "POST",
+    body: { scope, granted },
+  });
 }
 
 export async function aiMemorySettings(): Promise<Record<string, unknown>> {
@@ -6826,7 +10035,13 @@ export interface InstalledIndustryPack {
   business_types: string[];
   kpis: IndustryKPI[];
   navigation: Record<string, unknown>;
-  plugin: { id: string; plugin_key: string; version: string; scan_status: string; status: string } | null;
+  plugin: {
+    id: string;
+    plugin_key: string;
+    version: string;
+    scan_status: string;
+    status: string;
+  } | null;
 }
 
 export interface IndustrySelection {
@@ -6868,25 +10083,40 @@ export interface IndustryPackOverview {
   modules: IndustryModule[];
   workflows: IndustryWorkflowTemplate[];
   templates: IndustryTemplate[];
-  compliance: { framework: string; region: string; rules: { key: string; name: string; severity: string }[] }[];
+  compliance: {
+    framework: string;
+    region: string;
+    rules: { key: string; name: string; severity: string }[];
+  }[];
   kpis: IndustryKPI[];
   navigation: Record<string, unknown>;
-  selection: { business_type: string | null; company_size: string | null; country: string | null; regulations: string[] } | null;
+  selection: {
+    business_type: string | null;
+    company_size: string | null;
+    country: string | null;
+    regulations: string[];
+  } | null;
 }
 
 export async function industryCatalog(): Promise<IndustryPackSummary[]> {
   return api<IndustryPackSummary[]>("/industry/catalog");
 }
 
-export async function industryCatalogDetail(industryKey: string): Promise<Record<string, unknown>> {
+export async function industryCatalogDetail(
+  industryKey: string,
+): Promise<Record<string, unknown>> {
   return api(`/industry/catalog/${industryKey}`);
 }
 
-export async function industryMarketplace(): Promise<(IndustryPackSummary & { status: string })[]> {
+export async function industryMarketplace(): Promise<
+  (IndustryPackSummary & { status: string })[]
+> {
   return api("/industry/marketplace");
 }
 
-export async function industrySelect(payload: Record<string, unknown>): Promise<{ installed: InstalledIndustryPack; selection: IndustrySelection }> {
+export async function industrySelect(
+  payload: Record<string, unknown>,
+): Promise<{ installed: InstalledIndustryPack; selection: IndustrySelection }> {
   return api("/industry/select", { method: "POST", body: payload });
 }
 
@@ -6894,132 +10124,309 @@ export async function industrySelections(): Promise<IndustrySelection[]> {
   return api<IndustrySelection[]>("/industry/selections");
 }
 
-export async function industryInstalled(status?: string): Promise<InstalledIndustryPack[]> {
+export async function industryInstalled(
+  status?: string,
+): Promise<InstalledIndustryPack[]> {
   return api("/industry/installed", { query: { status } });
 }
 
-export async function industryInstalledDetail(industryKey: string): Promise<InstalledIndustryPack> {
+export async function industryInstalledDetail(
+  industryKey: string,
+): Promise<InstalledIndustryPack> {
   return api(`/industry/installed/${industryKey}`);
 }
 
-export async function industryInstall(industryKey: string): Promise<InstalledIndustryPack> {
+export async function industryInstall(
+  industryKey: string,
+): Promise<InstalledIndustryPack> {
   return api(`/industry/installed/${industryKey}/install`, { method: "POST" });
 }
 
-export async function industryUpdate(industryKey: string, payload: Record<string, unknown>): Promise<InstalledIndustryPack> {
-  return api(`/industry/installed/${industryKey}`, { method: "PATCH", body: payload });
+export async function industryUpdate(
+  industryKey: string,
+  payload: Record<string, unknown>,
+): Promise<InstalledIndustryPack> {
+  return api(`/industry/installed/${industryKey}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
-export async function industryUninstall(industryKey: string): Promise<{ industry_key: string; uninstalled: boolean }> {
+export async function industryUninstall(
+  industryKey: string,
+): Promise<{ industry_key: string; uninstalled: boolean }> {
   return api(`/industry/installed/${industryKey}`, { method: "DELETE" });
 }
 
-export async function industryToggleModule(industryKey: string, moduleKey: string, enabled: boolean): Promise<{ modules_enabled: string[] }> {
-  return api(`/industry/installed/${industryKey}/modules/${moduleKey}/toggle`, { method: "POST", body: { enabled } });
+export async function industryToggleModule(
+  industryKey: string,
+  moduleKey: string,
+  enabled: boolean,
+): Promise<{ modules_enabled: string[] }> {
+  return api(`/industry/installed/${industryKey}/modules/${moduleKey}/toggle`, {
+    method: "POST",
+    body: { enabled },
+  });
 }
 
-export async function industryTemplates(industryKey: string, kind?: string): Promise<IndustryTemplate[]> {
-  return api(`/industry/installed/${industryKey}/templates`, { query: { kind } });
+export async function industryTemplates(
+  industryKey: string,
+  kind?: string,
+): Promise<IndustryTemplate[]> {
+  return api(`/industry/installed/${industryKey}/templates`, {
+    query: { kind },
+  });
 }
 
-export async function industryApplyTemplate(industryKey: string, templateKey: string, context?: Record<string, unknown>): Promise<Record<string, unknown>> {
-  return api(`/industry/installed/${industryKey}/templates/${templateKey}/apply`, { method: "POST", body: { context } });
+export async function industryApplyTemplate(
+  industryKey: string,
+  templateKey: string,
+  context?: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  return api(
+    `/industry/installed/${industryKey}/templates/${templateKey}/apply`,
+    { method: "POST", body: { context } },
+  );
 }
 
-export async function industryWorkflowTemplates(industryKey: string): Promise<IndustryWorkflowTemplate[]> {
+export async function industryWorkflowTemplates(
+  industryKey: string,
+): Promise<IndustryWorkflowTemplate[]> {
   return api(`/industry/installed/${industryKey}/workflows/templates`);
 }
 
-export async function industryWorkflows(industryKey: string, status?: string): Promise<IndustryWorkflowRun[]> {
-  return api(`/industry/installed/${industryKey}/workflows`, { query: { status } });
+export async function industryWorkflows(
+  industryKey: string,
+  status?: string,
+): Promise<IndustryWorkflowRun[]> {
+  return api(`/industry/installed/${industryKey}/workflows`, {
+    query: { status },
+  });
 }
 
-export async function industryWorkflowDetail(industryKey: string, workflowId: string): Promise<IndustryWorkflowRun & { steps: { key: string; name: string; status: string }[]; context: Record<string, unknown> }> {
+export async function industryWorkflowDetail(
+  industryKey: string,
+  workflowId: string,
+): Promise<
+  IndustryWorkflowRun & {
+    steps: { key: string; name: string; status: string }[];
+    context: Record<string, unknown>;
+  }
+> {
   return api(`/industry/installed/${industryKey}/workflows/${workflowId}`);
 }
 
-export async function industryActivateWorkflow(industryKey: string, templateKey: string, context?: Record<string, unknown>): Promise<Record<string, unknown>> {
-  return api(`/industry/installed/${industryKey}/workflows/activate`, { method: "POST", body: { template_key: templateKey, context } });
+export async function industryActivateWorkflow(
+  industryKey: string,
+  templateKey: string,
+  context?: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  return api(`/industry/installed/${industryKey}/workflows/activate`, {
+    method: "POST",
+    body: { template_key: templateKey, context },
+  });
 }
 
-export async function industryAdvanceWorkflow(industryKey: string, workflowId: string, stepKey?: string): Promise<Record<string, unknown>> {
-  return api(`/industry/installed/${industryKey}/workflows/${workflowId}/advance`, { method: "POST", body: { step_key: stepKey } });
+export async function industryAdvanceWorkflow(
+  industryKey: string,
+  workflowId: string,
+  stepKey?: string,
+): Promise<Record<string, unknown>> {
+  return api(
+    `/industry/installed/${industryKey}/workflows/${workflowId}/advance`,
+    { method: "POST", body: { step_key: stepKey } },
+  );
 }
 
-export async function industryWorkflowAction(industryKey: string, workflowId: string, action: "pause" | "resume" | "cancel"): Promise<Record<string, unknown>> {
-  return api(`/industry/installed/${industryKey}/workflows/${workflowId}/${action}`, { method: "POST" });
+export async function industryWorkflowAction(
+  industryKey: string,
+  workflowId: string,
+  action: "pause" | "resume" | "cancel",
+): Promise<Record<string, unknown>> {
+  return api(
+    `/industry/installed/${industryKey}/workflows/${workflowId}/${action}`,
+    { method: "POST" },
+  );
 }
 
-export async function industryPolicies(industryKey: string): Promise<IndustryComplianceRule[]> {
+export async function industryPolicies(
+  industryKey: string,
+): Promise<IndustryComplianceRule[]> {
   return api(`/industry/installed/${industryKey}/compliance/policies`);
 }
 
-export async function industryRunCompliance(industryKey: string, evidence?: Record<string, unknown>, autoStatus?: string): Promise<Record<string, unknown>> {
-  return api(`/industry/installed/${industryKey}/compliance/run`, { method: "POST", body: { evidence, auto_status: autoStatus } });
+export async function industryRunCompliance(
+  industryKey: string,
+  evidence?: Record<string, unknown>,
+  autoStatus?: string,
+): Promise<Record<string, unknown>> {
+  return api(`/industry/installed/${industryKey}/compliance/run`, {
+    method: "POST",
+    body: { evidence, auto_status: autoStatus },
+  });
 }
 
-export async function industryCompliancePosture(industryKey: string): Promise<IndustryCompliancePosture> {
+export async function industryCompliancePosture(
+  industryKey: string,
+): Promise<IndustryCompliancePosture> {
   return api(`/industry/installed/${industryKey}/compliance/posture`);
 }
 
-export async function industryAIProfiles(industryKey: string): Promise<IndustryAIModelProfile[]> {
+export async function industryAIProfiles(
+  industryKey: string,
+): Promise<IndustryAIModelProfile[]> {
   return api(`/industry/installed/${industryKey}/ai/profiles`);
 }
 
-export async function industryAIToggle(industryKey: string, modelKey: string, enabled: boolean): Promise<{ model_key: string; enabled: boolean }> {
-  return api(`/industry/installed/${industryKey}/ai/profiles/${modelKey}/toggle`, { method: "POST", body: { enabled } });
+export async function industryAIToggle(
+  industryKey: string,
+  modelKey: string,
+  enabled: boolean,
+): Promise<{ model_key: string; enabled: boolean }> {
+  return api(
+    `/industry/installed/${industryKey}/ai/profiles/${modelKey}/toggle`,
+    { method: "POST", body: { enabled } },
+  );
 }
 
-export async function industryAIUpdate(industryKey: string, modelKey: string, changes: Record<string, unknown>): Promise<Record<string, unknown>> {
-  return api(`/industry/installed/${industryKey}/ai/profiles/${modelKey}`, { method: "PATCH", body: changes });
+export async function industryAIUpdate(
+  industryKey: string,
+  modelKey: string,
+  changes: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  return api(`/industry/installed/${industryKey}/ai/profiles/${modelKey}`, {
+    method: "PATCH",
+    body: changes,
+  });
 }
 
-export async function industryAIChat(industryKey: string, question: string, modelKey?: string, skill?: string): Promise<{ content: string; provider: string; model: string; grounded: Record<string, unknown>; profile: string }> {
-  return api(`/industry/installed/${industryKey}/ai/chat`, { method: "POST", body: { question, model_key: modelKey, skill } });
+export async function industryAIChat(
+  industryKey: string,
+  question: string,
+  modelKey?: string,
+  skill?: string,
+): Promise<{
+  content: string;
+  provider: string;
+  model: string;
+  grounded: Record<string, unknown>;
+  profile: string;
+}> {
+  return api(`/industry/installed/${industryKey}/ai/chat`, {
+    method: "POST",
+    body: { question, model_key: modelKey, skill },
+  });
 }
 
-export async function industryAIStatus(industryKey: string): Promise<{ industry_key: string; profiles: { model_key: string; name: string; enabled: boolean; skills: string[]; guardrails: number }[]; gateway: { provider: string; available: boolean } }> {
+export async function industryAIStatus(
+  industryKey: string,
+): Promise<{
+  industry_key: string;
+  profiles: {
+    model_key: string;
+    name: string;
+    enabled: boolean;
+    skills: string[];
+    guardrails: number;
+  }[];
+  gateway: { provider: string; available: boolean };
+}> {
   return api(`/industry/installed/${industryKey}/ai/status`);
 }
 
-export async function industryKPIs(industryKey: string): Promise<IndustryKPI[]> {
+export async function industryKPIs(
+  industryKey: string,
+): Promise<IndustryKPI[]> {
   return api(`/industry/installed/${industryKey}/analytics/kpis`);
 }
 
-export async function industryRecordMetrics(industryKey: string, values: { metric_key: string; value: number }[], period?: string): Promise<{ recorded: number; metric_keys: string[] }> {
-  return api(`/industry/installed/${industryKey}/analytics/record`, { method: "POST", body: { values, period } });
+export async function industryRecordMetrics(
+  industryKey: string,
+  values: { metric_key: string; value: number }[],
+  period?: string,
+): Promise<{ recorded: number; metric_keys: string[] }> {
+  return api(`/industry/installed/${industryKey}/analytics/record`, {
+    method: "POST",
+    body: { values, period },
+  });
 }
 
-export async function industryAnalytics(industryKey: string, days = 30): Promise<{ industry_key: string; period_days: number; metrics: IndustryMetricCard[]; tracked: number }> {
-  return api(`/industry/installed/${industryKey}/analytics/dashboard`, { query: { days } });
+export async function industryAnalytics(
+  industryKey: string,
+  days = 30,
+): Promise<{
+  industry_key: string;
+  period_days: number;
+  metrics: IndustryMetricCard[];
+  tracked: number;
+}> {
+  return api(`/industry/installed/${industryKey}/analytics/dashboard`, {
+    query: { days },
+  });
 }
 
-export async function industryTimeseries(industryKey: string, metricKey?: string, days = 30): Promise<{ id: string; metric_key: string; name: string | null; value: number; unit: string | null; period: string; recorded_at: string | null }[]> {
-  return api(`/industry/installed/${industryKey}/analytics/timeseries`, { query: { metric_key: metricKey, days } });
+export async function industryTimeseries(
+  industryKey: string,
+  metricKey?: string,
+  days = 30,
+): Promise<
+  {
+    id: string;
+    metric_key: string;
+    name: string | null;
+    value: number;
+    unit: string | null;
+    period: string;
+    recorded_at: string | null;
+  }[]
+> {
+  return api(`/industry/installed/${industryKey}/analytics/timeseries`, {
+    query: { metric_key: metricKey, days },
+  });
 }
 
-export async function industryPackOverview(industryKey: string): Promise<IndustryPackOverview> {
+export async function industryPackOverview(
+  industryKey: string,
+): Promise<IndustryPackOverview> {
   return api(`/industries/${industryKey}`);
 }
 
-export async function industryPackModules(industryKey: string): Promise<IndustryModule[]> {
+export async function industryPackModules(
+  industryKey: string,
+): Promise<IndustryModule[]> {
   return api(`/industries/${industryKey}/modules`);
 }
 
-export async function industryPackCompliance(industryKey: string): Promise<{ rules: IndustryComplianceRule[]; posture: IndustryCompliancePosture | null }> {
+export async function industryPackCompliance(
+  industryKey: string,
+): Promise<{
+  rules: IndustryComplianceRule[];
+  posture: IndustryCompliancePosture | null;
+}> {
   return api(`/industries/${industryKey}/compliance`);
 }
 
-export async function industryPackAI(industryKey: string): Promise<Record<string, unknown>> {
+export async function industryPackAI(
+  industryKey: string,
+): Promise<Record<string, unknown>> {
   return api(`/industries/${industryKey}/ai`);
 }
 
-export async function industryPackAnalytics(industryKey: string, days = 30): Promise<Record<string, unknown>> {
+export async function industryPackAnalytics(
+  industryKey: string,
+  days = 30,
+): Promise<Record<string, unknown>> {
   return api(`/industries/${industryKey}/analytics`, { query: { days } });
 }
 
-export async function industryPackChat(industryKey: string, question: string): Promise<{ content: string; provider: string }> {
-  return api(`/industries/${industryKey}/ai/chat`, { method: "POST", body: { question } });
+export async function industryPackChat(
+  industryKey: string,
+  question: string,
+): Promise<{ content: string; provider: string }> {
+  return api(`/industries/${industryKey}/ai/chat`, {
+    method: "POST",
+    body: { question },
+  });
 }
 
 // ============================================================================
@@ -7180,11 +10587,16 @@ export async function getTwin(refresh = false): Promise<TwinState> {
   return api<TwinState>("/twin", { query: { refresh } });
 }
 
-export async function refreshTwin(): Promise<{ status: string; organization_id: string }> {
+export async function refreshTwin(): Promise<{
+  status: string;
+  organization_id: string;
+}> {
   return api("/twin/refresh", { method: "POST" });
 }
 
-export async function getTwinHistory(limit = 30): Promise<{ total: number; history: TwinSnapshot[] }> {
+export async function getTwinHistory(
+  limit = 30,
+): Promise<{ total: number; history: TwinSnapshot[] }> {
   return api("/twin/history", { query: { limit } });
 }
 
@@ -7192,19 +10604,28 @@ export async function getTwinHealth(): Promise<TwinHealth> {
   return api<TwinHealth>("/twin/health");
 }
 
-export async function getTwinHealthHistory(limit = 30): Promise<{ total: number; history: TwinHealth[] }> {
+export async function getTwinHealthHistory(
+  limit = 30,
+): Promise<{ total: number; history: TwinHealth[] }> {
   return api("/twin/health/history", { query: { limit } });
 }
 
-export async function generatePredictions(): Promise<{ total: number; predictions: TwinPrediction[] }> {
+export async function generatePredictions(): Promise<{
+  total: number;
+  predictions: TwinPrediction[];
+}> {
   return api("/twin/predictions/generate", { method: "POST" });
 }
 
-export async function listPredictions(status?: string): Promise<{ total: number; predictions: TwinPrediction[] }> {
+export async function listPredictions(
+  status?: string,
+): Promise<{ total: number; predictions: TwinPrediction[] }> {
   return api("/twin/predictions", { query: { status } });
 }
 
-export async function acknowledgePrediction(id: string): Promise<TwinPrediction> {
+export async function acknowledgePrediction(
+  id: string,
+): Promise<TwinPrediction> {
   return api(`/twin/predictions/${id}/acknowledge`, { method: "POST" });
 }
 
@@ -7212,11 +10633,20 @@ export async function dismissPrediction(id: string): Promise<TwinPrediction> {
   return api(`/twin/predictions/${id}/dismiss`, { method: "POST" });
 }
 
-export async function runTwinSimulation(scenario: string, params?: Record<string, unknown>): Promise<TwinSimulation> {
-  return api("/twin/simulations/run", { method: "POST", body: { scenario, params: params ?? {} } });
+export async function runTwinSimulation(
+  scenario: string,
+  params?: Record<string, unknown>,
+): Promise<TwinSimulation> {
+  return api("/twin/simulations/run", {
+    method: "POST",
+    body: { scenario, params: params ?? {} },
+  });
 }
 
-export async function listTwinSimulations(): Promise<{ total: number; simulations: TwinSimulation[] }> {
+export async function listTwinSimulations(): Promise<{
+  total: number;
+  simulations: TwinSimulation[];
+}> {
   return api("/twin/simulations");
 }
 
@@ -7224,31 +10654,54 @@ export async function getTwinSimulation(id: string): Promise<TwinSimulation> {
   return api(`/twin/simulations/${id}`);
 }
 
-export async function generateTwinForecasts(): Promise<{ total: number; forecasts: TwinForecast[] }> {
+export async function generateTwinForecasts(): Promise<{
+  total: number;
+  forecasts: TwinForecast[];
+}> {
   return api("/twin/forecasts/generate", { method: "POST" });
 }
 
-export async function listTwinForecasts(): Promise<{ total: number; forecasts: TwinForecast[] }> {
+export async function listTwinForecasts(): Promise<{
+  total: number;
+  forecasts: TwinForecast[];
+}> {
   return api("/twin/forecasts");
 }
 
-export async function generateRecommendations(): Promise<{ total: number; recommendations: TwinRecommendation[] }> {
+export async function generateRecommendations(): Promise<{
+  total: number;
+  recommendations: TwinRecommendation[];
+}> {
   return api("/twin/recommendations/generate", { method: "POST" });
 }
 
-export async function listTwinRecommendations(status?: string): Promise<{ total: number; recommendations: TwinRecommendation[] }> {
+export async function listTwinRecommendations(
+  status?: string,
+): Promise<{ total: number; recommendations: TwinRecommendation[] }> {
   return api("/twin/recommendations", { query: { status } });
 }
 
-export async function setTwinRecommendationStatus(id: string, status: "accepted" | "dismissed"): Promise<TwinRecommendation> {
-  return api(`/twin/recommendations/${id}/status`, { method: "POST", body: { status } });
+export async function setTwinRecommendationStatus(
+  id: string,
+  status: "accepted" | "dismissed",
+): Promise<TwinRecommendation> {
+  return api(`/twin/recommendations/${id}/status`, {
+    method: "POST",
+    body: { status },
+  });
 }
 
-export async function generateOptimizations(): Promise<{ total: number; optimizations: TwinOptimization[] }> {
+export async function generateOptimizations(): Promise<{
+  total: number;
+  optimizations: TwinOptimization[];
+}> {
   return api("/twin/optimization/generate", { method: "POST" });
 }
 
-export async function listOptimizations(): Promise<{ total: number; optimizations: TwinOptimization[] }> {
+export async function listOptimizations(): Promise<{
+  total: number;
+  optimizations: TwinOptimization[];
+}> {
   return api("/twin/optimization");
 }
 
@@ -7266,15 +10719,25 @@ export async function createTwinDecision(payload: {
   return api("/twin/decisions", { method: "POST", body: payload });
 }
 
-export async function recordDecisionOutcome(id: string, outcome: string, outcome_score: number): Promise<TwinDecision> {
-  return api(`/twin/decisions/${id}/outcome`, { method: "POST", body: { outcome, outcome_score } });
+export async function recordDecisionOutcome(
+  id: string,
+  outcome: string,
+  outcome_score: number,
+): Promise<TwinDecision> {
+  return api(`/twin/decisions/${id}/outcome`, {
+    method: "POST",
+    body: { outcome, outcome_score },
+  });
 }
 
 export async function analyzeDecision(id: string): Promise<TwinDecision> {
   return api(`/twin/decisions/${id}/analyze`, { method: "POST" });
 }
 
-export async function listTwinDecisions(): Promise<{ total: number; decisions: TwinDecision[] }> {
+export async function listTwinDecisions(): Promise<{
+  total: number;
+  decisions: TwinDecision[];
+}> {
   return api("/twin/decisions");
 }
 
@@ -7353,7 +10816,12 @@ export interface DeveloperUsageSummary {
   developer_id: string;
   days: number;
   period_end: string;
-  totals: { requests: number; errors: number; latency_ms: number; installs: number };
+  totals: {
+    requests: number;
+    errors: number;
+    latency_ms: number;
+    installs: number;
+  };
   by_day: Record<string, Record<string, number>>;
 }
 
@@ -7469,19 +10937,33 @@ export async function registerDeveloper(payload: {
   return api("/developers/register", { method: "POST", body: payload });
 }
 
-export async function getDeveloperMe(): Promise<{ profile: DeveloperProfile; subscription: DeveloperSubscription }> {
+export async function getDeveloperMe(): Promise<{
+  profile: DeveloperProfile;
+  subscription: DeveloperSubscription;
+}> {
   return api("/developers/me");
 }
 
-export async function listDevelopers(limit = 100): Promise<{ total: number; developers: DeveloperProfile[] }> {
+export async function listDevelopers(
+  limit = 100,
+): Promise<{ total: number; developers: DeveloperProfile[] }> {
   return api("/developers", { query: { limit } });
 }
 
-export async function verifyDeveloper(id: string, verified = true): Promise<DeveloperProfile> {
-  return api(`/developers/${id}/verify`, { method: "POST", query: { verified } });
+export async function verifyDeveloper(
+  id: string,
+  verified = true,
+): Promise<DeveloperProfile> {
+  return api(`/developers/${id}/verify`, {
+    method: "POST",
+    query: { verified },
+  });
 }
 
-export async function listMyApplications(): Promise<{ total: number; applications: DeveloperApplication[] }> {
+export async function listMyApplications(): Promise<{
+  total: number;
+  applications: DeveloperApplication[];
+}> {
   return api("/developers/me/applications");
 }
 
@@ -7494,35 +10976,57 @@ export async function createApplication(payload: {
   return api("/developers/me/applications", { method: "POST", body: payload });
 }
 
-export async function updateApplication(id: string, payload: Record<string, unknown>): Promise<DeveloperApplication> {
-  return api(`/developers/me/applications/${id}`, { method: "PATCH", body: payload });
+export async function updateApplication(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<DeveloperApplication> {
+  return api(`/developers/me/applications/${id}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
-export async function publishApplication(id: string): Promise<DeveloperApplication> {
+export async function publishApplication(
+  id: string,
+): Promise<DeveloperApplication> {
   return api(`/developers/me/applications/${id}/publish`, { method: "POST" });
 }
 
-export async function delistApplication(id: string): Promise<DeveloperApplication> {
+export async function delistApplication(
+  id: string,
+): Promise<DeveloperApplication> {
   return api(`/developers/me/applications/${id}/delist`, { method: "POST" });
 }
 
-export async function createDeveloperApiKey(applicationId: string, payload: {
-  name: string;
-  scopes?: string[];
-  rate_limit_per_minute?: number;
-}): Promise<DeveloperApiKey> {
-  return api(`/developers/me/applications/${applicationId}/keys`, { method: "POST", body: payload });
+export async function createDeveloperApiKey(
+  applicationId: string,
+  payload: {
+    name: string;
+    scopes?: string[];
+    rate_limit_per_minute?: number;
+  },
+): Promise<DeveloperApiKey> {
+  return api(`/developers/me/applications/${applicationId}/keys`, {
+    method: "POST",
+    body: payload,
+  });
 }
 
-export async function listDeveloperApiKeys(applicationId: string): Promise<{ total: number; keys: DeveloperApiKey[] }> {
+export async function listDeveloperApiKeys(
+  applicationId: string,
+): Promise<{ total: number; keys: DeveloperApiKey[] }> {
   return api(`/developers/me/applications/${applicationId}/keys`);
 }
 
-export async function revokeDeveloperApiKey(keyId: string): Promise<DeveloperApiKey> {
+export async function revokeDeveloperApiKey(
+  keyId: string,
+): Promise<DeveloperApiKey> {
   return api(`/developers/me/keys/${keyId}/revoke`, { method: "POST" });
 }
 
-export async function getDeveloperAnalytics(days = 30): Promise<DeveloperUsageSummary> {
+export async function getDeveloperAnalytics(
+  days = 30,
+): Promise<DeveloperUsageSummary> {
   return api(`/developers/me/analytics`, { query: { days } });
 }
 
@@ -7539,15 +11043,29 @@ export async function getDeveloperSubscription(): Promise<DeveloperSubscription>
   return api("/developers/me/subscription");
 }
 
-export async function changeDeveloperPlan(plan: string): Promise<DeveloperSubscription> {
-  return api("/developers/me/subscription/plan", { method: "POST", body: { plan } });
+export async function changeDeveloperPlan(
+  plan: string,
+): Promise<DeveloperSubscription> {
+  return api("/developers/me/subscription/plan", {
+    method: "POST",
+    body: { plan },
+  });
 }
 
-export async function attemptCertification(exam: string, score: number): Promise<DeveloperCertification> {
-  return api("/developers/me/certifications/attempt", { method: "POST", body: { exam, score } });
+export async function attemptCertification(
+  exam: string,
+  score: number,
+): Promise<DeveloperCertification> {
+  return api("/developers/me/certifications/attempt", {
+    method: "POST",
+    body: { exam, score },
+  });
 }
 
-export async function listMyCertifications(): Promise<{ total: number; certifications: DeveloperCertification[] }> {
+export async function listMyCertifications(): Promise<{
+  total: number;
+  certifications: DeveloperCertification[];
+}> {
   return api("/developers/me/certifications");
 }
 
@@ -7562,7 +11080,9 @@ export async function createAgent(payload: {
   return api("/agents", { method: "POST", body: payload });
 }
 
-export async function listAgents(status?: string): Promise<{ total: number; agents: AIAgent[] }> {
+export async function listAgents(
+  status?: string,
+): Promise<{ total: number; agents: AIAgent[] }> {
   return api("/agents", { query: { status } });
 }
 
@@ -7570,12 +11090,21 @@ export async function getAgent(id: string): Promise<AIAgent> {
   return api(`/agents/${id}`);
 }
 
-export async function setAgentStatus(id: string, status: string): Promise<AIAgent> {
+export async function setAgentStatus(
+  id: string,
+  status: string,
+): Promise<AIAgent> {
   return api(`/agents/${id}/status`, { method: "PATCH", body: { status } });
 }
 
-export async function executeAgent(id: string, inputText: string): Promise<Record<string, unknown>> {
-  return api(`/agents/${id}/execute`, { method: "POST", body: { input_text: inputText } });
+export async function executeAgent(
+  id: string,
+  inputText: string,
+): Promise<Record<string, unknown>> {
+  return api(`/agents/${id}/execute`, {
+    method: "POST",
+    body: { input_text: inputText },
+  });
 }
 
 export async function createWebhook(payload: {
@@ -7587,27 +11116,44 @@ export async function createWebhook(payload: {
   return api("/webhooks", { method: "POST", body: payload });
 }
 
-export async function listWebhooks(): Promise<{ total: number; endpoints: WebhookEndpoint[] }> {
+export async function listWebhooks(): Promise<{
+  total: number;
+  endpoints: WebhookEndpoint[];
+}> {
   return api("/webhooks");
 }
 
-export async function setWebhookStatus(id: string, status: "active" | "paused" | "failing"): Promise<WebhookEndpoint> {
+export async function setWebhookStatus(
+  id: string,
+  status: "active" | "paused" | "failing",
+): Promise<WebhookEndpoint> {
   return api(`/webhooks/${id}/status`, { method: "PATCH", body: { status } });
 }
 
-export async function deleteWebhook(id: string): Promise<{ status: string; endpoint_id: string }> {
+export async function deleteWebhook(
+  id: string,
+): Promise<{ status: string; endpoint_id: string }> {
   return api(`/webhooks/${id}`, { method: "DELETE" });
 }
 
-export async function listWebhookDeliveries(endpointId?: string): Promise<{ total: number; deliveries: WebhookDelivery[] }> {
+export async function listWebhookDeliveries(
+  endpointId?: string,
+): Promise<{ total: number; deliveries: WebhookDelivery[] }> {
   return api("/webhooks/deliveries", { query: { endpoint_id: endpointId } });
 }
 
-export async function redeliverWebhook(deliveryId: string): Promise<WebhookDelivery> {
-  return api(`/webhooks/deliveries/${deliveryId}/redeliver`, { method: "POST" });
+export async function redeliverWebhook(
+  deliveryId: string,
+): Promise<WebhookDelivery> {
+  return api(`/webhooks/deliveries/${deliveryId}/redeliver`, {
+    method: "POST",
+  });
 }
 
-export async function testWebhook(id: string, payload?: Record<string, unknown>): Promise<{ event: string; signature: string | null; delivered: boolean }> {
+export async function testWebhook(
+  id: string,
+  payload?: Record<string, unknown>,
+): Promise<{ event: string; signature: string | null; delivered: boolean }> {
   return api(`/webhooks/${id}/test`, { method: "POST", body: payload ?? {} });
 }
 
@@ -7621,7 +11167,9 @@ export async function publishListing(payload: {
   return api("/marketplace/listings", { method: "POST", body: payload });
 }
 
-export async function listListings(category?: string): Promise<{ total: number; listings: MarketplaceListing[] }> {
+export async function listListings(
+  category?: string,
+): Promise<{ total: number; listings: MarketplaceListing[] }> {
   return api("/marketplace/listings", { query: { category } });
 }
 
@@ -7629,31 +11177,63 @@ export async function getListing(id: string): Promise<MarketplaceListing> {
   return api(`/marketplace/listings/${id}`);
 }
 
-export async function verifyListing(id: string, verified = true): Promise<MarketplaceListing> {
-  return api(`/marketplace/listings/${id}/verify`, { method: "POST", query: { verified } });
+export async function verifyListing(
+  id: string,
+  verified = true,
+): Promise<MarketplaceListing> {
+  return api(`/marketplace/listings/${id}/verify`, {
+    method: "POST",
+    query: { verified },
+  });
 }
 
-export async function installExtension(itemId: string, asAgent = false): Promise<ExtensionInstall> {
-  return api("/marketplace/install", { method: "POST", body: { item_id: itemId, as_agent: asAgent } });
+export async function installExtension(
+  itemId: string,
+  asAgent = false,
+): Promise<ExtensionInstall> {
+  return api("/marketplace/install", {
+    method: "POST",
+    body: { item_id: itemId, as_agent: asAgent },
+  });
 }
 
-export async function listInstalledExtensions(): Promise<{ total: number; installed: ExtensionInstall[] }> {
+export async function listInstalledExtensions(): Promise<{
+  total: number;
+  installed: ExtensionInstall[];
+}> {
   return api("/marketplace/installed");
 }
 
-export async function uninstallExtension(itemId: string): Promise<ExtensionInstall> {
-  return api("/marketplace/uninstall", { method: "POST", body: { item_id: itemId } });
+export async function uninstallExtension(
+  itemId: string,
+): Promise<ExtensionInstall> {
+  return api("/marketplace/uninstall", {
+    method: "POST",
+    body: { item_id: itemId },
+  });
 }
 
-export async function addListingReview(itemId: string, rating: number, comment?: string): Promise<MarketplaceReview> {
-  return api("/marketplace/reviews", { method: "POST", body: { item_id: itemId, rating, comment } });
+export async function addListingReview(
+  itemId: string,
+  rating: number,
+  comment?: string,
+): Promise<MarketplaceReview> {
+  return api("/marketplace/reviews", {
+    method: "POST",
+    body: { item_id: itemId, rating, comment },
+  });
 }
 
-export async function listingReviews(itemId: string): Promise<{ total: number; reviews: MarketplaceReview[] }> {
+export async function listingReviews(
+  itemId: string,
+): Promise<{ total: number; reviews: MarketplaceReview[] }> {
   return api(`/marketplace/listings/${itemId}/reviews`);
 }
 
-export async function listThemes(): Promise<{ total: number; themes: Theme[] }> {
+export async function listThemes(): Promise<{
+  total: number;
+  themes: Theme[];
+}> {
   return api("/themes");
 }
 
@@ -7666,7 +11246,10 @@ export async function createTheme(payload: {
   return api("/themes", { method: "POST", body: payload });
 }
 
-export async function updateTheme(id: string, payload: Record<string, unknown>): Promise<Theme> {
+export async function updateTheme(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<Theme> {
   return api(`/themes/${id}`, { method: "PATCH", body: payload });
 }
 
@@ -7674,14 +11257,17 @@ export async function activateTheme(id: string): Promise<Theme> {
   return api(`/themes/${id}/activate`, { method: "POST" });
 }
 
-export async function deleteTheme(id: string): Promise<{ status: string; theme_id: string }> {
+export async function deleteTheme(
+  id: string,
+): Promise<{ status: string; theme_id: string }> {
   return api(`/themes/${id}`, { method: "DELETE" });
 }
 
-
 // ------------------------------------------------------- Slice 4D.1 brain
 
-export async function brainAnswer(payload: BrainAnswerRequest): Promise<BrainAnswer> {
+export async function brainAnswer(
+  payload: BrainAnswerRequest,
+): Promise<BrainAnswer> {
   return api<BrainAnswer>("/brain/answer", { method: "POST", body: payload });
 }
 
@@ -7692,7 +11278,9 @@ export async function brainTimelineUnified(params?: {
   entity_id?: string;
   limit?: number;
 }): Promise<BrainTimelineResponse> {
-  return api<BrainTimelineResponse>("/brain/timeline/unified", { query: params });
+  return api<BrainTimelineResponse>("/brain/timeline/unified", {
+    query: params,
+  });
 }
 
 export async function brainWhatChanged(params?: {
@@ -7702,7 +11290,10 @@ export async function brainWhatChanged(params?: {
 }
 
 export async function brainConversationCreate(): Promise<BrainConversation> {
-  return api<BrainConversation>("/brain/conversations", { method: "POST", body: {} });
+  return api<BrainConversation>("/brain/conversations", {
+    method: "POST",
+    body: {},
+  });
 }
 
 export async function brainConversationList(params?: {
@@ -7710,11 +11301,13 @@ export async function brainConversationList(params?: {
 }): Promise<{ conversations: BrainConversation[]; count: number }> {
   return api<{ conversations: BrainConversation[]; count: number }>(
     "/brain/conversations",
-    { query: params }
+    { query: params },
   );
 }
 
-export async function brainConversationGet(conversationId: string): Promise<BrainConversation> {
+export async function brainConversationGet(
+  conversationId: string,
+): Promise<BrainConversation> {
   return api<BrainConversation>(`/brain/conversations/${conversationId}`);
 }
 
@@ -7725,21 +11318,154 @@ export async function brainOverview(): Promise<BrainUnifiedOverview> {
 export async function brainEvidence(
   sourceType: string,
   sourceId: string,
-  params?: { link_limit?: number }
+  params?: { link_limit?: number },
 ): Promise<BrainEvidenceResponse> {
-  return api<BrainEvidenceResponse>(`/brain/evidence/${sourceType}/${sourceId}`, { query: params });
+  return api<BrainEvidenceResponse>(
+    `/brain/evidence/${sourceType}/${sourceId}`,
+    { query: params },
+  );
 }
 
 export async function brainRelated(
   sourceType: string,
   sourceId: string,
-  params?: { limit?: number }
+  params?: { limit?: number },
 ): Promise<BrainRelatedResponse> {
-  return api<BrainRelatedResponse>(`/brain/related/${sourceType}/${sourceId}`, { query: params });
+  return api<BrainRelatedResponse>(`/brain/related/${sourceType}/${sourceId}`, {
+    query: params,
+  });
+}
+
+// ------------------------------------------------------ Truth Center (go-live)
+
+export interface IntegrityFinding {
+  id: string;
+  organization_id: string;
+  finding_type: string;
+  severity: "critical" | "high" | "medium" | "low" | "info";
+  entity_type: string;
+  entity_id: string;
+  scope_type: string | null;
+  scope_id: string | null;
+  title: string;
+  description: string;
+  observed_evidence: Record<string, unknown>;
+  derived_evidence: Record<string, unknown>;
+  epistemic_classification: string;
+  provenance: Record<string, unknown>;
+  detected_at: string | null;
+  source_subsystem: string;
+  status: string;
+  superseded_by: string | null;
+  supersedes: string | null;
+  correlation_id: string | null;
+  governance_scope_ids: string[];
+  affected_count: number;
+}
+
+export interface IntegrityStatus {
+  organization_id: string;
+  last_scan: string | null;
+  open_findings: number;
+  total_findings: number;
+  by_severity: Record<string, number>;
+  by_type: Record<string, number>;
+  repair_proposals_open: number;
+  repair_proposals_authorized: number;
+  coverage_note: string;
+}
+
+export async function integrityStatus(): Promise<IntegrityStatus> {
+  return api<IntegrityStatus>("/canonical/integrity/status");
+}
+
+export async function integrityRunScan(payload?: {
+  scope_type?: string;
+  scope_id?: string;
+}): Promise<Record<string, unknown>> {
+  return api<Record<string, unknown>>("/canonical/integrity/scan", {
+    method: "POST",
+    body: payload ?? {},
+  });
+}
+
+export async function integrityFindings(
+  query: {
+    status?: string;
+    severity?: string;
+    finding_type?: string;
+    entity_type?: string;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<IntegrityFinding[]> {
+  return api<IntegrityFinding[]>("/canonical/integrity/findings", { query });
+}
+
+export async function integrityFinding(id: string): Promise<IntegrityFinding> {
+  return api<IntegrityFinding>(`/canonical/integrity/findings/${id}`);
+}
+
+export interface DecisionContradictionSide {
+  claims?: string[];
+  evidence?: string[];
+  at?: string;
+  [key: string]: unknown;
+}
+
+export interface DecisionContradiction {
+  id: string;
+  decision_id: string;
+  contradiction_key: string;
+  lesson_memory_id: string | null;
+  precedent_decision_id: string | null;
+  side_a_json: DecisionContradictionSide;
+  side_b_json: DecisionContradictionSide;
+  status: string;
+  source_event_id: string | null;
+  created_at: string | null;
+}
+
+export async function brainContradictions(params?: {
+  decision_id?: string;
+  status?: string;
+  limit?: number;
+}): Promise<{
+  contradictions: DecisionContradiction[];
+  count: number;
+  limit: number;
+  scope: Record<string, unknown>;
+  generated_at: string;
+}> {
+  return api("/brain/learning/contradictions", { query: params });
+}
+
+export interface ProvenanceChain {
+  lesson_id: string;
+  lesson: Record<string, unknown>;
+  pattern: Record<string, unknown> | null;
+  evidence: Record<string, unknown>[];
+  assessments: Record<string, unknown>[];
+  outcomes: Record<string, unknown>[];
+  contradictions: Record<string, unknown>[];
+  [key: string]: unknown;
+}
+
+export async function brainProvenance(
+  lessonId: string,
+): Promise<ProvenanceChain> {
+  return api<ProvenanceChain>(`/brain/learning/provenance/${lessonId}`);
+}
+
+export async function brainLearningFeed(params?: {
+  kind?: string;
+  limit?: number;
+}): Promise<{ lessons?: Record<string, unknown>[]; [key: string]: unknown }> {
+  return api("/brain/knowledge/loop/learning", { query: params });
 }
 
 export async function brainKnowledgeSearch(
-  payload: BrainKnowledgeSearchRequest
+  payload: BrainKnowledgeSearchRequest,
 ): Promise<BrainKnowledgeSearchResponse> {
   return api<BrainKnowledgeSearchResponse>("/brain/knowledge/search", {
     method: "POST",
@@ -7841,7 +11567,7 @@ export interface ExpertiseSearchResponse {
 
 export async function brainExpertiseSearch(
   q: string,
-  recentOnly = false
+  recentOnly = false,
 ): Promise<ExpertiseSearchResponse> {
   return api<ExpertiseSearchResponse>("/brain/expertise/search", {
     query: { q, recent_only: String(recentOnly) },
@@ -7850,21 +11576,25 @@ export async function brainExpertiseSearch(
 
 export async function getPersonTrust(
   personId: string,
-  skillId: string
+  skillId: string,
 ): Promise<TrustProfile> {
-  return api<TrustProfile>(`/brain/people/${personId}/expertise/${skillId}/trust`);
+  return api<TrustProfile>(
+    `/brain/people/${personId}/expertise/${skillId}/trust`,
+  );
 }
 
 export async function getPersonEvidence(
   personId: string,
-  skillId: string
+  skillId: string,
 ): Promise<ExpertiseEvidenceResponse> {
   return api<ExpertiseEvidenceResponse>(
-    `/brain/people/${personId}/expertise/${skillId}/evidence`
+    `/brain/people/${personId}/expertise/${skillId}/evidence`,
   );
 }
 
-export async function getEvidenceItem(evidenceId: string): Promise<EvidenceLine> {
+export async function getEvidenceItem(
+  evidenceId: string,
+): Promise<EvidenceLine> {
   return api<EvidenceLine>(`/brain/expertise/evidence/${evidenceId}`);
 }
 
@@ -7874,38 +11604,51 @@ export async function brainKnowledgeDiscover(params: {
   query: string;
   limit?: number;
 }): Promise<KnowledgeQueryResponse> {
-  return api<KnowledgeQueryResponse>("/brain/knowledge/discover", { query: params });
+  return api<KnowledgeQueryResponse>("/brain/knowledge/discover", {
+    query: params,
+  });
 }
 
 export async function brainKnowledgeChanges(params?: {
   days?: number;
   limit?: number;
 }): Promise<KnowledgeChangesResponse> {
-  return api<KnowledgeChangesResponse>("/brain/knowledge/changes", { query: params });
+  return api<KnowledgeChangesResponse>("/brain/knowledge/changes", {
+    query: params,
+  });
 }
 
-export async function brainKnowledgeGaps(params?: { limit?: number }): Promise<KnowledgeGapsResponse> {
+export async function brainKnowledgeGaps(params?: {
+  limit?: number;
+}): Promise<KnowledgeGapsResponse> {
   return api<KnowledgeGapsResponse>("/brain/knowledge/gaps", { query: params });
 }
 
-export async function brainKnowledgeTopicImpact(topicName: string): Promise<KnowledgeImpactResponse> {
+export async function brainKnowledgeTopicImpact(
+  topicName: string,
+): Promise<KnowledgeImpactResponse> {
   return api<KnowledgeImpactResponse>(
-    `/brain/knowledge/topics/${encodeURIComponent(topicName)}/impact`
+    `/brain/knowledge/topics/${encodeURIComponent(topicName)}/impact`,
   );
 }
 
-export async function brainKnowledgeTopicOwnership(topicName: string): Promise<KnowledgeOwnershipResponse> {
+export async function brainKnowledgeTopicOwnership(
+  topicName: string,
+): Promise<KnowledgeOwnershipResponse> {
   return api<KnowledgeOwnershipResponse>(
-    `/brain/knowledge/topics/${encodeURIComponent(topicName)}/ownership`
+    `/brain/knowledge/topics/${encodeURIComponent(topicName)}/ownership`,
   );
 }
 
 export async function brainKnowledgeRecommendations(params?: {
   limit?: number;
 }): Promise<KnowledgeRecommendationsResponse> {
-  return api<KnowledgeRecommendationsResponse>("/brain/knowledge/recommendations", {
-    query: params,
-  });
+  return api<KnowledgeRecommendationsResponse>(
+    "/brain/knowledge/recommendations",
+    {
+      query: params,
+    },
+  );
 }
 
 export async function brainKnowledgeInsights(params?: {
@@ -7914,60 +11657,64 @@ export async function brainKnowledgeInsights(params?: {
   severity?: string;
   limit?: number;
 }): Promise<KnowledgeIntelInsightsResponse> {
-  return api<KnowledgeIntelInsightsResponse>("/brain/knowledge/insights", { query: params });
+  return api<KnowledgeIntelInsightsResponse>("/brain/knowledge/insights", {
+    query: params,
+  });
 }
 
 export async function brainKnowledgeInsightGet(
-  insightId: string
+  insightId: string,
 ): Promise<KnowledgeInsightDetailResponse> {
-  return api<KnowledgeInsightDetailResponse>(`/brain/knowledge/insights/${insightId}`);
+  return api<KnowledgeInsightDetailResponse>(
+    `/brain/knowledge/insights/${insightId}`,
+  );
 }
 
 export async function brainKnowledgeInsightAcknowledge(
   insightId: string,
-  note?: string
+  note?: string,
 ): Promise<KnowledgeInsightActionResponse> {
   return api<KnowledgeInsightActionResponse>(
     `/brain/knowledge/insights/${insightId}/acknowledge`,
-    { method: "POST", body: { note: note ?? null } }
+    { method: "POST", body: { note: note ?? null } },
   );
 }
 
 export async function brainKnowledgeInsightResolve(
   insightId: string,
-  note?: string
+  note?: string,
 ): Promise<KnowledgeInsightActionResponse> {
   return api<KnowledgeInsightActionResponse>(
     `/brain/knowledge/insights/${insightId}/resolve`,
-    { method: "POST", body: { note: note ?? null } }
+    { method: "POST", body: { note: note ?? null } },
   );
 }
 
 export async function brainKnowledgeTopicEvolution(
-  topicName: string
+  topicName: string,
 ): Promise<KnowledgeEvolutionResponse> {
   return api<KnowledgeEvolutionResponse>(
-    `/brain/knowledge/topics/${encodeURIComponent(topicName)}/evolution`
+    `/brain/knowledge/topics/${encodeURIComponent(topicName)}/evolution`,
   );
 }
 
 export async function brainKnowledgeTopicPropagation(
   topicName: string,
-  depth?: number
+  depth?: number,
 ): Promise<KnowledgePropagationResponse> {
   return api<KnowledgePropagationResponse>(
     `/brain/knowledge/topics/${encodeURIComponent(topicName)}/propagation`,
-    { query: { depth } }
+    { query: { depth } },
   );
 }
 
 export async function brainKnowledgeTopicStateAt(
   topicName: string,
-  params?: { as_of?: string; year?: number; month?: number }
+  params?: { as_of?: string; year?: number; month?: number },
 ): Promise<KnowledgeStateAtResponse> {
   return api<KnowledgeStateAtResponse>(
     `/brain/knowledge/topics/${encodeURIComponent(topicName)}/state`,
-    { query: params }
+    { query: params },
   );
 }
 
@@ -7979,7 +11726,9 @@ export async function brainKnowledgeHealthCenter(): Promise<KnowledgeHealthCente
   return api<KnowledgeHealthCenterResponse>("/brain/knowledge/health-center");
 }
 
-export async function brainKnowledgeBrief(sinceHours?: number): Promise<KnowledgeBriefResponse> {
+export async function brainKnowledgeBrief(
+  sinceHours?: number,
+): Promise<KnowledgeBriefResponse> {
   return api<KnowledgeBriefResponse>("/brain/knowledge/brief", {
     query: { since_hours: sinceHours ?? 24 },
   });
@@ -7992,15 +11741,17 @@ export async function brainKnowledgeRecommendationLifecycle(
     note?: string;
     target?: string;
     project_id?: string;
-  }
+  },
 ): Promise<KnowledgeRecommendationLifecycleResponse> {
   return api<KnowledgeRecommendationLifecycleResponse>(
     `/brain/knowledge/recommendations/${recommendationId}/lifecycle`,
-    { method: "POST", body: payload }
+    { method: "POST", body: payload },
   );
 }
 
-export async function brainKnowledgeQuery(question: string): Promise<KnowledgeQueryResponse> {
+export async function brainKnowledgeQuery(
+  question: string,
+): Promise<KnowledgeQueryResponse> {
   return api<KnowledgeQueryResponse>("/brain/knowledge/query", {
     method: "POST",
     body: { question },
@@ -8025,13 +11776,17 @@ export async function brainKnowledgeActionCenter(params?: {
   limit?: number;
   offset?: number;
 }): Promise<CompanyActionCenterResponse> {
-  return api<CompanyActionCenterResponse>("/brain/knowledge/actions", { query: params });
+  return api<CompanyActionCenterResponse>("/brain/knowledge/actions", {
+    query: params,
+  });
 }
 
 export async function brainKnowledgeActionDetail(
-  actionId: string
+  actionId: string,
 ): Promise<CompanyActionDetailResponse> {
-  return api<CompanyActionDetailResponse>(`/brain/knowledge/actions/${actionId}`);
+  return api<CompanyActionDetailResponse>(
+    `/brain/knowledge/actions/${actionId}`,
+  );
 }
 
 export async function brainKnowledgeActionPropose(payload: {
@@ -8048,6 +11803,8 @@ export async function brainKnowledgeActionPropose(payload: {
   source_insight_id?: string | null;
   source_event_id?: string | null;
   source_claim_ids?: string[] | null;
+  source_company_decision_id?: string | null;
+  source_scenario_id?: string | null;
   assignee_id?: string | null;
   approver_id?: string | null;
   depends_on?: string[] | null;
@@ -8065,7 +11822,7 @@ export async function brainKnowledgeActionTransition(
     note?: string | null;
     assignee_id?: string | null;
     due_at?: string | null;
-  }
+  },
 ): Promise<CompanyAction> {
   return api<CompanyAction>(`/brain/knowledge/actions/${actionId}/transition`, {
     method: "POST",
@@ -8081,8 +11838,11 @@ export async function brainKnowledgeActionOutcome(
     effectiveness?: number;
     notes?: string | null;
     evidence?: string[] | null;
-  }
-): Promise<{ outcome: CompanyActionDetailResponse["outcome"]; action: CompanyAction }> {
+  },
+): Promise<{
+  outcome: CompanyActionDetailResponse["outcome"];
+  action: CompanyAction;
+}> {
   return api(`/brain/knowledge/actions/${actionId}/outcome`, {
     method: "POST",
     body: payload,
@@ -8099,9 +11859,10 @@ export async function brainKnowledgeActionEvaluate(): Promise<{
 }
 
 export async function brainKnowledgeActionOutcomeIntelligence(): Promise<CompanyActionOutcomeIntelligence> {
-  return api<CompanyActionOutcomeIntelligence>("/brain/knowledge/actions/outcome-intelligence");
+  return api<CompanyActionOutcomeIntelligence>(
+    "/brain/knowledge/actions/outcome-intelligence",
+  );
 }
-
 
 // ------------------------------------------------------- Slice 4D.3 memory
 
@@ -8126,31 +11887,36 @@ export async function brainMemorySearch(payload: {
 export async function brainMemoryTimeline(params?: {
   limit?: number;
 }): Promise<BrainMemoryTimelineResponse> {
-  return api<BrainMemoryTimelineResponse>("/brain/memory/timeline", { query: params });
+  return api<BrainMemoryTimelineResponse>("/brain/memory/timeline", {
+    query: params,
+  });
 }
 
 export async function brainMemoryGet(memoryId: string): Promise<BrainMemory> {
   return api<BrainMemory>(`/brain/memory/${memoryId}`);
 }
 
-export async function brainMemoryEvidence(memoryId: string): Promise<BrainMemoryEvidenceResponse> {
+export async function brainMemoryEvidence(
+  memoryId: string,
+): Promise<BrainMemoryEvidenceResponse> {
   return api<BrainMemoryEvidenceResponse>(`/brain/memory/${memoryId}/evidence`);
 }
 
-export async function brainMemoryRelated(memoryId: string): Promise<BrainMemoryRelatedResponse> {
+export async function brainMemoryRelated(
+  memoryId: string,
+): Promise<BrainMemoryRelatedResponse> {
   return api<BrainMemoryRelatedResponse>(`/brain/memory/${memoryId}/related`);
 }
 
 export async function brainMemoryRecordOutcome(
   memoryId: string,
-  payload: BrainMemoryOutcomeRequest
+  payload: BrainMemoryOutcomeRequest,
 ): Promise<BrainMemory> {
   return api<BrainMemory>(`/brain/memory/${memoryId}/outcome`, {
     method: "POST",
     body: payload,
   });
 }
-
 
 // ------------------------------------------------------- Slice 4D.4 patterns
 
@@ -8162,92 +11928,115 @@ export async function brainPatternsList(params?: {
   return api<BrainPatternsListResponse>("/brain/patterns", { query: params });
 }
 
-export async function brainPatternGet(patternId: string): Promise<BrainPattern> {
+export async function brainPatternGet(
+  patternId: string,
+): Promise<BrainPattern> {
   return api<BrainPattern>(`/brain/patterns/${patternId}`);
 }
 
 export async function brainPatternEvidence(
-  patternId: string
+  patternId: string,
 ): Promise<BrainPatternEvidenceResponse> {
-  return api<BrainPatternEvidenceResponse>(`/brain/patterns/${patternId}/evidence`);
+  return api<BrainPatternEvidenceResponse>(
+    `/brain/patterns/${patternId}/evidence`,
+  );
 }
 
 export async function brainPatternHistory(
   patternId: string,
-  params?: { limit?: number }
+  params?: { limit?: number },
 ): Promise<BrainPatternHistoryResponse> {
-  return api<BrainPatternHistoryResponse>(`/brain/patterns/${patternId}/history`, {
-    query: params,
-  });
+  return api<BrainPatternHistoryResponse>(
+    `/brain/patterns/${patternId}/history`,
+    {
+      query: params,
+    },
+  );
 }
 
 export async function brainPatternRelated(
   patternId: string,
-  params?: { limit?: number }
+  params?: { limit?: number },
 ): Promise<BrainPatternRelatedResponse> {
-  return api<BrainPatternRelatedResponse>(`/brain/patterns/${patternId}/related`, {
-    query: params,
-  });
+  return api<BrainPatternRelatedResponse>(
+    `/brain/patterns/${patternId}/related`,
+    {
+      query: params,
+    },
+  );
 }
 
 export async function brainPatternSetStatus(
-    patternId: string,
-    status: string
-  ): Promise<{ id: string; status: string }> {
-    return api(`/brain/patterns/${patternId}`, {
-      method: "PATCH",
-      body: { status },
-    });
-  }
+  patternId: string,
+  status: string,
+): Promise<{ id: string; status: string }> {
+  return api(`/brain/patterns/${patternId}`, {
+    method: "PATCH",
+    body: { status },
+  });
+}
 
-  export async function brainInsightsList(params?: {
-    status?: string;
-    insight_type?: string;
-    severity?: string;
-    limit?: number;
-  }): Promise<BrainInsightsListResponse> {
-    return api<BrainInsightsListResponse>("/brain/insights", { query: params });
-  }
+export async function brainInsightsList(params?: {
+  status?: string;
+  insight_type?: string;
+  severity?: string;
+  limit?: number;
+}): Promise<BrainInsightsListResponse> {
+  return api<BrainInsightsListResponse>("/brain/insights", { query: params });
+}
 
-  export async function brainInsightGet(insightId: string): Promise<BrainInsight> {
-    return api<BrainInsight>(`/brain/insights/${insightId}`);
-  }
+export async function brainInsightGet(
+  insightId: string,
+): Promise<BrainInsight> {
+  return api<BrainInsight>(`/brain/insights/${insightId}`);
+}
 
-  export async function brainInsightEvidence(
-    insightId: string
-  ): Promise<BrainInsightEvidenceResponse> {
-    return api<BrainInsightEvidenceResponse>(`/brain/insights/${insightId}/evidence`);
-  }
+export async function brainInsightEvidence(
+  insightId: string,
+): Promise<BrainInsightEvidenceResponse> {
+  return api<BrainInsightEvidenceResponse>(
+    `/brain/insights/${insightId}/evidence`,
+  );
+}
 
-  export async function brainInsightHistory(
-    insightId: string,
-    params?: { limit?: number }
-  ): Promise<BrainInsightHistoryResponse> {
-    return api<BrainInsightHistoryResponse>(`/brain/insights/${insightId}/history`, {
+export async function brainInsightHistory(
+  insightId: string,
+  params?: { limit?: number },
+): Promise<BrainInsightHistoryResponse> {
+  return api<BrainInsightHistoryResponse>(
+    `/brain/insights/${insightId}/history`,
+    {
       query: params,
-    });
-  }
+    },
+  );
+}
 
-  export async function brainInsightRelated(
-    insightId: string,
-    params?: { limit?: number }
-  ): Promise<BrainInsightRelatedResponse> {
-    return api<BrainInsightRelatedResponse>(`/brain/insights/${insightId}/related`, {
+export async function brainInsightRelated(
+  insightId: string,
+  params?: { limit?: number },
+): Promise<BrainInsightRelatedResponse> {
+  return api<BrainInsightRelatedResponse>(
+    `/brain/insights/${insightId}/related`,
+    {
       query: params,
-    });
-  }
+    },
+  );
+}
 
 export async function brainGraphRelationshipSync(payload: {
   entity_type?: string;
   entity_id?: string;
 }): Promise<{ synced: number; mode: "entity" | "recent" }> {
-  return api("/brain/graph/relationships/sync", { method: "POST", body: payload });
+  return api("/brain/graph/relationships/sync", {
+    method: "POST",
+    body: payload,
+  });
 }
 
 export async function brainGraphRelationshipTraverse(
   nodeType: string,
   nodeId: string,
-  maxDepth = 3
+  maxDepth = 3,
 ): Promise<BrainGraphTraversal> {
   return api<BrainGraphTraversal>("/brain/graph/relationships/traverse", {
     query: { node_type: nodeType, node_id: nodeId, max_depth: maxDepth },
@@ -8338,7 +12127,10 @@ export interface OwnershipContinuityResponse {
   object_name: string;
   primary: OwnershipRelationshipRow | null;
   backup: OwnershipRelationshipRow | null;
-  delegation: { scope_id?: string | null; grants: OwnershipDelegationGrant[] } | null;
+  delegation: {
+    scope_id?: string | null;
+    grants: OwnershipDelegationGrant[];
+  } | null;
   escalation: { scope_id?: string | null; scope_name?: string | null } | null;
   gaps: string[];
 }
@@ -8387,51 +12179,51 @@ export interface OwnershipAnalysisSummary {
 
 export async function brainOwnershipObject(
   objectType: string,
-  objectId: string
+  objectId: string,
 ): Promise<OwnershipObjectView> {
   return api<OwnershipObjectView>(
-    `/brain/ownership/objects/${objectType}/${objectId}`
+    `/brain/ownership/objects/${objectType}/${objectId}`,
   );
 }
 
 export async function brainOwnershipHistory(
   objectType: string,
   objectId: string,
-  limit = 50
+  limit = 50,
 ): Promise<OwnershipHistoryResponse> {
   return api<OwnershipHistoryResponse>(
     `/brain/ownership/objects/${objectType}/${objectId}/history`,
-    { query: { limit } }
+    { query: { limit } },
   );
 }
 
 export async function brainOwnershipAsOf(
   objectType: string,
   objectId: string,
-  at?: string
+  at?: string,
 ): Promise<OwnershipAsOfResponse> {
   return api<OwnershipAsOfResponse>(
     `/brain/ownership/objects/${objectType}/${objectId}/as-of`,
-    { query: { at } }
+    { query: { at } },
   );
 }
 
 export async function brainOwnershipContinuity(
   objectType: string,
-  objectId: string
+  objectId: string,
 ): Promise<OwnershipContinuityResponse> {
   return api<OwnershipContinuityResponse>(
-    `/brain/ownership/objects/${objectType}/${objectId}/continuity`
+    `/brain/ownership/objects/${objectType}/${objectId}/continuity`,
   );
 }
 
 export async function getPersonResponsibilities(
   personId: string,
-  activeOnly = true
+  activeOnly = true,
 ): Promise<PersonResponsibilitiesResponse> {
   return api<PersonResponsibilitiesResponse>(
     `/brain/ownership/people/${personId}/responsibilities`,
-    { query: { active_only: String(activeOnly) } }
+    { query: { active_only: String(activeOnly) } },
   );
 }
 
@@ -8446,7 +12238,11 @@ export async function assignOwnership(payload: {
   declared_start?: string;
   declared_end?: string;
   reason?: string;
-}): Promise<{ relationship: OwnershipRelationshipRow; change: OwnershipChangeEvent; transferred: boolean }> {
+}): Promise<{
+  relationship: OwnershipRelationshipRow;
+  change: OwnershipChangeEvent;
+  transferred: boolean;
+}> {
   return api("/brain/ownership/assign", { method: "POST", body: payload });
 }
 
@@ -8454,7 +12250,11 @@ export async function transferOwnership(payload: {
   object_type: string;
   object_id: string;
   to_owner_id: string;
-}): Promise<{ relationship: OwnershipRelationshipRow; change: OwnershipChangeEvent; transferred: boolean }> {
+}): Promise<{
+  relationship: OwnershipRelationshipRow;
+  change: OwnershipChangeEvent;
+  transferred: boolean;
+}> {
   return api("/brain/ownership/transfer", { method: "POST", body: payload });
 }
 
@@ -8462,7 +12262,10 @@ export async function setOwnershipBackup(payload: {
   object_type: string;
   object_id: string;
   backup_owner_id: string;
-}): Promise<{ relationship: OwnershipRelationshipRow; change: OwnershipChangeEvent | null }> {
+}): Promise<{
+  relationship: OwnershipRelationshipRow;
+  change: OwnershipChangeEvent | null;
+}> {
   return api("/brain/ownership/backup", { method: "POST", body: payload });
 }
 
@@ -8470,20 +12273,23 @@ export async function closeOwnership(payload: {
   object_type: string;
   object_id: string;
   reason?: string;
-}): Promise<{ relationship: OwnershipRelationshipRow; change: OwnershipChangeEvent }> {
+}): Promise<{
+  relationship: OwnershipRelationshipRow;
+  change: OwnershipChangeEvent;
+}> {
   return api("/brain/ownership/close", { method: "POST", body: payload });
 }
 
 export async function brainOwnershipDryRun(
   offset = 0,
-  limit = 200
+  limit = 200,
 ): Promise<{ dry_run: boolean; would_scan: number; note: string }> {
   return api("/brain/ownership/analyze", { query: { offset, limit } });
 }
 
 export async function runOwnershipAnalysis(
   offset = 0,
-  limit = 200
+  limit = 200,
 ): Promise<OwnershipAnalysisSummary> {
   return api("/brain/ownership/analyze", {
     method: "POST",
@@ -8494,7 +12300,7 @@ export async function runOwnershipAnalysis(
 export async function getOwnershipSignals(
   kind?: string,
   status = "open",
-  limit = 200
+  limit = 200,
 ): Promise<OwnershipSignalsResponse> {
   return api<OwnershipSignalsResponse>("/brain/ownership/signals", {
     query: { kind, status, limit },
@@ -8502,11 +12308,11 @@ export async function getOwnershipSignals(
 }
 
 export async function resolveOwnershipSignal(
-  signalId: string
+  signalId: string,
 ): Promise<{ signal: OwnershipSignalRow }> {
   return api<{ signal: OwnershipSignalRow }>(
     `/brain/ownership/signals/${signalId}/resolve`,
-    { method: "POST" }
+    { method: "POST" },
   );
 }
 
@@ -8515,9 +12321,16 @@ export async function getOwnershipSummary(): Promise<OwnershipSummary> {
 }
 
 export async function ownershipCoverageCheck(
-  objects: { object_type: string; object_id: string; object_name?: string }[]
-): Promise<{ checked: number; unassigned: { object_type: string; object_id: string; object_name: string }[]; unassigned_total: number }> {
-  return api("/brain/ownership/coverage-check", { method: "POST", body: { objects } });
+  objects: { object_type: string; object_id: string; object_name?: string }[],
+): Promise<{
+  checked: number;
+  unassigned: { object_type: string; object_id: string; object_name: string }[];
+  unassigned_total: number;
+}> {
+  return api("/brain/ownership/coverage-check", {
+    method: "POST",
+    body: { objects },
+  });
 }
 
 // ------------------------------------------- Slice 4F.5 work collaboration graph
@@ -8651,7 +12464,11 @@ export interface CollaborationProjectView {
   project_id: string;
   project_name: string;
   total_evidence: number;
-  people: { person_id: string; evidence_count: number; share_of_project_evidence: number }[];
+  people: {
+    person_id: string;
+    evidence_count: number;
+    share_of_project_evidence: number;
+  }[];
   top_pairs: {
     person_a_id: string;
     person_a_label: string | null;
@@ -8697,43 +12514,48 @@ export async function getCollaborationOverview(): Promise<CollaborationOverview>
 export async function getCollaborationPair(
   personA: string,
   personB: string,
-  limit = 10
+  limit = 10,
 ): Promise<CollaborationPairDetail> {
   return api<CollaborationPairDetail>(
     `/brain/collaboration/relationships/people/${personA}/with/${personB}`,
-    { query: { limit } }
+    { query: { limit } },
   );
 }
 
 export async function getCollaborationPerson(
   personId: string,
-  limit = 20
+  limit = 20,
 ): Promise<CollaborationPersonView> {
-  return api<CollaborationPersonView>(`/brain/collaboration/people/${personId}`, {
-    query: { limit },
-  });
+  return api<CollaborationPersonView>(
+    `/brain/collaboration/people/${personId}`,
+    {
+      query: { limit },
+    },
+  );
 }
 
 export async function getCollaborationUnit(
   unitType: "team" | "department",
   unitId: string,
-  limit = 20
+  limit = 20,
 ): Promise<CollaborationUnitView> {
   return api<CollaborationUnitView>(
     `/brain/collaboration/units/${unitType}/${unitId}`,
-    { query: { limit } }
+    { query: { limit } },
   );
 }
 
 export async function getCollaborationProject(
-  projectId: string
+  projectId: string,
 ): Promise<CollaborationProjectView> {
-  return api<CollaborationProjectView>(`/brain/collaboration/projects/${projectId}`);
+  return api<CollaborationProjectView>(
+    `/brain/collaboration/projects/${projectId}`,
+  );
 }
 
 export async function getCollaborationChanges(
   days = 30,
-  limit = 20
+  limit = 20,
 ): Promise<CollaborationChangesResponse> {
   return api<CollaborationChangesResponse>("/brain/collaboration/changes", {
     query: { days, limit },
@@ -8743,7 +12565,7 @@ export async function getCollaborationChanges(
 export async function getCollaborationSignals(
   kind?: string,
   status = "open",
-  limit = 50
+  limit = 50,
 ): Promise<CollaborationSignalsResponse> {
   return api<CollaborationSignalsResponse>("/brain/collaboration/signals", {
     query: { kind, status, limit },
@@ -8757,11 +12579,11 @@ export async function runCollaborationGapAnalysis(): Promise<CollaborationAnalyz
 }
 
 export async function resolveCollaborationSignal(
-  signalId: string
+  signalId: string,
 ): Promise<{ resolved: string; kind: string }> {
   return api<{ resolved: string; kind: string }>(
     `/brain/collaboration/signals/${signalId}/resolve`,
-    { method: "POST" }
+    { method: "POST" },
   );
 }
 
@@ -8885,8 +12707,19 @@ export interface CapabilityDetail {
   knowledge: { topic_id: string; name: string; category: string | null }[];
   history: CapabilityHistoryRow[];
   evidence_by_kind: { kind: string; count: number }[];
-  signals: { signal_id: string; kind: string; severity: string; detail: string; status: string }[];
-  adjacent: { skill_id: string; name: string; category: string | null; shared_experts: number }[];
+  signals: {
+    signal_id: string;
+    kind: string;
+    severity: string;
+    detail: string;
+    status: string;
+  }[];
+  adjacent: {
+    skill_id: string;
+    name: string;
+    category: string | null;
+    shared_experts: number;
+  }[];
   generated_at: string;
 }
 
@@ -8917,21 +12750,32 @@ export async function getCapabilitySignals(): Promise<CapabilitySignalsResponse>
   return api<CapabilitySignalsResponse>("/brain/capabilities/signals");
 }
 
-export async function getCapabilityDetail(skillId: string): Promise<CapabilityDetail> {
+export async function getCapabilityDetail(
+  skillId: string,
+): Promise<CapabilityDetail> {
   return api<CapabilityDetail>(`/brain/capabilities/${skillId}`);
 }
 
 export async function acknowledgeCapabilitySignal(
-  signalId: string
-): Promise<{ signal_id: string; skill_name: string; kind: string; status: string }> {
-  return api<{ signal_id: string; skill_name: string; kind: string; status: string }>(
-    `/brain/capabilities/signals/${signalId}/acknowledge`,
-    { method: "PATCH" }
-  );
+  signalId: string,
+): Promise<{
+  signal_id: string;
+  skill_name: string;
+  kind: string;
+  status: string;
+}> {
+  return api<{
+    signal_id: string;
+    skill_name: string;
+    kind: string;
+    status: string;
+  }>(`/brain/capabilities/signals/${signalId}/acknowledge`, {
+    method: "PATCH",
+  });
 }
 
 export async function analyzeCapabilityInitiative(
-  question: string
+  question: string,
 ): Promise<CapabilityInitiativeResponse> {
   return api<CapabilityInitiativeResponse>("/brain/capabilities/initiative", {
     method: "POST",
@@ -8996,7 +12840,11 @@ export interface PeopleDecisionRecord {
   evidence: PeopleDecisionEvidenceItem[];
   simulations: PeopleDecisionSimulationRow[];
   audit: PeopleDecisionAuditRow[];
-  outcome: { status: string | null; note: string | null; recorded_by: string | null } | null;
+  outcome: {
+    status: string | null;
+    note: string | null;
+    recorded_by: string | null;
+  } | null;
   recommended_person_id?: string | null;
   recommended_person_label?: string | null;
   confidence?: number;
@@ -9054,7 +12902,9 @@ export interface PeopleDecisionBrainResponse {
   generated_at: string;
 }
 
-export async function askPeopleDecision(question: string): Promise<PeopleDecisionBrainResponse> {
+export async function askPeopleDecision(
+  question: string,
+): Promise<PeopleDecisionBrainResponse> {
   return api<PeopleDecisionBrainResponse>("/brain/knowledge/query", {
     method: "POST",
     body: { question },
@@ -9062,32 +12912,35 @@ export async function askPeopleDecision(question: string): Promise<PeopleDecisio
 }
 
 export async function getPeopleDecisions(
-  params: { limit?: number; lifecycle?: string; decision_type?: string } = {}
+  params: { limit?: number; lifecycle?: string; decision_type?: string } = {},
 ): Promise<PeopleDecisionListResponse> {
   return api<PeopleDecisionListResponse>("/brain/decisions", { query: params });
 }
 
-export async function getPeopleDecisionDetail(id: string): Promise<PeopleDecisionDetail> {
+export async function getPeopleDecisionDetail(
+  id: string,
+): Promise<PeopleDecisionDetail> {
   return api<PeopleDecisionDetail>(`/brain/decisions/${id}`);
 }
 
-export async function createPeopleDecision(
-  body: {
-    decision_type: string;
-    objective: string;
-    requirements: string[];
-    context_type?: string | null;
-    context_id?: string | null;
-    context_label?: string | null;
-    risk_tier?: string | null;
-  }
-): Promise<PeopleDecisionDetail> {
-  return api<PeopleDecisionDetail>("/brain/decisions", { method: "POST", body });
+export async function createPeopleDecision(body: {
+  decision_type: string;
+  objective: string;
+  requirements: string[];
+  context_type?: string | null;
+  context_id?: string | null;
+  context_label?: string | null;
+  risk_tier?: string | null;
+}): Promise<PeopleDecisionDetail> {
+  return api<PeopleDecisionDetail>("/brain/decisions", {
+    method: "POST",
+    body,
+  });
 }
 
 export async function peopleDecisionLifecycle(
   id: string,
-  action: string
+  action: string,
 ): Promise<PeopleDecisionDetail> {
   return api<PeopleDecisionDetail>(`/brain/decisions/${id}/lifecycle`, {
     method: "POST",
@@ -9098,7 +12951,7 @@ export async function peopleDecisionLifecycle(
 export async function recordPeopleDecisionOutcome(
   id: string,
   status: "successful" | "unsuccessful",
-  note: string
+  note: string,
 ): Promise<PeopleDecisionDetail> {
   return api<PeopleDecisionDetail>(`/brain/decisions/${id}/outcome`, {
     method: "POST",
@@ -9108,9 +12961,17 @@ export async function recordPeopleDecisionOutcome(
 
 export async function peopleDecisionWhatIf(
   id: string,
-  personId: string
-): Promise<{ person: { id: string; name: string }; verdict: string; deltas: Record<string, unknown>; generated_at: string }> {
-  return api(`/brain/decisions/${id}/what-if`, { method: "POST", body: { person_id: personId } });
+  personId: string,
+): Promise<{
+  person: { id: string; name: string };
+  verdict: string;
+  deltas: Record<string, unknown>;
+  generated_at: string;
+}> {
+  return api(`/brain/decisions/${id}/what-if`, {
+    method: "POST",
+    body: { person_id: personId },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -9306,7 +13167,9 @@ export async function getExecutionNext(): Promise<ExecutionNextResponse> {
   return api<ExecutionNextResponse>("/brain/execution/next");
 }
 
-export async function getExecutionProjectDetail(projectId: string): Promise<ExecutionProjectDetail> {
+export async function getExecutionProjectDetail(
+  projectId: string,
+): Promise<ExecutionProjectDetail> {
   return api<ExecutionProjectDetail>(`/brain/execution/projects/${projectId}`);
 }
 
@@ -9317,15 +13180,20 @@ export async function recordExecutionOutcome(
     planned_outcome?: string;
     actual_outcome?: string;
     assessment?: string;
-  }
+  },
 ): Promise<ExecutionOutcome> {
-  return api<ExecutionOutcome>(`/brain/execution/projects/${projectId}/outcome`, {
-    method: "POST",
-    body,
-  });
+  return api<ExecutionOutcome>(
+    `/brain/execution/projects/${projectId}/outcome`,
+    {
+      method: "POST",
+      body,
+    },
+  );
 }
 
-export async function askExecution(question: string): Promise<ExecutionQueryResponse> {
+export async function askExecution(
+  question: string,
+): Promise<ExecutionQueryResponse> {
   return api<ExecutionQueryResponse>("/brain/knowledge/query", {
     method: "POST",
     body: { question },
@@ -9453,7 +13321,12 @@ export interface CoordinationWhatIfOption {
   shift_days?: number;
   effects?: Array<{ surface: string; before: string; after: string }>;
   options?: CoordinationAlternative[];
-  topics?: Array<{ topic: string; entity_type: string; entity_id: string; category: string }>;
+  topics?: Array<{
+    topic: string;
+    entity_type: string;
+    entity_id: string;
+    category: string;
+  }>;
 }
 
 export interface CoordinationWhatIf {
@@ -9496,28 +13369,43 @@ export interface CoordinationQueryResponse {
 }
 
 export async function getCoordinationCenter(): Promise<CoordinationCenterResponse> {
-  return api<CoordinationCenterResponse>("/brain/execution/coordination/center");
+  return api<CoordinationCenterResponse>(
+    "/brain/execution/coordination/center",
+  );
 }
 
-export async function getCoordinationProject(projectId: string): Promise<CoordinationProjectDetail> {
-  return api<CoordinationProjectDetail>(`/brain/execution/coordination/projects/${projectId}`);
+export async function getCoordinationProject(
+  projectId: string,
+): Promise<CoordinationProjectDetail> {
+  return api<CoordinationProjectDetail>(
+    `/brain/execution/coordination/projects/${projectId}`,
+  );
 }
 
-export async function getCoordinationWhatIf(projectId: string): Promise<CoordinationWhatIfResponse> {
-  return api<CoordinationWhatIfResponse>(`/brain/execution/coordination/projects/${projectId}/what-if`);
+export async function getCoordinationWhatIf(
+  projectId: string,
+): Promise<CoordinationWhatIfResponse> {
+  return api<CoordinationWhatIfResponse>(
+    `/brain/execution/coordination/projects/${projectId}/what-if`,
+  );
 }
 
 export async function resolveCoordinationIncident(
   incidentId: string,
-  note?: string
+  note?: string,
 ): Promise<CoordinationIncidentRow> {
-  return api<CoordinationIncidentRow>(`/brain/execution/coordination/incidents/${incidentId}/resolve`, {
-    method: "POST",
-    body: { note },
-  });
+  return api<CoordinationIncidentRow>(
+    `/brain/execution/coordination/incidents/${incidentId}/resolve`,
+    {
+      method: "POST",
+      body: { note },
+    },
+  );
 }
 
-export async function askCoordination(question: string): Promise<CoordinationQueryResponse> {
+export async function askCoordination(
+  question: string,
+): Promise<CoordinationQueryResponse> {
   return api<CoordinationQueryResponse>("/brain/knowledge/query", {
     method: "POST",
     body: { question },
@@ -9830,57 +13718,88 @@ export interface CustomerIntelligenceCenterResponse {
 }
 
 export async function getCustomerIntelligenceHealth(): Promise<CustomerIntelligenceHealthResponse> {
-  return api<CustomerIntelligenceHealthResponse>("/brain/execution/customer/health");
+  return api<CustomerIntelligenceHealthResponse>(
+    "/brain/execution/customer/health",
+  );
 }
 
 export async function getCustomerIntelligenceSignals(): Promise<CustomerIntelligenceSignalsResponse> {
-  return api<CustomerIntelligenceSignalsResponse>("/brain/execution/customer/signals");
+  return api<CustomerIntelligenceSignalsResponse>(
+    "/brain/execution/customer/signals",
+  );
 }
 
 export async function getCustomerIntelligenceThemes(): Promise<CustomerIntelligenceThemesResponse> {
-  return api<CustomerIntelligenceThemesResponse>("/brain/execution/customer/themes");
+  return api<CustomerIntelligenceThemesResponse>(
+    "/brain/execution/customer/themes",
+  );
 }
 
 export async function getCustomerIntelligenceRisk(): Promise<CustomerIntelligenceRiskResponse> {
-  return api<CustomerIntelligenceRiskResponse>("/brain/execution/customer/risk");
+  return api<CustomerIntelligenceRiskResponse>(
+    "/brain/execution/customer/risk",
+  );
 }
 
 export async function getCustomerIntelligenceCommitments(): Promise<CustomerIntelligenceCommitmentsResponse> {
-  return api<CustomerIntelligenceCommitmentsResponse>("/brain/execution/customer/commitments");
+  return api<CustomerIntelligenceCommitmentsResponse>(
+    "/brain/execution/customer/commitments",
+  );
 }
 
 export async function getCustomerIntelligenceOutcomes(): Promise<CustomerIntelligenceOutcomesResponse> {
-  return api<CustomerIntelligenceOutcomesResponse>("/brain/execution/customer/outcomes");
+  return api<CustomerIntelligenceOutcomesResponse>(
+    "/brain/execution/customer/outcomes",
+  );
 }
 
 export async function getCustomerIntelligenceCoverage(): Promise<CustomerIntelligenceCoverageResponse> {
-  return api<CustomerIntelligenceCoverageResponse>("/brain/execution/customer/coverage");
+  return api<CustomerIntelligenceCoverageResponse>(
+    "/brain/execution/customer/coverage",
+  );
 }
 
 export async function getCustomerIntelligenceGaps(): Promise<CustomerIntelligenceGapsResponse> {
-  return api<CustomerIntelligenceGapsResponse>("/brain/execution/customer/gaps");
+  return api<CustomerIntelligenceGapsResponse>(
+    "/brain/execution/customer/gaps",
+  );
 }
 
 export async function getCustomerIntelligenceOpportunities(): Promise<CustomerIntelligenceOpportunitiesResponse> {
-  return api<CustomerIntelligenceOpportunitiesResponse>("/brain/execution/customer/opportunities");
+  return api<CustomerIntelligenceOpportunitiesResponse>(
+    "/brain/execution/customer/opportunities",
+  );
 }
 
 export async function getCustomerIntelligenceTrends(): Promise<CustomerIntelligenceTrendsResponse> {
-  return api<CustomerIntelligenceTrendsResponse>("/brain/execution/customer/trends");
+  return api<CustomerIntelligenceTrendsResponse>(
+    "/brain/execution/customer/trends",
+  );
 }
 
 export async function getCustomerIntelligenceKnowledge(): Promise<CustomerIntelligenceKnowledgeResponse> {
-  return api<CustomerIntelligenceKnowledgeResponse>("/brain/execution/customer/knowledge");
+  return api<CustomerIntelligenceKnowledgeResponse>(
+    "/brain/execution/customer/knowledge",
+  );
 }
 
-export async function getCustomerIntelligenceCenter(customerId: string): Promise<CustomerIntelligenceCenterResponse> {
-  return api<CustomerIntelligenceCenterResponse>(`/brain/execution/customer/customers/${customerId}`);
+export async function getCustomerIntelligenceCenter(
+  customerId: string,
+): Promise<CustomerIntelligenceCenterResponse> {
+  return api<CustomerIntelligenceCenterResponse>(
+    `/brain/execution/customer/customers/${customerId}`,
+  );
 }
 
-export async function resolveCustomerSignal(signalId: string): Promise<CustomerIntelligenceSignalRow> {
+export async function resolveCustomerSignal(
+  signalId: string,
+): Promise<CustomerIntelligenceSignalRow> {
   return api<CustomerIntelligenceSignalRow>(
     `/brain/execution/customer/signals/${signalId}/resolve`,
-    { method: "POST", body: { note: "Resolved from the Customer Intelligence tab" } }
+    {
+      method: "POST",
+      body: { note: "Resolved from the Customer Intelligence tab" },
+    },
   );
 }
 
@@ -9892,16 +13811,24 @@ export async function recordCustomerCommitment(input: {
   capability?: string;
   owner_label?: string;
 }): Promise<CustomerIntelligenceCommitmentRow> {
-  return api<CustomerIntelligenceCommitmentRow>("/brain/execution/customer/commitments", {
-    method: "POST",
-    body: input,
-  });
+  return api<CustomerIntelligenceCommitmentRow>(
+    "/brain/execution/customer/commitments",
+    {
+      method: "POST",
+      body: input,
+    },
+  );
 }
 
-export async function deliverCustomerCommitment(commitmentId: string): Promise<CustomerIntelligenceCommitmentRow> {
+export async function deliverCustomerCommitment(
+  commitmentId: string,
+): Promise<CustomerIntelligenceCommitmentRow> {
   return api<CustomerIntelligenceCommitmentRow>(
     `/brain/execution/customer/commitments/${commitmentId}/deliver`,
-    { method: "POST", body: { note: "Delivered from the Customer Intelligence tab" } }
+    {
+      method: "POST",
+      body: { note: "Delivered from the Customer Intelligence tab" },
+    },
   );
 }
 
@@ -9915,10 +13842,13 @@ export async function recordCustomerOutcome(input: {
   period_label?: string;
   note?: string;
 }): Promise<CustomerIntelligenceOutcomeRow> {
-  return api<CustomerIntelligenceOutcomeRow>("/brain/execution/customer/outcomes", {
-    method: "POST",
-    body: input,
-  });
+  return api<CustomerIntelligenceOutcomeRow>(
+    "/brain/execution/customer/outcomes",
+    {
+      method: "POST",
+      body: input,
+    },
+  );
 }
 
 export async function recordCustomerSignal(input: {
@@ -9929,13 +13859,18 @@ export async function recordCustomerSignal(input: {
   need?: string;
   source?: string;
 }): Promise<CustomerIntelligenceSignalRow> {
-  return api<CustomerIntelligenceSignalRow>("/brain/execution/customer/signals", {
-    method: "POST",
-    body: input,
-  });
+  return api<CustomerIntelligenceSignalRow>(
+    "/brain/execution/customer/signals",
+    {
+      method: "POST",
+      body: input,
+    },
+  );
 }
 
-export async function askCustomerIntelligence(question: string): Promise<Record<string, unknown>> {
+export async function askCustomerIntelligence(
+  question: string,
+): Promise<Record<string, unknown>> {
   return api<Record<string, unknown>>("/brain/knowledge/query", {
     method: "POST",
     body: { question },
@@ -10237,7 +14172,11 @@ export interface BusinessTargetDetailResponse {
     source: string;
     provenance: string;
   }>;
-  achievements: Array<{ value: number; observed_at: string; provenance: string }>;
+  achievements: Array<{
+    value: number;
+    observed_at: string;
+    provenance: string;
+  }>;
   related: {
     initiatives: string[];
     projects: string[];
@@ -10281,7 +14220,12 @@ export interface BusinessBehindTargetResponse {
     scope: string;
     last_observed_at: string;
   };
-  trajectory: Array<{ value: number; observed_at: string; label: string; source: string }>;
+  trajectory: Array<{
+    value: number;
+    observed_at: string;
+    label: string;
+    source: string;
+  }>;
   drivers: Array<{
     driver_key: string;
     title: string;
@@ -10305,7 +14249,12 @@ export interface BusinessBehindTargetResponse {
     outcomes_matched: number;
     outcomes_improved: number;
   };
-  knowledge: Array<{ topic_id: string; name: string; matched: boolean; note: string }>;
+  knowledge: Array<{
+    topic_id: string;
+    name: string;
+    matched: boolean;
+    note: string;
+  }>;
   strategy: Array<{
     type: string;
     id: string;
@@ -10322,7 +14271,10 @@ export interface BusinessBehindTargetResponse {
   }>;
   dependencies: { incidents: string[]; incident_count: number };
   capacity: { bottlenecks: string[] };
-  decisions: { open: Array<{ id: string; title: string; open_actions: number }>; open_count: number };
+  decisions: {
+    open: Array<{ id: string; title: string; open_actions: number }>;
+    open_count: number;
+  };
   expected_outcomes: string[];
   learning: string[];
   what_to_do: Array<{
@@ -10344,18 +14296,28 @@ export async function getBusinessMetrics(): Promise<BusinessMetricsResponse> {
   return api<BusinessMetricsResponse>("/brain/execution/business/metrics");
 }
 
-export async function getBusinessMetric(metricKey: string): Promise<BusinessMetricDetailResponse> {
-  return api<BusinessMetricDetailResponse>(`/brain/execution/business/metrics/${metricKey}`);
-}
-
-export async function getBusinessTargets(status?: string): Promise<BusinessTargetsResponse> {
-  return api<BusinessTargetsResponse>(
-    `/brain/execution/business/targets${status ? `?status=${status}` : ""}`
+export async function getBusinessMetric(
+  metricKey: string,
+): Promise<BusinessMetricDetailResponse> {
+  return api<BusinessMetricDetailResponse>(
+    `/brain/execution/business/metrics/${metricKey}`,
   );
 }
 
-export async function getBusinessTarget(targetId: string): Promise<BusinessTargetDetailResponse> {
-  return api<BusinessTargetDetailResponse>(`/brain/execution/business/targets/${targetId}`);
+export async function getBusinessTargets(
+  status?: string,
+): Promise<BusinessTargetsResponse> {
+  return api<BusinessTargetsResponse>(
+    `/brain/execution/business/targets${status ? `?status=${status}` : ""}`,
+  );
+}
+
+export async function getBusinessTarget(
+  targetId: string,
+): Promise<BusinessTargetDetailResponse> {
+  return api<BusinessTargetDetailResponse>(
+    `/brain/execution/business/targets/${targetId}`,
+  );
 }
 
 export async function getBusinessForecasts(): Promise<BusinessForecastsResponse> {
@@ -10367,15 +14329,21 @@ export async function getBusinessDrivers(): Promise<BusinessDriversResponse> {
 }
 
 export async function getBusinessPerformance(): Promise<BusinessPerformanceResponse> {
-  return api<BusinessPerformanceResponse>("/brain/execution/business/performance");
+  return api<BusinessPerformanceResponse>(
+    "/brain/execution/business/performance",
+  );
 }
 
 export async function getBusinessBehindTarget(): Promise<BusinessBehindTargetResponse> {
-  return api<BusinessBehindTargetResponse>("/brain/execution/business/behind-target");
+  return api<BusinessBehindTargetResponse>(
+    "/brain/execution/business/behind-target",
+  );
 }
 
 export async function getBusinessRecommendations(): Promise<BusinessRecommendationsResponse> {
-  return api<BusinessRecommendationsResponse>("/brain/execution/business/recommendations");
+  return api<BusinessRecommendationsResponse>(
+    "/brain/execution/business/recommendations",
+  );
 }
 
 export async function recordBusinessMetric(input: {
@@ -10388,11 +14356,18 @@ export async function recordBusinessMetric(input: {
   period_granularity?: string;
   visibility?: string;
   scope?: string;
-}): Promise<{ metric_key: string; created: boolean; source_event_id: string; generated_at: string }> {
-  return api<{ metric_key: string; created: boolean; source_event_id: string; generated_at: string }>(
-    "/brain/execution/business/metrics",
-    { method: "POST", body: input }
-  );
+}): Promise<{
+  metric_key: string;
+  created: boolean;
+  source_event_id: string;
+  generated_at: string;
+}> {
+  return api<{
+    metric_key: string;
+    created: boolean;
+    source_event_id: string;
+    generated_at: string;
+  }>("/brain/execution/business/metrics", { method: "POST", body: input });
 }
 
 export async function recordBusinessOutcome(input: {
@@ -10402,11 +14377,18 @@ export async function recordBusinessOutcome(input: {
   source?: string;
   unit?: string;
   note?: string;
-}): Promise<{ outcome_recorded: boolean; metric_key: string; source_event_id: string; generated_at: string }> {
-  return api<{ outcome_recorded: boolean; metric_key: string; source_event_id: string; generated_at: string }>(
-    "/brain/execution/business/outcomes",
-    { method: "POST", body: input }
-  );
+}): Promise<{
+  outcome_recorded: boolean;
+  metric_key: string;
+  source_event_id: string;
+  generated_at: string;
+}> {
+  return api<{
+    outcome_recorded: boolean;
+    metric_key: string;
+    source_event_id: string;
+    generated_at: string;
+  }>("/brain/execution/business/outcomes", { method: "POST", body: input });
 }
 
 export async function recordBusinessTarget(input: {
@@ -10418,11 +14400,22 @@ export async function recordBusinessTarget(input: {
   unit?: string;
   rationale?: string;
   owner_label?: string;
-}): Promise<{ target_id: string; created: boolean; metric_key: string; period_label: string; source_event_id: string; generated_at: string }> {
-  return api<{ target_id: string; created: boolean; metric_key: string; period_label: string; source_event_id: string; generated_at: string }>(
-    "/brain/execution/business/targets",
-    { method: "POST", body: input }
-  );
+}): Promise<{
+  target_id: string;
+  created: boolean;
+  metric_key: string;
+  period_label: string;
+  source_event_id: string;
+  generated_at: string;
+}> {
+  return api<{
+    target_id: string;
+    created: boolean;
+    metric_key: string;
+    period_label: string;
+    source_event_id: string;
+    generated_at: string;
+  }>("/brain/execution/business/targets", { method: "POST", body: input });
 }
 
 export async function recordBusinessForecast(input: {
@@ -10434,11 +14427,20 @@ export async function recordBusinessForecast(input: {
   high?: number;
   confidence?: number;
   basis?: string;
-}): Promise<{ forecast_id: string; created: boolean; metric_key: string; source_event_id: string; generated_at: string }> {
-  return api<{ forecast_id: string; created: boolean; metric_key: string; source_event_id: string; generated_at: string }>(
-    "/brain/execution/business/forecasts",
-    { method: "POST", body: input }
-  );
+}): Promise<{
+  forecast_id: string;
+  created: boolean;
+  metric_key: string;
+  source_event_id: string;
+  generated_at: string;
+}> {
+  return api<{
+    forecast_id: string;
+    created: boolean;
+    metric_key: string;
+    source_event_id: string;
+    generated_at: string;
+  }>("/brain/execution/business/forecasts", { method: "POST", body: input });
 }
 
 export async function recordBusinessDriver(input: {
@@ -10450,14 +14452,23 @@ export async function recordBusinessDriver(input: {
   impact_shape?: string;
   metric_keys?: string[];
   description?: string;
-}): Promise<{ driver_key: string; created: boolean; source_event_id: string; generated_at: string }> {
-  return api<{ driver_key: string; created: boolean; source_event_id: string; generated_at: string }>(
-    "/brain/execution/business/drivers",
-    { method: "POST", body: input }
-  );
+}): Promise<{
+  driver_key: string;
+  created: boolean;
+  source_event_id: string;
+  generated_at: string;
+}> {
+  return api<{
+    driver_key: string;
+    created: boolean;
+    source_event_id: string;
+    generated_at: string;
+  }>("/brain/execution/business/drivers", { method: "POST", body: input });
 }
 
-export async function askBusinessPerformance(question: string): Promise<Record<string, unknown>> {
+export async function askBusinessPerformance(
+  question: string,
+): Promise<Record<string, unknown>> {
   return api<Record<string, unknown>>("/brain/knowledge/query", {
     method: "POST",
     body: { question },
@@ -10490,7 +14501,11 @@ export interface CompanyStateDimension {
   focus?: { title?: string; why?: string }[];
   projects?: CompanyStateDimensionProject[];
   incidents?: unknown[];
-  top_constraint?: { capability?: string; gap?: number; recommended_action?: string } | null;
+  top_constraint?: {
+    capability?: string;
+    gap?: number;
+    recommended_action?: string;
+  } | null;
   bottlenecks?: unknown[];
   person_overloads?: unknown[];
   team_overloads?: unknown[];
@@ -10623,6 +14638,93 @@ export interface CompanyWhatIfResponse {
   not_a_prediction: boolean;
   note: string;
   change?: Record<string, unknown>;
+  company_consequences?: CompanyWhatIfConsequence[];
+  company_hop_kinds?: string[];
+  generated_at: string;
+}
+
+// Slice 4H.1 — temporal health-trail series parameterized by scope.
+export interface CompanyTemporalStep {
+  occurred_at: string;
+  company_score: number;
+  company_state: string;
+  primary_constraint?: string | null;
+  domains: Record<string, number>;
+}
+
+export interface CompanyTemporalSeriesResponse {
+  advisory_only: boolean;
+  scope_type: string;
+  scope_id?: string | null;
+  count: number;
+  series: CompanyTemporalStep[];
+  latest: CompanyTemporalStep | null;
+  live_snapshot?: {
+    scope_type: string;
+    scope_id?: string | null;
+    company_score: number | null;
+    company_state: string;
+    domains: CompanyDomainRow[];
+    series?: CompanyTemporalStep[];
+    latest?: CompanyTemporalStep | null;
+  };
+  generated_at: string;
+}
+
+// Slice 4H.1 — "why did the score move" narrative over the trail.
+export interface CompanyNarrativeDelta {
+  domain: string;
+  label?: string;
+  delta: number;
+  direction: "down" | "up";
+  why: string;
+}
+
+export interface CompanyNarrativeStep {
+  window: string;
+  score_before: number;
+  score_after: number;
+  state_before: string;
+  state_after: string;
+  deltas: CompanyNarrativeDelta[];
+  constraint_shift?: string | null;
+}
+
+export interface CompanyNarrativeResponse {
+  advisory_only: boolean;
+  scope_type: string;
+  scope_id?: string | null;
+  window: string;
+  story: string[];
+  steps: CompanyNarrativeStep[];
+  generated_at: string;
+}
+
+// Slice 4H.1 — derived causality snapshot walk with labels + evidence.
+export interface CompanyCausalHop {
+  from_type: string;
+  from_id: string;
+  from_label?: string;
+  kind: string;
+  to_type: string;
+  to_id: string;
+  to_label?: string;
+  confidence: string;
+  evidence_ref: {
+    entity?: string;
+    id?: string;
+    label?: string;
+    kind?: string;
+  }[];
+  reverse: boolean;
+}
+
+export interface CompanyCausalChainResponse {
+  advisory_only: boolean;
+  subject: { type: string; id: string };
+  hops: CompanyCausalHop[];
+  depth: number;
+  bounded: boolean;
   generated_at: string;
 }
 
@@ -10664,6 +14766,17 @@ export interface CompanyDecisionRow {
   effectiveness?: number | null;
   lesson?: string | null;
   note?: string;
+  predicted_outcome?: Record<string, unknown> | null;
+  prediction_confidence?: number | null;
+  actual_outcome_compare?: {
+    predicted?: unknown;
+    observed?: string;
+    effectiveness_observed?: number | null;
+    prediction_confidence?: number | null;
+    aligned?: boolean;
+    reviewed_at?: string;
+  } | null;
+  reviewed_at?: string | null;
   updated_at?: string;
 }
 
@@ -10689,11 +14802,65 @@ export async function getCompanyState(): Promise<CompanyStateResponse> {
   return api<CompanyStateResponse>("/brain/execution/company/state");
 }
 
+export async function getCompanyTemporalSeries(params?: {
+  scope_type?: string;
+  scope_id?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+}): Promise<CompanyTemporalSeriesResponse> {
+  return api<CompanyTemporalSeriesResponse>("/brain/execution/company/state", {
+    query: params ?? {},
+  });
+}
+
+export async function getCompanyNarrative(params?: {
+  scope_type?: string;
+  scope_id?: string;
+  window?: number;
+}): Promise<CompanyNarrativeResponse> {
+  return api<CompanyNarrativeResponse>("/brain/execution/company/narrative", {
+    query: params ?? {},
+  });
+}
+
+export async function getCompanyCausalChain(
+  subjectType: string,
+  subjectId: string,
+  depth?: number,
+): Promise<CompanyCausalChainResponse> {
+  return api<CompanyCausalChainResponse>(
+    "/brain/execution/company/causal-chain",
+    {
+      query: {
+        subject_type: subjectType,
+        subject_id: subjectId,
+        ...(depth != null ? { depth } : {}),
+      },
+    },
+  );
+}
+
+export async function runCompanyWhatHappensIf(
+  scenarioType: string,
+  payload: Record<string, string | number>,
+): Promise<CompanyWhatIfResponse> {
+  return api<CompanyWhatIfResponse>(
+    "/brain/execution/company/what-happens-if",
+    {
+      method: "POST",
+      body: { scenario_type: scenarioType, payload },
+    },
+  );
+}
+
 export async function getCompanyOperatingHealth(): Promise<CompanyHealthResponse> {
   return api<CompanyHealthResponse>("/brain/execution/company/health");
 }
 
-export async function getCompanyRootCause(problem: string): Promise<CompanyRootCauseResponse> {
+export async function getCompanyRootCause(
+  problem: string,
+): Promise<CompanyRootCauseResponse> {
   return api<CompanyRootCauseResponse>("/brain/execution/company/root-cause", {
     query: { problem },
   });
@@ -10701,7 +14868,7 @@ export async function getCompanyRootCause(problem: string): Promise<CompanyRootC
 
 export async function getCompanyImpact(
   subjectType: string,
-  subjectId: string
+  subjectId: string,
 ): Promise<CompanyImpactResponse> {
   return api<CompanyImpactResponse>("/brain/execution/company/impact", {
     query: { subject_type: subjectType, subject_id: subjectId },
@@ -10709,12 +14876,14 @@ export async function getCompanyImpact(
 }
 
 export async function getCompanyRecommendations(): Promise<CompanyRecommendationsResponse> {
-  return api<CompanyRecommendationsResponse>("/brain/execution/company/recommendations");
+  return api<CompanyRecommendationsResponse>(
+    "/brain/execution/company/recommendations",
+  );
 }
 
 export async function runCompanyWhatIf(
   scenarioType: string,
-  payload: Record<string, string | number>
+  payload: Record<string, string | number>,
 ): Promise<CompanyWhatIfResponse> {
   return api<CompanyWhatIfResponse>("/brain/execution/company/what-if", {
     method: "POST",
@@ -10726,8 +14895,14 @@ export async function getCompanyChanges(): Promise<CompanyChangesResponse> {
   return api<CompanyChangesResponse>("/brain/execution/company/changes");
 }
 
-export async function getCompanyMemory(): Promise<CompanyMemoryResponse> {
-  return api<CompanyMemoryResponse>("/brain/execution/company/memory");
+export async function getCompanyMemory(params?: {
+  decision_id?: string;
+  predicted?: boolean;
+  since?: string;
+}): Promise<CompanyMemoryResponse> {
+  return api<CompanyMemoryResponse>("/brain/execution/company/memory", {
+    query: params ?? {},
+  });
 }
 
 export async function recordCompanyDecision(input: {
@@ -10740,6 +14915,8 @@ export async function recordCompanyDecision(input: {
   expected_improvement?: string;
   confidence?: number;
   owner_label?: string;
+  predicted_outcome?: Record<string, unknown>;
+  prediction_confidence?: number;
 }): Promise<{
   decision_recorded: boolean;
   decision_id: string;
@@ -10747,6 +14924,7 @@ export async function recordCompanyDecision(input: {
   title: string;
   state: string;
   source_event_id: string;
+  prediction_recorded?: boolean;
   generated_at: string;
 }> {
   return api<{
@@ -10756,27 +14934,58 @@ export async function recordCompanyDecision(input: {
     title: string;
     state: string;
     source_event_id: string;
+    prediction_recorded?: boolean;
     generated_at: string;
   }>("/brain/execution/company/decisions", { method: "POST", body: input });
 }
 
 export async function executeCompanyDecision(
-  decisionId: string
-): Promise<{ executed: boolean; decision_id: string; source_event_id: string; generated_at: string }> {
-  return api<{ executed: boolean; decision_id: string; source_event_id: string; generated_at: string }>(
-    `/brain/execution/company/decisions/${decisionId}/execute`,
-    { method: "POST", body: {} }
-  );
+  decisionId: string,
+): Promise<{
+  executed: boolean;
+  decision_id: string;
+  source_event_id: string;
+  generated_at: string;
+}> {
+  return api<{
+    executed: boolean;
+    decision_id: string;
+    source_event_id: string;
+    generated_at: string;
+  }>(`/brain/execution/company/decisions/${decisionId}/execute`, {
+    method: "POST",
+    body: {},
+  });
 }
 
 export async function recordCompanyOutcome(
   decisionId: string,
-  input: { outcome_kind: string; effectiveness?: number; lesson?: string; evidence?: string[] }
+  input: {
+    outcome_kind: string;
+    effectiveness?: number;
+    lesson?: string;
+    evidence?: string[];
+  },
 ): Promise<{
   outcome_recorded: boolean;
   decision_id: string;
   outcome_kind: string;
   source_event_id: string;
+  actual_outcome_compare?: {
+    predicted?: unknown;
+    observed?: string;
+    effectiveness_observed?: number | null;
+    prediction_confidence?: number | null;
+    aligned?: boolean;
+    reviewed_at?: string;
+  } | null;
+  lesson_memory?: {
+    memory_id?: string;
+    title?: string;
+    fact_kind?: string;
+    lesson?: string;
+    evidence?: unknown;
+  } | null;
   generated_at: string;
 }> {
   return api<{
@@ -10784,6 +14993,1208 @@ export async function recordCompanyOutcome(
     decision_id: string;
     outcome_kind: string;
     source_event_id: string;
+    actual_outcome_compare?: Record<string, unknown> | null;
+    lesson_memory?: Record<string, unknown> | null;
     generated_at: string;
-  }>(`/brain/execution/company/decisions/${decisionId}/outcome`, { method: "POST", body: input });
+  }>(`/brain/execution/company/decisions/${decisionId}/outcome`, {
+    method: "POST",
+    body: input,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Slice 4H.2 — Universal Organizational Decision Intelligence (advisory)
+// ---------------------------------------------------------------------------
+
+export interface CompanyDecisionRow4H2 {
+  decision_id: string;
+  kind: string;
+  title: string;
+  state: string;
+  scope_type?: string | null;
+  scope_id?: string | null;
+  rationale?: string;
+  impact_label?: string;
+  expected_improvement?: string;
+  owner_label?: string;
+  approved_at?: string | null;
+  privacy?: string;
+  updated_at?: string;
+  [key: string]: unknown;
+}
+
+export async function listCompanyDecisions(params?: {
+  kind?: string;
+  state?: string;
+  scope_type?: string;
+  scope_id?: string;
+  since?: string;
+  as_of?: string;
+  limit?: number;
+  page?: number;
+}): Promise<{
+  decisions: CompanyDecisionRow4H2[];
+  total: number;
+  page: number;
+  limit: number;
+}> {
+  return api<{
+    decisions: CompanyDecisionRow4H2[];
+    total: number;
+    page: number;
+    limit: number;
+  }>("/brain/execution/company/decisions", { query: params ?? {} });
+}
+
+export async function getCompanyDecisionDetail(
+  decisionId: string,
+): Promise<Record<string, unknown>> {
+  return api<Record<string, unknown>>(
+    `/brain/execution/company/decisions/${decisionId}`,
+  );
+}
+
+export async function getCompanyDecisionAlternatives(
+  decisionId: string,
+): Promise<{ alternatives: Record<string, unknown>[] }> {
+  return api<{ alternatives: Record<string, unknown>[] }>(
+    `/brain/execution/company/decisions/${decisionId}/alternatives`,
+  );
+}
+
+export async function getCompanyDecisionWhyNot(
+  decisionId: string,
+): Promise<Record<string, unknown>> {
+  return api<Record<string, unknown>>(
+    `/brain/execution/company/decisions/${decisionId}/why-not`,
+  );
+}
+
+export async function getCompanyDecisionPrediction(
+  decisionId: string,
+): Promise<Record<string, unknown>> {
+  return api<Record<string, unknown>>(
+    `/brain/execution/company/decisions/${decisionId}/prediction`,
+  );
+}
+
+export async function getCompanyDecisionQuality(
+  decisionId: string,
+): Promise<Record<string, unknown>> {
+  return api<Record<string, unknown>>(
+    `/brain/execution/company/decisions/${decisionId}/quality`,
+  );
+}
+
+export async function getCompanyDecisionPrecedents(
+  decisionId: string,
+): Promise<Record<string, unknown>> {
+  return api<Record<string, unknown>>(
+    `/brain/execution/company/decisions/${decisionId}/precedents`,
+  );
+}
+
+export async function getCompanyDecisionContradictions(
+  decisionId: string,
+): Promise<Record<string, unknown>> {
+  return api<Record<string, unknown>>(
+    `/brain/execution/company/decisions/${decisionId}/contradictions`,
+  );
+}
+
+export async function getCompanyDecisionImpact(
+  decisionId: string,
+  depth = 3,
+): Promise<Record<string, unknown>> {
+  return api<Record<string, unknown>>(
+    `/brain/execution/company/decisions/${decisionId}/impact`,
+    { query: { depth } },
+  );
+}
+
+export async function searchCompanyDecisionPrecedents(
+  context: string,
+): Promise<Record<string, unknown>> {
+  return api<Record<string, unknown>>("/brain/execution/company/precedents", {
+    query: { context },
+  });
+}
+
+export async function getCompanyDecisionTracks(params?: {
+  cohort?: string;
+  value?: string;
+  since?: string;
+  as_of?: string;
+}): Promise<{ snapshots: Record<string, unknown>[] }> {
+  return api<{ snapshots: Record<string, unknown>[] }>(
+    "/brain/execution/company/tracks",
+    {
+      query: params ?? {},
+    },
+  );
+}
+
+export interface CompanyEvidenceIn {
+  evidence_type: string;
+  source_kind?: string;
+  source_summary?: string;
+  captured_at?: string;
+  weight?: number;
+}
+
+export interface CompanyAlternativeIn {
+  alternative_key: string;
+  label: string;
+  chosen: boolean;
+  why_chosen?: string;
+  why_not?: string;
+  preferable_if?: string;
+  expected_outcome?: Record<string, unknown>;
+}
+
+export async function evaluateCompanyDecision(input: {
+  kind: string;
+  title: string;
+  decision_id?: string;
+  rationale?: string;
+  impact_label?: string;
+  expected_improvement?: string;
+  owner_label?: string;
+  scope_type?: string;
+  scope_id?: string;
+  as_of_context?: Record<string, unknown> | null;
+  evidence?: CompanyEvidenceIn[];
+  alternatives?: CompanyAlternativeIn[];
+}): Promise<{
+  accepted: boolean;
+  decision_id: string;
+  state: string;
+  evidence_written: number;
+  decision?: Record<string, unknown>;
+  reason?: string;
+}> {
+  return api<{
+    accepted: boolean;
+    decision_id: string;
+    state: string;
+    evidence_written: number;
+    decision?: Record<string, unknown>;
+    reason?: string;
+  }>("/brain/execution/company/decisions/evaluate", {
+    method: "POST",
+    body: input,
+  });
+}
+
+export async function recommendCompanyDecision(
+  decisionId: string,
+): Promise<Record<string, unknown>> {
+  return api<Record<string, unknown>>(
+    `/brain/execution/company/decisions/${decisionId}/recommend`,
+    { method: "POST", body: {} },
+  );
+}
+
+export async function recordCompanyAlternatives(
+  decisionId: string,
+  alternatives: CompanyAlternativeIn[],
+): Promise<Record<string, unknown>> {
+  return api<Record<string, unknown>>(
+    `/brain/execution/company/decisions/${decisionId}/alternatives`,
+    { method: "POST", body: { alternatives } },
+  );
+}
+
+export async function recordCompanyWhyNot(
+  decisionId: string,
+  alternativeKey: string,
+  input: { why_not: string; preferable_if?: string },
+): Promise<Record<string, unknown>> {
+  return api<Record<string, unknown>>(
+    `/brain/execution/company/decisions/${decisionId}/alternatives/${alternativeKey}/why-not`,
+    { method: "POST", body: input },
+  );
+}
+
+export async function runCompanyDecisionWhatIf(
+  decisionId: string,
+  payload?: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  return api<Record<string, unknown>>(
+    `/brain/execution/company/decisions/${decisionId}/what-if`,
+    { method: "POST", body: payload ?? {} },
+  );
+}
+
+// ---- Slice 4H.4 — strategic scenario rehearsal (read-only display + governed record).
+export interface CompanyScenarioHop {
+  edge_id?: string;
+  kind: string;
+  confidence?: string;
+  from_type: string;
+  from_id: string;
+  to_type: string;
+  to_id: string;
+  from_label?: string;
+  to_label?: string;
+}
+
+export interface CompanyScenarioEffect {
+  entity_type?: string;
+  entity_id?: string | null;
+  label?: string;
+  impact: string;
+  detail: string;
+  confidence?: string;
+  basis?: Record<string, unknown>;
+}
+
+export interface CompanyScenarioBaseline {
+  snapshot_ref: string | null;
+  state_key: string | null;
+  occurred_at: string | null;
+  scope_type: string;
+  scope_id?: string | null;
+  as_of?: string | null;
+}
+
+export interface CompanyScenarioSurface {
+  advisory_only: boolean;
+  not_a_prediction: boolean;
+  baseline: CompanyScenarioBaseline;
+  hypothetical_change: Record<string, unknown>;
+  direct_effects: CompanyScenarioEffect[];
+  dependent_effects: CompanyScenarioEffect[];
+  risks_already_present: Record<string, unknown>[];
+  opportunities_already_present: Record<string, unknown>[];
+  decisions_to_reconsider: Record<string, unknown>[];
+  causal_basis: {
+    hops: CompanyScenarioHop[];
+    hop_count: number;
+    edge_ids: string[];
+    bounded: boolean;
+  };
+  snapshot_ref: string | null;
+  honesty: Record<string, unknown>;
+  human_decision: string;
+  note?: string;
+  generated_at: string;
+}
+
+export interface CompanyScenarioRow extends CompanyScenarioSurface {
+  scenario_id: string;
+  organization_id: string;
+  scope_type: string;
+  scope_id?: string | null;
+  input_hash?: string;
+  created?: boolean;
+  replayed?: boolean;
+  dry_run?: boolean;
+  occurred_at: string;
+}
+
+export interface CompanyScenarioRehearseRequest {
+  scenario_kind: string;
+  subject_type: string;
+  subject_id: string;
+  params?: Record<string, unknown>;
+  assumptions?: unknown[];
+  scope_type?: string;
+  as_of?: string;
+  dry_run: boolean;
+}
+
+export interface CompanyScenarioRehearseResponse extends CompanyScenarioSurface {
+  scenario_id?: string | null;
+  input_hash?: string;
+  created: boolean;
+  replayed: boolean;
+  dry_run: boolean;
+  what_if_guidance?: Record<string, unknown>[];
+}
+
+export interface CompanyScenarioHistoryResponse {
+  advisory_only: boolean;
+  scenarios: Array<{
+    scenario_id: string;
+    scenario_kind: string;
+    subject_type?: string;
+    subject_id?: string;
+    snapshot_ref: string;
+    consequences_count: number;
+    decisions_to_reconsider: number;
+    occurred_at: string;
+  }>;
+  total: number;
+  generated_at: string;
+}
+
+export interface CompanyScenarioCompareResponse {
+  advisory_only: boolean;
+  not_a_prediction: boolean;
+  baseline: CompanyScenarioBaseline;
+  scenarios: Array<{
+    scenario_id: string;
+    scenario_kind: string;
+    subject: { type?: string; id?: string };
+    snapshot_ref: string;
+    direct_effects: CompanyScenarioEffect[];
+    dependent_effects: CompanyScenarioEffect[];
+    risks_already_present: Record<string, unknown>[];
+    opportunities_already_present: Record<string, unknown>[];
+    decisions_to_reconsider: Record<string, unknown>[];
+  }>;
+  comparison: string;
+  generated_at: string;
+}
+
+export async function rehearseCompanyScenario(
+  body: CompanyScenarioRehearseRequest,
+): Promise<CompanyScenarioRehearseResponse> {
+  return api<CompanyScenarioRehearseResponse>(
+    "/brain/execution/company/scenario",
+    { method: "POST", body },
+  );
+}
+
+export async function listCompanyScenarios(
+  limit = 10,
+): Promise<CompanyScenarioHistoryResponse> {
+  return api<CompanyScenarioHistoryResponse>(
+    `/brain/execution/company/scenario?limit=${limit}`,
+  );
+}
+
+export async function companyScenarioDetail(
+  scenarioId: string,
+): Promise<CompanyScenarioRow> {
+  return api<CompanyScenarioRow>(
+    `/brain/execution/company/scenario/${encodeURIComponent(scenarioId)}`,
+  );
+}
+
+export async function compareCompanyScenarios(
+  scenarioIds: string[],
+): Promise<CompanyScenarioCompareResponse> {
+  return api<CompanyScenarioCompareResponse>(
+    "/brain/execution/company/scenario/compare",
+    { method: "POST", body: { scenario_ids: scenarioIds } },
+  );
+}
+
+// ---- Slice 4H.5 — decision-to-action lineage (advisory plan + live chain).
+export interface CompanyActionPlanStep {
+  step_no: number;
+  action_type: string;
+  title: string;
+  target: { entity: string; id: string; label?: string };
+  basis: {
+    decision_id: string;
+    risk_id?: string;
+    edge_id?: string;
+    target_id?: string;
+    relation: string;
+  };
+  approval_expected: { policy: string; approval_required: boolean };
+}
+
+export interface CompanyActionPlanResponse {
+  decision: {
+    decision_id: string;
+    kind: string;
+    title: string;
+    state: string;
+  };
+  origin: {
+    recommendation_key: string;
+    rationale: string;
+    impact_label: string;
+  };
+  proposed_steps: CompanyActionPlanStep[];
+  dependencies: Array<{
+    edge_id: string;
+    kind: string;
+    source_type: string;
+    source_id: string;
+    target_type: string;
+    target_id: string;
+    confidence: string;
+  }>;
+  authorized_actions: Array<{
+    id: string;
+    action_type: string;
+    title: string;
+    state: string;
+  }>;
+  honesty: {
+    advisory_only: boolean;
+    not_a_prediction: boolean;
+    derivation_status: "ok" | "insufficient_canonical_basis";
+  };
+}
+
+export interface CompanyExecutionChainResponse {
+  decision: {
+    decision_id: string;
+    kind: string;
+    title: string;
+    state: string;
+    approved_at: string | null;
+    executed_at: string | null;
+    outcome_kind: string;
+    effectiveness: number | null;
+  };
+  actions: Array<{
+    action_id: string;
+    action_type: string;
+    title: string;
+    state: string;
+    assignee_id: string | null;
+    due_at: string | null;
+    source_scenario_id: string | null;
+  }>;
+  evidence: Array<{
+    event_id: string;
+    action_id: string;
+    event: string;
+    actor_id: string | null;
+    created_at: string;
+  }>;
+  artifacts: Array<{
+    target_type: string;
+    target_id: string;
+    via_action_id: string;
+  }>;
+  outcomes: Array<{
+    outcome_id: string;
+    action_id: string;
+    outcome_type: string;
+    effectiveness: number;
+    verdict: string | null;
+    measured_at: string;
+  }>;
+  lesson: { lesson: string; reviewed_at: string | null } | null;
+  generated_at: string;
+}
+
+export async function deriveCompanyActionPlan(
+  decisionId: string,
+): Promise<CompanyActionPlanResponse> {
+  return api<CompanyActionPlanResponse>(
+    `/brain/execution/company/decisions/${encodeURIComponent(decisionId)}/action-plan`,
+    { method: "POST", body: { dry_run: true } },
+  );
+}
+
+export async function companyExecutionChain(
+  decisionId: string,
+): Promise<CompanyExecutionChainResponse> {
+  return api<CompanyExecutionChainResponse>(
+    `/brain/execution/company/decisions/${encodeURIComponent(decisionId)}/execution-chain`,
+  );
+}
+
+// ---------------------------------------------------------------- Slice 4H.6
+// Outcome & performance intelligence — READ-ONLY windows onto the canonical
+// nine-section assessment, the longitudinal cohort, and the neutral
+// side-by-side comparison. COMPARE ≠ RANK: no winner/rank/score field exists.
+
+export interface CompanyPerformanceAssessment {
+  decision: {
+    decision_id: string;
+    kind: string;
+    title: string;
+    state: string;
+    approved_at: string | null;
+    executed_at: string | null;
+    expected_improvement: number | null;
+    anchor_basis: string;
+  };
+  observed: {
+    outcome_record: {
+      outcome_kind: string | null;
+      effectiveness: number | null;
+      truth: string;
+      reason: string | null;
+      evidence_refs_recorded: boolean;
+      reviewed_at: string | null;
+    };
+    action_outcomes: Array<Record<string, unknown>>;
+    execution_actions_count: number;
+    evidence_events_count: number;
+    lesson: { lesson: string; reviewed_at: string | null } | null;
+  };
+  measured: {
+    metric_count: number;
+    items: Array<{
+      metric: {
+        key: string;
+        name: string;
+        unit: string | null;
+        direction: string;
+      };
+      measurement: {
+        value: number | null;
+        percentage_delta: number | null;
+        truth: string;
+        reason: string | null;
+        basis: {
+          baseline_observation_id: string;
+          comparison_observation_id: string;
+        } | null;
+        baseline: Record<string, unknown>;
+        comparison: Record<string, unknown>;
+        temporal_basis: Record<string, unknown> | null;
+      } | null;
+      attribution: {
+        level: string;
+        basis_kind: string | null;
+        reason: string | null;
+      };
+    }>;
+  };
+  attributed: {
+    per_metric: Array<{
+      metric_key: string;
+      level: string;
+      reason: string | null;
+    }>;
+    summary: Record<string, number>;
+  };
+  assessed: {
+    basis: string;
+    outcome_recorded: boolean;
+    recorded_effectiveness: number | null;
+    linked_metrics_count: number;
+    derived_measurements_count: number;
+    unknown_measurements_count: number;
+    attribution_summary: Record<string, number>;
+  };
+  unknown: {
+    count: number;
+    items: Array<{ section: string; subject: string; reason: string }>;
+  };
+  temporal_basis: { anchor: string | null; anchor_basis: string };
+  execution_chain: CompanyExecutionChainResponse;
+  honesty: Record<string, boolean>;
+}
+
+export async function getCompanyDecisionPerformance(
+  decisionId: string,
+): Promise<CompanyPerformanceAssessment> {
+  return api<CompanyPerformanceAssessment>(
+    `/brain/execution/company/decisions/${encodeURIComponent(decisionId)}/performance`,
+  );
+}
+
+export interface CompanyPerformanceCohortResponse {
+  cohort: {
+    filters: { kind: string | null; state: string | null };
+    decision_count: number;
+    max_decisions: number;
+    bounded: boolean;
+    derived_on_read: boolean;
+  };
+  decisions: Array<{
+    decision_id: string;
+    kind: string;
+    state: string;
+    outcome_kind: string | null;
+    effectiveness: number | null;
+    anchor: string | null;
+  }>;
+  recorded_outcomes: {
+    truth_level: string;
+    by_kind: Record<string, number>;
+    with_outcome_record: number;
+    without_outcome_record: number;
+  };
+  effectiveness_aggregate: {
+    value: number | null;
+    truth_level: string;
+    method: string | null;
+    count: number;
+    basis: string[];
+    reason: string | null;
+  };
+  measurement_coverage: {
+    decisions_with_linked_metrics: number;
+    derived_measurement_items: number;
+    unknown_measurement_items: number;
+  };
+  attribution_summary: Record<string, number>;
+  temporal_coverage: {
+    earliest_anchor: string | null;
+    latest_anchor: string | null;
+    anchor_bases: Record<string, number>;
+  };
+  honesty: Record<string, boolean>;
+}
+
+export async function getCompanyPerformanceCohort(params?: {
+  kind?: string;
+  state?: string;
+}): Promise<CompanyPerformanceCohortResponse> {
+  return api<CompanyPerformanceCohortResponse>(
+    "/brain/execution/company/performance/cohort",
+    { query: params },
+  );
+}
+
+export interface CompanyPerformanceComparisonResponse {
+  comparison: {
+    decision_ids: string[];
+    requested: number;
+    compared: number;
+    not_found: string[];
+    max_decisions: number;
+    compare_not_rank: boolean;
+    derived_on_read: boolean;
+  };
+  columns: Array<{
+    decision_id: string;
+    title: string;
+    kind: string;
+    state: string;
+    anchor: string | null;
+    anchor_basis: string;
+    outcome: { outcome_kind: string | null; truth: string };
+    recorded_effectiveness: number | null;
+    execution: {
+      actions: number;
+      evidence_events: number;
+      artifacts: number;
+      outcomes: number;
+    };
+    measured: {
+      linked_metrics: number;
+      derived_measurements: number;
+      unknown_measurement_items: number;
+    };
+    attribution_summary: Record<string, number>;
+    unknowns: { count: number; reasons: Record<string, number> };
+  }>;
+  contrasts: Record<string, { with: string[]; without: string[] }>;
+  longitudinal_context: Record<string, Record<string, unknown>>;
+  assessments: Record<string, CompanyPerformanceAssessment>;
+  honesty: Record<string, boolean>;
+}
+
+export async function compareCompanyDecisions(
+  decisionIds: string[],
+): Promise<CompanyPerformanceComparisonResponse> {
+  return api<CompanyPerformanceComparisonResponse>(
+    "/brain/execution/company/decisions/compare",
+    { method: "POST", body: { decision_ids: decisionIds } },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Gate 25 — Universal Company Workspace + Virtual Office Operating Fabric
+// ---------------------------------------------------------------------------
+
+// Universal Workspace APIs
+
+export interface MyDay {
+  date: string;
+  user: { id: string; name: string; email: string; role: string };
+  meetings: Array<{
+    id: string;
+    title: string;
+    start_at: string | null;
+    end_at: string | null;
+    location: string | null;
+    meeting_code: string;
+  }>;
+  commitments: Array<{
+    id: string;
+    title: string;
+    due_at: string | null;
+    state: string;
+  }>;
+  tasks: Array<{
+    id: string;
+    title: string;
+    status: string;
+    due_at: string | null;
+    project_id: string | null;
+  }>;
+  blocked_work: Array<{
+    id: string;
+    title: string;
+    blocked_reason: string | null;
+  }>;
+  approvals: Array<{ id: string; title: string; action_type: string }>;
+  important_communications: any[];
+  attention_signals: Array<{ type: string; message: string }>;
+  capacity_context: {
+    utilization: number;
+    allocated_hours: number;
+    meeting_hours: number;
+    capacity_hours: number;
+  };
+  relevant_changes: Array<{
+    description: string | null;
+    timestamp: string | null;
+  }>;
+}
+
+export interface CompanyHome {
+  organization: { id: string; name: string; slug: string };
+  strategy: { goals_count: number; objectives_count: number };
+  objectives: any[];
+  execution: {
+    active_projects: number;
+    active_commitments: number;
+    completion_rate: number;
+  };
+  customers: { total: number; at_risk: number; new_this_month: number };
+  financial_state: { revenue: number; expenses: number; cash_position: number };
+  operations: { processes_healthy: number; processes_degraded: number };
+  people: {
+    total_employees: number;
+    capacity_utilization: number;
+    open_roles: number;
+  };
+  capacity: { utilization: number; bottlenecks: any[] };
+  resources: { allocated: number; available: number };
+  procurement: { pending_pos: number; vendor_risks: number };
+  risks: any[];
+  predictions: any[];
+  decisions: any[];
+  company_brain: any;
+}
+
+export interface ManagerWorkspace {
+  team: { id: string; name: string; description: string | null };
+  people: Array<{ id: string; name: string; role: string; email: string }>;
+  capacity: any;
+  responsibilities: any[];
+  commitments: any[];
+  projects: any[];
+  tasks: any[];
+  dependencies: any[];
+  bottlenecks: any[];
+  communication: any;
+  risks: any[];
+  performance_context: any;
+}
+
+export interface UniversalSearchResult {
+  id: string;
+  type: string;
+  title: string;
+  subtitle: string | null;
+  description: string | null;
+  metadata: Record<string, any>;
+  score: number;
+  deep_link: string;
+}
+
+export interface UniversalSearchResponse {
+  query: string;
+  results: UniversalSearchResult[];
+  total: number;
+  took_ms: number;
+}
+
+export interface CommandRequest {
+  command: string;
+  context?: Record<string, any>;
+}
+
+export interface CommandResponse {
+  intent: string;
+  interpretation: string;
+  actions: Array<{ type: string; params: Record<string, any> }>;
+  requires_authorization: boolean;
+  confirmation_required: boolean;
+  result?: Record<string, any>;
+}
+
+export interface DeepLinkResolveRequest {
+  path: string;
+  params?: Record<string, any>;
+}
+
+export interface DeepLinkResolveResponse {
+  target_type: string;
+  target_id: string | null;
+  target_url: string;
+  canonical_data: Record<string, any> | null;
+}
+
+export interface NotificationCenterNotification {
+  id: string;
+  type: string;
+  title: string;
+  body: string | null;
+  priority: string;
+  is_read: boolean;
+  created_at: string | null;
+  link: string | null;
+}
+
+export interface NotificationCenterResponse {
+  notifications: NotificationCenterNotification[];
+  unread_count: number;
+  grouped: Record<string, NotificationCenterNotification[]>;
+}
+
+export interface WorkspaceSettingsPinnedItem {
+  type: string;
+  id: string;
+  label: string;
+}
+
+export interface WorkspaceSettingsShortcut {
+  key: string;
+  label: string;
+  href: string;
+}
+
+export interface WorkspaceSettingsNotificationPreferences {
+  [key: string]: { enabled: boolean; channels: string[] };
+}
+
+export interface WorkspaceSettingsFavoriteView {
+  name: string;
+  href: string;
+  filters: Record<string, any>;
+}
+
+export interface WorkspaceSettings {
+  pinned_items: WorkspaceSettingsPinnedItem[];
+  shortcuts: WorkspaceSettingsShortcut[];
+  navigation_arrangement: Record<string, any>;
+  dashboard_arrangement: Record<string, any>;
+  notification_preferences: WorkspaceSettingsNotificationPreferences;
+  favorite_views: WorkspaceSettingsFavoriteView[];
+  theme: string;
+  locale: string;
+}
+
+export interface GameSession {
+  id: string;
+  game_id: string;
+  state: Record<string, any>;
+  completed_at: string | null;
+  final_score: number | null;
+  started_at: string;
+}
+
+export interface GameStartResponse {
+  game: string;
+  session_id: string;
+  state: Record<string, any>;
+  cooldown_until: string;
+}
+
+export interface GameActionResponse {
+  state: Record<string, any>;
+  result?: Record<string, any>;
+  completed: boolean;
+  score: number | null;
+}
+
+export interface WorkspaceSession {
+  id: string;
+  active: boolean;
+  context_type: string | null;
+  context_id: string | null;
+  virtual_location: string | null;
+  device_type: string;
+  platform: string | null;
+  app_version: string | null;
+  last_activity_at: string;
+  connected_at: string;
+  disconnected_at: string | null;
+}
+
+export interface VirtualOfficeFloor {
+  id: string;
+  name: string;
+  description: string | null;
+  layout_json: Record<string, any> | null;
+  background_url: string | null;
+  is_default: boolean;
+  capacity: number;
+  access_level: string;
+  allowed_departments: string[];
+  allowed_teams: string[];
+}
+
+export interface VirtualOfficeRoom {
+  id: string;
+  floor_id: string;
+  name: string;
+  description: string | null;
+  room_type: string;
+  capacity: number;
+  icon: string;
+  color: string;
+  requires_booking: boolean;
+  auto_release_minutes: number;
+  has_screen: boolean;
+  has_whiteboard: boolean;
+  has_video_conf: boolean;
+}
+
+// Workspace API Functions
+
+export async function getMyDay(date?: string): Promise<MyDay> {
+  return api<MyDay>("/workspace/my-day", { query: { date } });
+}
+
+export async function getCompanyHome(): Promise<CompanyHome> {
+  return api<CompanyHome>("/workspace/company-home");
+}
+
+export async function getManagerWorkspace(
+  teamId: string,
+): Promise<ManagerWorkspace> {
+  return api<ManagerWorkspace>(`/workspace/manager/${teamId}`);
+}
+
+export async function universalSearch(request: {
+  query: string;
+  limit?: number;
+  types?: string[];
+  scope?: string;
+}): Promise<UniversalSearchResponse> {
+  return api<UniversalSearchResponse>("/workspace/search", {
+    method: "POST",
+    body: request,
+  });
+}
+
+export async function executeCommand(request: {
+  command: string;
+  context?: Record<string, any>;
+}): Promise<CommandResponse> {
+  return api<CommandResponse>("/workspace/command", {
+    method: "POST",
+    body: request,
+  });
+}
+
+export async function resolveDeepLink(request: {
+  path: string;
+  params?: Record<string, any>;
+}): Promise<DeepLinkResolveResponse> {
+  return api<DeepLinkResolveResponse>("/workspace/deep-link/resolve", {
+    method: "POST",
+    body: request,
+  });
+}
+
+export async function getNotifications(
+  limit = 50,
+  unreadOnly = false,
+): Promise<NotificationCenterResponse> {
+  return api<NotificationCenterResponse>("/workspace/notifications", {
+    query: { limit, unread_only: unreadOnly },
+  });
+}
+
+export async function markNotificationRead(
+  notificationId: string,
+): Promise<{ success: boolean }> {
+  return api<{ success: boolean }>(
+    `/workspace/notifications/${notificationId}/read`,
+    { method: "POST" },
+  );
+}
+
+export async function markAllNotificationsRead(): Promise<{
+  success: boolean;
+}> {
+  return api<{ success: boolean }>("/workspace/notifications/read-all", {
+    method: "POST",
+  });
+}
+
+export async function listGames(): Promise<{
+  games: Array<{
+    id: string;
+    name: string;
+    description: string;
+    available: boolean;
+    cooldown_until: string | null;
+  }>;
+}> {
+  return api<{ games: any[] }>("/joy-break/games");
+}
+
+export async function startGame(request: {
+  game: string;
+}): Promise<GameStartResponse> {
+  return api<GameStartResponse>("/joy-break/start", {
+    method: "POST",
+    body: request,
+  });
+}
+
+export async function gameAction(request: {
+  session_id: string;
+  action: Record<string, any>;
+}): Promise<GameActionResponse> {
+  return api<GameActionResponse>("/joy-break/action", {
+    method: "POST",
+    body: request,
+  });
+}
+
+export async function getWorkspaceSettings(): Promise<any> {
+  return api("/workspace/settings");
+}
+
+export async function updateWorkspaceSettings(update: any): Promise<any> {
+  return api("/workspace/settings", { method: "PATCH", body: update });
+}
+
+// ---------------------------------------------------------------------------
+// Slice 4 — Governed AI Worker
+// ---------------------------------------------------------------------------
+
+export interface GovernedWorkerModelInfo {
+  provider: string | null;
+  model: string | null;
+  available: boolean;
+  assisted: boolean;
+  validation_errors?: string[];
+}
+
+export interface GovernedWorkerApprovalRef {
+  id: string;
+  status: string;
+  title: string;
+}
+
+export interface GovernedWorkerActionOperation {
+  id: string;
+  state: string;
+  title: string;
+}
+
+export interface GovernedWorkerTaskView {
+  id: string;
+  title: string;
+  instruction: string;
+  task_kind: "research" | "recommendation" | string;
+  scope_type: string;
+  scope_id: string | null;
+  state: string;
+  phase: string;
+  created_at: string | null;
+  completed_at: string | null;
+  summary: string | null;
+  model: GovernedWorkerModelInfo | null;
+  approval: GovernedWorkerApprovalRef | null;
+  proposal_decision: { id: string; status: string; title: string } | null;
+  action_operation: GovernedWorkerActionOperation | null;
+  has_result: boolean;
+}
+
+export interface GovernedWorkerEvidence {
+  claim: string;
+  source: string;
+  source_ref?: string | null;
+}
+
+export interface GovernedWorkerProposedAction {
+  action_type?: string;
+  title?: string;
+  description?: string;
+  requires_approval?: boolean;
+}
+
+export interface GovernedWorkerResult {
+  task_kind?: string;
+  instruction?: string;
+  model?: GovernedWorkerModelInfo;
+  summary?: string | null;
+  observed_facts?: string[];
+  evidence?: GovernedWorkerEvidence[];
+  model_observed_facts?: string[];
+  model_evidence?: GovernedWorkerEvidence[];
+  inferences?: string[];
+  uncertainties?: string[];
+  recommendations?: string[];
+  proposed_actions?: GovernedWorkerProposedAction[];
+  context_sources?: { source: string; status: string; count: number }[];
+  epistemic?: Record<string, string>;
+  approval?: GovernedWorkerApprovalRef | null;
+  proposal_decision?: { id: string; status: string; title: string } | null;
+  action_operation_id?: string | null;
+  completed_at?: string | null;
+}
+
+export interface GovernedWorkerActionOutcome {
+  action?: string;
+  task_id?: string;
+  task_title?: string;
+  approval_id?: string;
+  executed_by?: string | null;
+  executed_at?: string;
+}
+
+export interface GovernedWorkerTaskDetail extends GovernedWorkerTaskView {
+  result: GovernedWorkerResult | null;
+  action_result: GovernedWorkerActionOutcome | null;
+  error: string | null;
+}
+
+export async function listGovernedWorkerTasks(
+  limit = 50,
+): Promise<GovernedWorkerTaskView[]> {
+  return api<GovernedWorkerTaskView[]>("/governed-worker/tasks", {
+    query: { limit },
+  });
+}
+
+export async function createGovernedWorkerTask(payload: {
+  title: string;
+  instruction: string;
+  task_kind: "research" | "recommendation";
+  scope_type: "company" | "project";
+  scope_id?: string | null;
+  idempotency_key?: string;
+}): Promise<GovernedWorkerTaskDetail> {
+  return api<GovernedWorkerTaskDetail>("/governed-worker/tasks", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export async function getGovernedWorkerTask(
+  taskId: string,
+): Promise<GovernedWorkerTaskDetail> {
+  return api<GovernedWorkerTaskDetail>(`/governed-worker/tasks/${taskId}`);
+}
+
+export async function runGovernedWorkerTask(
+  taskId: string,
+): Promise<GovernedWorkerTaskDetail> {
+  return api<GovernedWorkerTaskDetail>(`/governed-worker/tasks/${taskId}/run`, {
+    method: "POST",
+  });
+}
+
+export async function cancelGovernedWorkerTask(
+  taskId: string,
+): Promise<GovernedWorkerTaskDetail> {
+  return api<GovernedWorkerTaskDetail>(
+    `/governed-worker/tasks/${taskId}/cancel`,
+    { method: "POST" },
+  );
+}
+
+export async function executeGovernedWorkerAction(
+  actionOperationId: string,
+): Promise<GovernedWorkerTaskDetail> {
+  return api<GovernedWorkerTaskDetail>(
+    `/governed-worker/actions/${actionOperationId}/execute`,
+    { method: "POST" },
+  );
 }

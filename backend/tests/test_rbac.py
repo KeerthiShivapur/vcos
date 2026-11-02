@@ -49,7 +49,7 @@ async def test_employee_cannot_invite_or_manage_roles(client):
     assert blocked_org.status_code == 403
 
     # Employee CAN use their own workspace.
-    ws = await client.get("/api/v1/workspace", headers=emp_headers)
+    ws = await client.get("/api/v1/workspace/settings", headers=emp_headers)
     assert ws.status_code == 200
 
     # Employee CAN read own profile.

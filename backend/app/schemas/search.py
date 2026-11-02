@@ -31,6 +31,11 @@ class DashboardSummary(BaseModel):
     active_sessions: int
     pending_invitations: int
     roles_count: int
+    my_tasks_open_count: int
+    pending_decisions_count: int
+    pending_approvals_count: int
     recent_activity: List[dict[str, Any]] = []
     recent_notifications: List[dict[str, Any]] = []
     workspace: Optional[dict[str, Any]] = None
+    # Phase H �?" institutional learning
+    learning_summary: Optional[dict[str, Any]] = None

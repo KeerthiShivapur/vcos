@@ -1,10 +1,36 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Hand, MessageSquare, MonitorUp, Radio, Send, Video, Volume2 } from "lucide-react";
+import {
+  Hand,
+  MessageSquare,
+  MonitorUp,
+  Radio,
+  Send,
+  Video,
+  Volume2,
+} from "lucide-react";
 
-import { API_URL, addMeetingCaption, getMeetingWhiteboard, listMeetingCaptions, listMeetingChat, listMeetingRecordings, sendMeetingChat, startMeetingRecording, stopMeetingRecording, tokenStore, updateMeetingWhiteboard } from "@/lib/api";
-import type { MeetingCaption, MeetingChatMessage, MeetingParticipant, MeetingRecording, MeetingWhiteboard } from "@/types";
+import {
+  API_URL,
+  addMeetingCaption,
+  getMeetingWhiteboard,
+  listMeetingCaptions,
+  listMeetingChat,
+  listMeetingRecordings,
+  sendMeetingChat,
+  startMeetingRecording,
+  stopMeetingRecording,
+  tokenStore,
+  updateMeetingWhiteboard,
+} from "@/lib/api";
+import type {
+  MeetingCaption,
+  MeetingChatMessage,
+  MeetingParticipant,
+  MeetingRecording,
+  MeetingWhiteboard,
+} from "@/types";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Avatar } from "@/components/ui/Avatar";
@@ -37,13 +63,19 @@ interface BoardShape {
 
 function wsUrl(meetingId: string, token: string): string {
   const base = API_URL.replace(/^http/, "ws");
-  const apiPath = base.indexOf("/api/") >= 0 ? base.slice(0, base.indexOf("/api/")) : base;
+  const apiPath =
+    base.indexOf("/api/") >= 0 ? base.slice(0, base.indexOf("/api/")) : base;
   return `${apiPath}/ws/meetings/${meetingId}?token=${encodeURIComponent(token)}`;
 }
 
 let shapeSeq = 0;
 
-export function LivePanel({ meetingId, myEmployeeId, isHost, recordingState }: LivePanelProps) {
+export function LivePanel({
+  meetingId,
+  myEmployeeId,
+  isHost,
+  recordingState,
+}: LivePanelProps) {
   const [connected, setConnected] = useState(false);
   const [peers, setPeers] = useState<LivePeer[]>([]);
   const [chat, setChat] = useState<MeetingChatMessage[]>([]);
@@ -53,8 +85,16 @@ export function LivePanel({ meetingId, myEmployeeId, isHost, recordingState }: L
   const [board, setBoard] = useState<MeetingWhiteboard | null>(null);
   const [draftShapes, setDraftShapes] = useState<BoardShape[]>([]);
   const [tool, setTool] = useState<"rect" | "ellipse" | "line">("rect");
-  const [drawing, setDrawing] = useState<{ kind: BoardShape["kind"]; x0: number; y0: number; x1: number; y1: number } | null>(null);
-  const [reactions, setReactions] = useState<{ id: number; emoji: string; name: string }[]>([]);
+  const [drawing, setDrawing] = useState<{
+    kind: BoardShape["kind"];
+    x0: number;
+    y0: number;
+    x1: number;
+    y1: number;
+  } | null>(null);
+  const [reactions, setReactions] = useState<
+    { id: number; emoji: string; name: string }[]
+  >([]);
   const [raisedHand, setRaisedHand] = useState(false);
   const [sending, setSending] = useState(false);
   const [micOn, setMicOn] = useState(true);
@@ -112,7 +152,8 @@ export function LivePanel({ meetingId, myEmployeeId, isHost, recordingState }: L
     }
   }
 
-  const savedShapes: BoardShape[] = (board?.content?.shapes as BoardShape[]) ?? [];
+  const savedShapes: BoardShape[] =
+    (board?.content?.shapes as BoardShape[]) ?? [];
 
   function pointerDown(event: React.PointerEvent<SVGSVGElement>) {
     if (!board) return;
@@ -125,8 +166,14 @@ export function LivePanel({ meetingId, myEmployeeId, isHost, recordingState }: L
   function pointerMove(event: React.PointerEvent<SVGSVGElement>) {
     if (!drawing) return;
     const rect = event.currentTarget.getBoundingClientRect();
-    const x = Math.max(0, Math.min(800, ((event.clientX - rect.left) / rect.width) * 800));
-    const y = Math.max(0, Math.min(500, ((event.clientY - rect.top) / rect.height) * 500));
+    const x = Math.max(
+      0,
+      Math.min(800, ((event.clientX - rect.left) / rect.width) * 800),
+    );
+    const y = Math.max(
+      0,
+      Math.min(500, ((event.clientY - rect.top) / rect.height) * 500),
+    );
     setDrawing({ ...drawing, x1: x, y1: y });
   }
 
@@ -147,10 +194,17 @@ export function LivePanel({ meetingId, myEmployeeId, isHost, recordingState }: L
     if (shape.w < 2 && shape.h < 2) return;
     const next = [...savedShapes, shape];
     try {
-      const updated = await updateMeetingWhiteboard(meetingId, { shapes: next }, board.version);
+      const updated = await updateMeetingWhiteboard(
+        meetingId,
+        { shapes: next },
+        board.version,
+      );
       setBoard(updated);
       setDraftShapes([]);
-      sendWs("whiteboard.delta", { version: updated.version, ops: [{ type: "shape", shape }] });
+      sendWs("whiteboard.delta", {
+        version: updated.version,
+        ops: [{ type: "shape", shape }],
+      });
     } catch {
       toastError("Board changed elsewhere — refreshing");
       await refreshBoard();
@@ -160,9 +214,16 @@ export function LivePanel({ meetingId, myEmployeeId, isHost, recordingState }: L
   async function clearBoard() {
     if (!board) return;
     try {
-      const updated = await updateMeetingWhiteboard(meetingId, { shapes: [] }, board.version);
+      const updated = await updateMeetingWhiteboard(
+        meetingId,
+        { shapes: [] },
+        board.version,
+      );
       setBoard(updated);
-      sendWs("whiteboard.delta", { version: updated.version, ops: [{ type: "clear" }] });
+      sendWs("whiteboard.delta", {
+        version: updated.version,
+        ops: [{ type: "clear" }],
+      });
     } catch {
       await refreshBoard();
     }
@@ -203,12 +264,23 @@ export function LivePanel({ meetingId, myEmployeeId, isHost, recordingState }: L
             break;
           case "peer.online":
             setPeers((rows) => {
-              const next = rows.filter((p) => p.employee_id !== data.employee_id);
-              return [...next, { employee_id: String(data.employee_id), name: String(data.name ?? "Unknown"), role: String(data.role ?? "participant") }];
+              const next = rows.filter(
+                (p) => p.employee_id !== data.employee_id,
+              );
+              return [
+                ...next,
+                {
+                  employee_id: String(data.employee_id),
+                  name: String(data.name ?? "Unknown"),
+                  role: String(data.role ?? "participant"),
+                },
+              ];
             });
             break;
           case "peer.offline":
-            setPeers((rows) => rows.filter((p) => p.employee_id !== data.employee_id));
+            setPeers((rows) =>
+              rows.filter((p) => p.employee_id !== data.employee_id),
+            );
             break;
           case "chat.message":
             appendChat(data.message as MeetingChatMessage);
@@ -219,7 +291,11 @@ export function LivePanel({ meetingId, myEmployeeId, isHost, recordingState }: L
           case "reaction":
             setReactions((rows) => [
               ...rows.slice(-6),
-              { id: reactionSeq.current++, emoji: String(data.emoji ?? "👍"), name: String(data.employee_id ?? "") },
+              {
+                id: reactionSeq.current++,
+                emoji: String(data.emoji ?? "👍"),
+                name: String(data.employee_id ?? ""),
+              },
             ]);
             break;
           case "pong":
@@ -259,7 +335,9 @@ export function LivePanel({ meetingId, myEmployeeId, isHost, recordingState }: L
   // ---------------------------------------------------------------- data load
 
   useEffect(() => {
-    void listMeetingChat(meetingId).then(setChat).catch(() => undefined);
+    void listMeetingChat(meetingId)
+      .then(setChat)
+      .catch(() => undefined);
     void loadCaptions();
     void loadRecordings();
     const timer = setInterval(() => void loadCaptions(), 8000);
@@ -291,7 +369,8 @@ export function LivePanel({ meetingId, myEmployeeId, isHost, recordingState }: L
   }
 
   useEffect(() => {
-    if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
+    if (chatRef.current)
+      chatRef.current.scrollTop = chatRef.current.scrollHeight;
   }, [chat.length]);
 
   useEffect(() => {
@@ -315,7 +394,10 @@ export function LivePanel({ meetingId, myEmployeeId, isHost, recordingState }: L
     setBusy(true);
     try {
       if (!recording) {
-        await startMeetingRecording(meetingId, { kind: "manual", captions_enabled: true });
+        await startMeetingRecording(meetingId, {
+          kind: "manual",
+          captions_enabled: true,
+        });
         toastSuccess("Recording started");
         setRecording(true);
       } else {
@@ -326,7 +408,9 @@ export function LivePanel({ meetingId, myEmployeeId, isHost, recordingState }: L
       }
       await loadRecordings();
     } catch (err) {
-      toastError(err instanceof Error ? err.message : "Recording action failed");
+      toastError(
+        err instanceof Error ? err.message : "Recording action failed",
+      );
     } finally {
       setBusy(false);
     }
@@ -357,24 +441,50 @@ export function LivePanel({ meetingId, myEmployeeId, isHost, recordingState }: L
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge tone={connected ? "success" : "danger"}>{connected ? "connected" : "offline"}</Badge>
+        <Badge tone={connected ? "success" : "danger"}>
+          {connected ? "connected" : "offline"}
+        </Badge>
         <Badge tone="neutral">{peers.length + 1} in session</Badge>
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <Button size="sm" variant={micOn ? "primary" : "secondary"} onClick={() => togglePresence("mic")}>
+          <Button
+            size="sm"
+            variant={micOn ? "primary" : "secondary"}
+            onClick={() => togglePresence("mic")}
+          >
             <Volume2 className="h-3.5 w-3.5" /> {micOn ? "Mic on" : "Mic off"}
           </Button>
-          <Button size="sm" variant={camOn ? "primary" : "secondary"} onClick={() => togglePresence("cam")}>
+          <Button
+            size="sm"
+            variant={camOn ? "primary" : "secondary"}
+            onClick={() => togglePresence("cam")}
+          >
             <Video className="h-3.5 w-3.5" /> {camOn ? "Cam on" : "Cam off"}
           </Button>
-          <Button size="sm" variant={sharing ? "primary" : "secondary"} onClick={toggleShare}>
-            <MonitorUp className="h-3.5 w-3.5" /> {sharing ? "Sharing" : "Share"}
+          <Button
+            size="sm"
+            variant={sharing ? "primary" : "secondary"}
+            onClick={toggleShare}
+          >
+            <MonitorUp className="h-3.5 w-3.5" />{" "}
+            {sharing ? "Sharing" : "Share"}
           </Button>
-          <Button size="sm" variant={raisedHand ? "secondary" : "ghost"} onClick={toggleHand}>
-            <Hand className="h-3.5 w-3.5" /> {raisedHand ? "Hand raised" : "Raise hand"}
+          <Button
+            size="sm"
+            variant={raisedHand ? "secondary" : "ghost"}
+            onClick={toggleHand}
+          >
+            <Hand className="h-3.5 w-3.5" />{" "}
+            {raisedHand ? "Hand raised" : "Raise hand"}
           </Button>
           {(isHost || recordingState?.is_recording) && (
-            <Button size="sm" variant={activeRecording || recording ? "danger" : "secondary"} onClick={toggleRecording} loading={busy}>
-              <Radio className="h-3.5 w-3.5" /> {activeRecording || recording ? "Stop recording" : "Record"}
+            <Button
+              size="sm"
+              variant={activeRecording || recording ? "danger" : "secondary"}
+              onClick={toggleRecording}
+              loading={busy}
+            >
+              <Radio className="h-3.5 w-3.5" />{" "}
+              {activeRecording || recording ? "Stop recording" : "Record"}
             </Button>
           )}
         </div>
@@ -383,7 +493,10 @@ export function LivePanel({ meetingId, myEmployeeId, isHost, recordingState }: L
       {reactions.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {reactions.map((reaction) => (
-            <span key={reaction.id} className="animate-bounce rounded-full bg-brand-soft px-2.5 py-1 text-[13px]">
+            <span
+              key={reaction.id}
+              className="animate-bounce rounded-full bg-brand-soft px-2.5 py-1 text-[13px]"
+            >
               {reaction.name ? `${reaction.name.split(" ")[0]}: ` : ""}
               {reaction.emoji}
             </span>
@@ -396,18 +509,40 @@ export function LivePanel({ meetingId, myEmployeeId, isHost, recordingState }: L
         <div className="card flex flex-col p-4">
           <div className="flex items-center gap-2">
             <MessageSquare className="h-4 w-4 text-brand" />
-            <p className="text-[13px] font-semibold text-ink">In-meeting chat</p>
-            <span className="ml-auto rounded-full bg-brand-soft px-2 py-0.5 text-[10px] font-semibold text-brand">{chat.length}</span>
+            <p className="text-[13px] font-semibold text-ink">
+              In-meeting chat
+            </p>
+            <span className="ml-auto rounded-full bg-brand-soft px-2 py-0.5 text-[10px] font-semibold text-brand">
+              {chat.length}
+            </span>
           </div>
-          <div ref={chatRef} className="mt-3 max-h-72 flex-1 space-y-2.5 overflow-y-auto pr-1">
-            {chat.length === 0 && <p className="text-[12px] text-faint">No messages yet — say hello.</p>}
+          <div
+            ref={chatRef}
+            className="mt-3 max-h-72 flex-1 space-y-2.5 overflow-y-auto pr-1"
+          >
+            {chat.length === 0 && (
+              <p className="text-[12px] text-faint">
+                No messages yet — say hello.
+              </p>
+            )}
             {chat.map((message) => (
-              <div key={message.id} className="rounded-lg border border-line p-2.5">
+              <div
+                key={message.id}
+                className="rounded-lg border border-line p-2.5"
+              >
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[12px] font-semibold text-ink">{message.sender_name ?? "You"}</span>
-                  <span className="text-[10px] text-faint">{message.created_at ? formatDateTime(message.created_at) : ""}</span>
+                  <span className="text-[12px] font-semibold text-ink">
+                    {message.sender_name ?? "You"}
+                  </span>
+                  <span className="text-[10px] text-faint">
+                    {message.created_at
+                      ? formatDateTime(message.created_at)
+                      : ""}
+                  </span>
                 </div>
-                <p className="mt-0.5 text-[13px] leading-relaxed text-muted">{message.content}</p>
+                <p className="mt-0.5 text-[13px] leading-relaxed text-muted">
+                  {message.content}
+                </p>
               </div>
             ))}
           </div>
@@ -438,7 +573,10 @@ export function LivePanel({ meetingId, myEmployeeId, isHost, recordingState }: L
                   {kind}
                 </button>
               ))}
-              <button onClick={clearBoard} className="ml-1 rounded-md px-2 py-1 text-[11px] font-medium text-faint hover:bg-danger/10 hover:text-danger">
+              <button
+                onClick={clearBoard}
+                className="ml-1 rounded-md px-2 py-1 text-[11px] font-medium text-faint hover:bg-danger/10 hover:text-danger"
+              >
                 Clear
               </button>
             </div>
@@ -451,11 +589,28 @@ export function LivePanel({ meetingId, myEmployeeId, isHost, recordingState }: L
             onPointerUp={pointerUp}
             onPointerLeave={pointerUp}
           >
-            {savedShapes.map((shape) => <ShapeElement key={shape.id} shape={shape} />)}
-            {draftShapes.map((shape) => <ShapeElement key={shape.id} shape={shape} />)}
-            {drawing && <ShapeElement shape={{ id: "draft", kind: drawing.kind, x: Math.min(drawing.x0, drawing.x1), y: Math.min(drawing.y0, drawing.y1), w: Math.abs(drawing.x1 - drawing.x0), h: Math.abs(drawing.y1 - drawing.y0) }} />}
+            {savedShapes.map((shape) => (
+              <ShapeElement key={shape.id} shape={shape} />
+            ))}
+            {draftShapes.map((shape) => (
+              <ShapeElement key={shape.id} shape={shape} />
+            ))}
+            {drawing && (
+              <ShapeElement
+                shape={{
+                  id: "draft",
+                  kind: drawing.kind,
+                  x: Math.min(drawing.x0, drawing.x1),
+                  y: Math.min(drawing.y0, drawing.y1),
+                  w: Math.abs(drawing.x1 - drawing.x0),
+                  h: Math.abs(drawing.y1 - drawing.y0),
+                }}
+              />
+            )}
           </svg>
-          <p className="mt-2 text-[11px] text-faint">v{board?.version ?? 1} · changes sync to everyone in the session</p>
+          <p className="mt-2 text-[11px] text-faint">
+            v{board?.version ?? 1} · changes sync to everyone in the session
+          </p>
         </div>
 
         {/* ------------------------------------------------ people + captions */}
@@ -466,24 +621,40 @@ export function LivePanel({ meetingId, myEmployeeId, isHost, recordingState }: L
               {peers.map((peer) => (
                 <li key={peer.employee_id} className="flex items-center gap-2">
                   <Avatar name={peer.name} size="sm" />
-                  <span className="truncate text-[13px] text-ink">{peer.name}</span>
+                  <span className="truncate text-[13px] text-ink">
+                    {peer.name}
+                  </span>
                   {peer.role === "host" && <Badge tone="brand">host</Badge>}
                 </li>
               ))}
-              {myEmployeeId && peers.every((p) => p.employee_id !== myEmployeeId) && (
-                <li className="flex items-center gap-2 text-[12px] text-faint">you are connected</li>
-              )}
+              {myEmployeeId &&
+                peers.every((p) => p.employee_id !== myEmployeeId) && (
+                  <li className="flex items-center gap-2 text-[12px] text-faint">
+                    you are connected
+                  </li>
+                )}
             </ul>
           </div>
 
           <div className="card p-4">
             <p className="text-[13px] font-semibold text-ink">Live captions</p>
             <div className="mt-2 max-h-44 space-y-1.5 overflow-y-auto">
-              {captions.length === 0 && <p className="text-[12px] text-faint">No captions yet.</p>}
+              {captions.length === 0 && (
+                <p className="text-[12px] text-faint">No captions yet.</p>
+              )}
               {captions.slice(-8).map((caption) => (
-                <p key={caption.id} className="text-[12px] leading-relaxed text-muted">
-                  {caption.speaker_name && <span className="font-semibold text-ink">{caption.speaker_name}: </span>}
-                  {caption.translated_text && caption.translation_language ? caption.translated_text : caption.text}
+                <p
+                  key={caption.id}
+                  className="text-[12px] leading-relaxed text-muted"
+                >
+                  {caption.speaker_name && (
+                    <span className="font-semibold text-ink">
+                      {caption.speaker_name}:{" "}
+                    </span>
+                  )}
+                  {caption.translated_text && caption.translation_language
+                    ? caption.translated_text
+                    : caption.text}
                 </p>
               ))}
             </div>
@@ -513,7 +684,33 @@ export function LivePanel({ meetingId, myEmployeeId, isHost, recordingState }: L
 
 function ShapeElement({ shape }: { shape: BoardShape }) {
   const common = { stroke: "#6366f1", strokeWidth: 2, fill: "none" };
-  if (shape.kind === "rect") return <rect {...common} x={shape.x} y={shape.y} width={shape.w} height={shape.h} />;
-  if (shape.kind === "ellipse") return <ellipse {...common} cx={shape.x + shape.w / 2} cy={shape.y + shape.h / 2} rx={shape.w / 2} ry={shape.h / 2} />;
-  return <line {...common} x1={shape.x} y1={shape.y} x2={shape.x + shape.w} y2={shape.y + shape.h} />;
+  if (shape.kind === "rect")
+    return (
+      <rect
+        {...common}
+        x={shape.x}
+        y={shape.y}
+        width={shape.w}
+        height={shape.h}
+      />
+    );
+  if (shape.kind === "ellipse")
+    return (
+      <ellipse
+        {...common}
+        cx={shape.x + shape.w / 2}
+        cy={shape.y + shape.h / 2}
+        rx={shape.w / 2}
+        ry={shape.h / 2}
+      />
+    );
+  return (
+    <line
+      {...common}
+      x1={shape.x}
+      y1={shape.y}
+      x2={shape.x + shape.w}
+      y2={shape.y + shape.h}
+    />
+  );
 }

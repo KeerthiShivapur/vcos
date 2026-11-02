@@ -11,11 +11,12 @@ from typing import Optional
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.rls import set_tenant_context
 from app.models.notification import AuditLog
 from app.models.organization import Organization, OrganizationSettings
 from app.models.user import Session, User
 from app.models.invitation import Invitation
-from app.models.role import Role, UserRole
+from app.models.role import Role, UserRoleModel
 from app.models.workspace import Workspace
 from app.schemas.auth import RegisterRequest
 from app.core.security import hash_password
@@ -45,12 +46,13 @@ class OrganizationService:
             name=payload.organization_name,
             slug=payload.organization_slug,
             industry=payload.industry,
-            country=payload.country,
             timezone=payload.timezone,
-            currency=payload.currency,
         )
         db.add(org)
         await db.flush()
+
+        # Set tenant context for RLS policies before creating tenant-scoped entities
+        await set_tenant_context(db, org.id)
 
         settings = OrganizationSettings(organization_id=org.id)
         db.add(settings)
@@ -63,18 +65,16 @@ class OrganizationService:
             email=payload.email,
             username=payload.username,
             full_name=payload.full_name,
-            password_hash=hash_password(payload.password),
+            hashed_password=hash_password(payload.password),
             status="active",
             role="ceo",
-            timezone=payload.timezone,
-            language="en",
             email_verified_at=datetime.now(timezone.utc),
         )
         db.add(owner)
         await db.flush()
         org.owner_id = owner.id
 
-        db.add(UserRole(user_id=owner.id, role_id=ceo_role.id, organization_id=org.id))
+        db.add(UserRoleModel(user_id=owner.id, role_id=ceo_role.id, organization_id=org.id))
 
         workspace = Workspace(organization_id=org.id, user_id=owner.id)
         db.add(workspace)

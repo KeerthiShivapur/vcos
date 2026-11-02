@@ -1,591 +1,656 @@
-"""Intelligence API — background intelligence center (Phase 9).
+"""
+Intelligence Layer API Routes.
 
-Exposes everything the autonomous organization has learned: event bus
-observability, on-demand worker runs, org graph, expertise evolution,
-knowledge/search/burnout/duplicate/pattern/workflow insights, and lessons
-learned. All reads require `intelligence:read`; all writes (worker runs,
-insight status changes) require `intelligence:manage`.
+Provides endpoints for:
+- Document ingestion
+- Vector search
+- RAG query
+- Collection management
+- Embedding generation
 """
 
-from typing import Any, Optional
+import logging
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from pydantic import BaseModel
+
+from app.api.deps import get_current_user, get_db
+from app.core.vector_db import (
+    VectorDatabase,
+    DistanceMetric,
+    IndexType,
+    get_vector_db,
+)
+from app.core.embeddings import (
+    EmbeddingPipeline,
+    EmbeddingProvider,
+    EmbeddingConfig,
+    get_embedding_pipeline,
+)
+from app.core.rag import (
+    RAGPipeline,
+    IngestionConfig,
+    RetrievalConfig,
+    GenerationConfig,
+    RetrievalStrategy,
+    GenerationModel,
+    Document,
+    get_rag_pipeline,
+)
+from app.models.user import User
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_organization, require_permission
-from app.db.database import get_db
-from app.events.event_bus import event_bus
-from app.events.event_models import describe
-from app.intelligence.burnout_engine import burnout_engine
-from app.intelligence.duplicate_engine import duplicate_engine
-from app.intelligence.expertise_engine import expertise_engine
-from app.intelligence.graph_engine import graph_engine
-from app.intelligence.knowledge_engine import knowledge_engine
-from app.intelligence.learning_engine import learning_engine
-from app.intelligence.pattern_engine import pattern_engine
-from app.intelligence.risk_engine import background_risk_engine
-from app.intelligence.search_engine import search_engine
-from app.intelligence.workflow_engine import workflow_engine
-from app.models.intelligence import ACTIVE_PATTERN_STATUSES, BackgroundJob
-from app.models.notification import Event as EventRow
-from app.models.notification import Notification
-from app.models.organization import Organization
-from app.models.user import User
+router = APIRouter(tags=["Intelligence Layer"])
 
-router = APIRouter(prefix="/intelligence", tags=["Intelligence"])
+logger = logging.getLogger(__name__)
 
 
-# ------------------------------------------------------------------ overview
+# ==================== Models ====================
 
-@router.get("/overview")
-async def intelligence_overview(
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("intelligence:read")),
+class CollectionCreate(BaseModel):
+    name: str
+    dimensions: Optional[int] = None
+    distance_metric: str = "cosine"
+    description: str = ""
+    metadata: Dict[str, Any] = {}
+
+
+class CollectionResponse(BaseModel):
+    name: str
+    dimensions: int
+    distance_metric: str
+    description: str
+    metadata: Dict[str, Any]
+    created_at: str
+    updated_at: str
+    document_count: int = 0
+
+
+class EmbeddingRequest(BaseModel):
+    texts: List[str]
+    model: Optional[str] = None
+    use_cache: bool = True
+
+
+class EmbeddingResponse(BaseModel):
+    embeddings: List[List[float]]
+    model: str
+    dimensions: int
+    usage: Dict[str, int]
+    cached: bool
+    latency_ms: int
+
+
+class DocumentIngest(BaseModel):
+    content: str
+    metadata: Dict[str, Any] = {}
+    source: str = "api"
+
+
+class DocumentIngestResponse(BaseModel):
+    document_id: str
+    chunks_created: int
+    chunk_ids: List[str]
+
+
+class SearchRequest(BaseModel):
+    query: str
+    collection: Optional[str] = None
+    limit: int = 10
+    strategy: str = "hybrid"
+    vector_weight: float = 0.7
+    keyword_weight: float = 0.3
+    similarity_threshold: float = 0.5
+    metadata_filters: Dict[str, Any] = {}
+
+
+class SearchResultResponse(BaseModel):
+    id: str
+    score: float
+    content: str
+    metadata: Dict[str, Any]
+    distance: float
+
+
+class SearchResponse(BaseModel):
+    results: List[SearchResultResponse]
+    query: str
+    strategy: str
+    total_results: int
+
+
+class RAGQueryRequest(BaseModel):
+    question: str
+    collection: Optional[str] = None
+    retrieval_config: Optional[Dict[str, Any]] = None
+    generation_config: Optional[Dict[str, Any]] = None
+
+
+class RAGQueryResponse(BaseModel):
+    answer: str
+    citations: List[Dict[str, Any]]
+    contexts: List[SearchResultResponse]
+    confidence: float
+    tokens_used: int
+    latency_ms: int
+    metadata: Dict[str, Any]
+
+
+class RAGStreamRequest(BaseModel):
+    question: str
+    collection: Optional[str] = None
+
+
+# ==================== Collection Management ====================
+
+@router.post("/intelligence/collections", response_model=CollectionResponse)
+async def create_collection(
+    request: CollectionCreate,
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    graph_stats = await graph_engine.stats(db, organization_id=org.id)
-    search_stats = await search_engine.stats(db, organization_id=org.id)
-    learning_summary = await learning_engine.summary(db, organization_id=org.id)
-    burnout_signals = await burnout_engine.list_signals(db, organization_id=org.id, limit=10)
-    knowledge_insights = await knowledge_engine.list_insights(db, organization_id=org.id, limit=10)
-    duplicates = await duplicate_engine.list_detections(db, organization_id=org.id, limit=10)
-    patterns = await pattern_engine.list_patterns(db, organization_id=org.id, limit=10)
-    workflow = await workflow_engine.list_insights(db, organization_id=org.id, limit=10)
-    risks = await background_risk_engine.list_open(db, organization_id=org.id, limit=10)
-    notification_count = (
-        await db.execute(
-            select(Notification.id)
-            .where(
-                Notification.organization_id == org.id,
-                Notification.type.in_(("risk", "burnout", "pattern")),
-            )
-        )
-    ).scalars().all()
-
-    job_counts = {
-        "queued": 0, "running": 0, "done": 0, "failed": 0, "retry": 0,
-    }
-    rows = (
-        await db.execute(
-            select(BackgroundJob.status, BackgroundJob.id)
-            .where(BackgroundJob.organization_id == org.id)
-        )
-    ).all()
-    for status, _ in rows:
-        job_counts[status] = job_counts.get(status, 0) + 1
-
-    return {
-        "graph": graph_stats,
-        "search": search_stats,
-        "learning": learning_summary,
-        "jobs": job_counts,
-        "burnout": {"count": len(burnout_signals), "latest": burnout_signals[:3]},
-        "knowledge": {"count": len(knowledge_insights), "latest": knowledge_insights[:3]},
-        "duplicates": {"count": len(duplicates), "latest": duplicates[:3]},
-        "patterns": {"count": len(patterns), "latest": patterns[:3]},
-        "workflow": {"count": len(workflow), "latest": workflow[:3]},
-        "risks": {"count": len(risks), "latest": risks[:3]},
-        "autonomous_notifications": {"count": len(notification_count)},
-    }
-
-
-# ------------------------------------------------------------------ event bus
-
-@router.get("/events")
-async def recent_events(
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("intelligence:read")),
-    db: AsyncSession = Depends(get_db),
-    limit: int = Query(50, ge=1, le=200),
-    processed: bool = Query(None),
-):
-    return await event_bus.recent_events(
-        db, organization_id=org.id, limit=limit, processed=processed
-    )
-
-
-@router.get("/events/stats")
-async def event_stats(
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("intelligence:read")),
-    db: AsyncSession = Depends(get_db),
-):
-    return await event_bus.stats(db, organization_id=org.id)
-
-
-@router.post("/events/process")
-async def process_pending_events(
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("intelligence:manage")),
-    db: AsyncSession = Depends(get_db),
-    limit: int = Query(50, ge=1, le=500),
-):
-    """Trigger the event dispatcher on demand (normally the event worker does this).
-
-    Scoped to the requesting organization - a tenant drain never touches
-    other tenants' queues.
-    """
-    count = await event_bus.process_pending(
-        db, limit=limit, organization_id=org.id
-    )
-    await db.commit()
-    return {"processed": count}
-
-
-# ------------------------------------------------------------------ workers / jobs
-
-@router.get("/jobs")
-async def list_jobs(
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("intelligence:read")),
-    db: AsyncSession = Depends(get_db),
-    limit: int = Query(50, ge=1, le=200),
-    status: str = Query(None),
-):
-    stmt = select(BackgroundJob).where(BackgroundJob.organization_id == org.id)
-    if status:
-        stmt = stmt.where(BackgroundJob.status == status)
-    stmt = stmt.order_by(BackgroundJob.created_at.desc()).limit(limit)
-    rows = (await db.execute(stmt)).scalars().all()
-    return [
-        {
-            "id": j.id, "name": j.name, "status": j.status,
-            "attempts": j.attempts, "max_attempts": j.max_attempts,
-            "error": j.error, "payload": j.payload,
-            "created_at": j.created_at.isoformat() if j.created_at else None,
-            "started_at": j.started_at.isoformat() if j.started_at else None,
-            "finished_at": j.finished_at.isoformat() if j.finished_at else None,
-        }
-        for j in rows
-    ]
-
-
-_WORKER_MODULES = {
-    "event": "app.workers.event_worker",
-    "graph_updates": "app.workers.graph_updates_worker",
-    "search_insight": "app.workers.search_insight_worker",
-    "knowledge_intel": "app.workers.knowledge_intel_worker",
-    "collab_intel": "app.workers.collab_intel_worker",
-    "burnout": "app.workers.burnout_worker",
-    "expertise_evolve": "app.workers.expertise_evolve_worker",
-    "workflow_intel": "app.workers.workflow_intel_worker",
-    "pattern": "app.workers.pattern_worker",
-    "insight": "app.workers.insight_worker",
-    "learning": "app.workers.learning_worker",
-    "insights": "app.workers.insights_worker",
-    "recommendation_feed": "app.workers.recommendation_feed_worker",
-    "risk": "app.workers.risk_worker",
-    "notification": "app.workers.notification_worker",
-    "skill": "app.workers.skill_worker",
-    "certification": "app.workers.certification_worker",
-    "mentor": "app.workers.mentor_worker",
-    "assessment": "app.workers.assessment_worker",
-    "company_intel": "app.workers.company_intel_worker",
-    "indexing": "app.workers.indexing_worker",
-    "memory_formation": "app.workers.memory_formation_worker",
-}
-
-
-@router.get("/workers")
-async def list_workers(
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("intelligence:read")),
-):
-    from app.workers.scheduler import WORKER_REGISTRY
-
-    registry = dict(WORKER_REGISTRY)
-    return [
-        {
-            "name": name,
-            "interval_seconds": registry.get(name),
-            "run_on_demand": name in _WORKER_MODULES,
-        }
-        for name in _WORKER_MODULES
-    ]
-
-
-@router.post("/workers/{name}/run")
-async def run_worker(
-    name: str,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("intelligence:manage")),
-    db: AsyncSession = Depends(get_db),
-):
-    """Run a background worker's single pass on demand."""
-    module_name = _WORKER_MODULES.get(name)
-    if not module_name:
-        raise HTTPException(status_code=404, detail=f"Unknown worker: {name}")
-    import importlib
-    import inspect
-
-    module = importlib.import_module(module_name)
+    """Create a new vector collection."""
+    vector_db = get_vector_db()
+    
     try:
-        signature = inspect.signature(module.run_once)
-        if "organization_id" in signature.parameters:
-            count = await module.run_once(db=db, organization_id=org.id)
-        elif "db" in signature.parameters:
-            count = await module.run_once(db=db)
-        else:
-            count = await module.run_once()
-    except Exception as exc:  # pragma: no cover - surfaced to caller
-        raise HTTPException(status_code=500, detail=f"Worker {name} failed: {exc}")
-    await db.commit()
-    return {"worker": name, "processed": count}
-
-
-# ------------------------------------------------------------------ expertise evolution
-
-@router.get("/expertise/leaderboard")
-async def expertise_leaderboard(
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("intelligence:read")),
-    db: AsyncSession = Depends(get_db),
-    limit: int = Query(20, ge=1, le=100),
-):
-    return await expertise_engine.leaderboard(db, organization_id=org.id, limit=limit)
-
-
-@router.get("/expertise/{employee_id}/history")
-async def expertise_history(
-    employee_id: str,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("intelligence:read")),
-    db: AsyncSession = Depends(get_db),
-    limit: int = Query(50, ge=1, le=200),
-):
-    return await expertise_engine.history(
-        db, organization_id=org.id, employee_id=employee_id, limit=limit
+        metric = DistanceMetric(request.distance_metric)
+    except ValueError:
+        raise HTTPException(400, f"Invalid distance metric: {request.distance_metric}")
+    
+    collection = await vector_db.create_collection(
+        name=request.name,
+        dimensions=request.dimensions,
+        distance_metric=metric,
+        description=request.description,
+        metadata=request.metadata,
+    )
+    
+    stats = await vector_db.get_collection_stats(collection.name)
+    
+    return CollectionResponse(
+        name=collection.name,
+        dimensions=collection.dimensions,
+        distance_metric=collection.distance_metric.value,
+        description=collection.description,
+        metadata=collection.metadata,
+        created_at=collection.created_at.isoformat(),
+        updated_at=collection.updated_at.isoformat(),
+        document_count=stats.get("document_count", 0),
     )
 
 
-# ------------------------------------------------------------------ org graph
-
-@router.get("/graph")
-async def graph_stats(
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("intelligence:read")),
+@router.get("/intelligence/collections", response_model=List[CollectionResponse])
+async def list_collections(
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await graph_engine.stats(db, organization_id=org.id)
+    """List all vector collections."""
+    vector_db = get_vector_db()
+    collections = await vector_db.list_collections()
+    
+    response = []
+    for collection in collections:
+        stats = await vector_db.get_collection_stats(collection.name)
+        response.append(CollectionResponse(
+            name=collection.name,
+            dimensions=collection.dimensions,
+            distance_metric=collection.distance_metric.value,
+            description=collection.description,
+            metadata=collection.metadata,
+            created_at=collection.created_at.isoformat(),
+            updated_at=collection.updated_at.isoformat(),
+            document_count=stats.get("document_count", 0),
+        ))
+    
+    return response
 
 
-@router.get("/graph/edges")
-async def graph_edges(
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("intelligence:read")),
+@router.get("/intelligence/collections/{name}", response_model=CollectionResponse)
+async def get_collection(
+    name: str,
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-    relation: str = Query(None),
-    entity_type: str = Query(None),
-    limit: int = Query(100, ge=1, le=500),
 ):
-    return await graph_engine.edges(
-        db, organization_id=org.id, relation=relation, entity_type=entity_type, limit=limit
+    """Get collection details."""
+    vector_db = get_vector_db()
+    collection = await vector_db.get_collection(name)
+    
+    if not collection:
+        raise HTTPException(404, "Collection not found")
+    
+    stats = await vector_db.get_collection_stats(name)
+    
+    return CollectionResponse(
+        name=collection.name,
+        dimensions=collection.dimensions,
+        distance_metric=collection.distance_metric.value,
+        description=collection.description,
+        metadata=collection.metadata,
+        created_at=collection.created_at.isoformat(),
+        updated_at=collection.updated_at.isoformat(),
+        document_count=stats.get("document_count", 0),
     )
 
 
-@router.get("/graph/neighbors")
-async def graph_neighbors(
-    entity_type: str,
-    entity_id: str,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("intelligence:read")),
+@router.delete("/intelligence/collections/{name}")
+async def delete_collection(
+    name: str,
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-    limit: int = Query(50, ge=1, le=200),
 ):
-    return await graph_engine.neighbors(
-        db, organization_id=org.id, entity_type=entity_type, entity_id=entity_id, limit=limit
+    """Delete a collection."""
+    vector_db = get_vector_db()
+    success = await vector_db.delete_collection(name)
+    
+    if not success:
+        raise HTTPException(404, "Collection not found")
+    
+    return {"success": True}
+
+
+@router.get("/intelligence/collections/{name}/stats")
+async def get_collection_stats(
+    name: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get collection statistics."""
+    vector_db = get_vector_db()
+    return await vector_db.get_collection_stats(name)
+
+
+# ==================== Embedding Generation ====================
+
+@router.post("/intelligence/embeddings", response_model=EmbeddingResponse)
+async def generate_embeddings(
+    request: EmbeddingRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate embeddings for texts."""
+    pipeline = get_embedding_pipeline()
+    await pipeline.initialize()
+    
+    response = await pipeline.embed_texts(
+        texts=request.texts,
+        model=request.model,
+        use_cache=request.use_cache,
+    )
+    
+    return EmbeddingResponse(
+        embeddings=response.embeddings,
+        model=response.model,
+        dimensions=response.dimensions,
+        usage=response.usage,
+        cached=response.cached,
+        latency_ms=response.latency_ms,
     )
 
 
-@router.get("/graph/path")
-async def graph_path(
-    from_employee: str,
-    to_employee: str,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("intelligence:read")),
+@router.get("/intelligence/embeddings/estimate-cost")
+async def estimate_embedding_cost(
+    token_count: int = Query(..., ge=1),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-    max_depth: int = Query(4, ge=1, le=6),
 ):
-    return await graph_engine.collaboration_path(
-        db, organization_id=org.id, from_employee=from_employee,
-        to_employee=to_employee, max_depth=max_depth,
+    """Estimate embedding cost."""
+    pipeline = get_embedding_pipeline()
+    await pipeline.initialize()
+    
+    cost = pipeline.estimate_cost(token_count)
+    
+    return {
+        "token_count": token_count,
+        "estimated_cost_usd": cost,
+        "model": pipeline.config.model,
+        "provider": pipeline.config.provider.value,
+    }
+
+
+# ==================== Document Ingestion ====================
+
+@router.post("/intelligence/documents", response_model=DocumentIngestResponse)
+async def ingest_document(
+    request: DocumentIngest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Ingest a document into the knowledge base."""
+    pipeline = get_rag_pipeline()
+    await pipeline.initialize()
+    
+    document = Document(
+        id=str(uuid.uuid4()),
+        content=request.content,
+        metadata={**request.metadata, "user_id": user.id, "org_id": user.organization_id},
+        source=request.source,
+    )
+    
+    ids = await pipeline.ingest_document(document)
+    
+    return DocumentIngestResponse(
+        document_id=document.id,
+        chunks_created=len(ids),
+        chunk_ids=ids,
     )
 
 
-@router.get("/graph/bottlenecks")
-async def graph_bottlenecks(
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("intelligence:read")),
-    db: AsyncSession = Depends(get_db),
-    limit: int = Query(10, ge=1, le=50),
-):
-    return await graph_engine.bottlenecks(db, organization_id=org.id, limit=limit)
-
-
-@router.delete("/graph/edges/{edge_id}")
-async def deactivate_graph_edge(
-    edge_id: str,
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("intelligence:manage")),
+@router.post("/intelligence/documents/batch", response_model=DocumentIngestResponse)
+async def ingest_documents_batch(
+    documents: List[DocumentIngest],
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    ok = await graph_engine.deactivate_edge(db, organization_id=org.id, edge_id=edge_id)
-    await db.commit()
-    if not ok:
-        raise HTTPException(status_code=404, detail="Edge not found")
-    return {"ok": True}
-
-
-# ------------------------------------------------------------------ knowledge insights
-
-@router.get("/knowledge/insights")
-async def knowledge_insights(
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("intelligence:read")),
-    db: AsyncSession = Depends(get_db),
-    kind: str = Query(None),
-    status: str = Query(None),
-    limit: int = Query(50, ge=1, le=200),
-):
-    return await knowledge_engine.list_insights(
-        db, organization_id=org.id, kind=kind, status=status, limit=limit
-    )
-
-
-@router.patch("/knowledge/insights/{insight_id}")
-async def update_knowledge_insight(
-    insight_id: str,
-    payload: dict[str, Any],
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("intelligence:manage")),
-    db: AsyncSession = Depends(get_db),
-):
-    status = payload.get("status")
-    if status not in ("open", "accepted", "dismissed"):
-        raise HTTPException(status_code=422, detail="status must be open|accepted|dismissed")
-    result = await knowledge_engine.set_status(
-        db, organization_id=org.id, insight_id=insight_id, status=status
-    )
-    await db.commit()
-    if not result:
-        raise HTTPException(status_code=404, detail="Insight not found")
-    return result
-
-
-# ------------------------------------------------------------------ search insights
-
-@router.get("/search/insights")
-async def search_insights(
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("intelligence:read")),
-    db: AsyncSession = Depends(get_db),
-    kind: str = Query(None),
-    limit: int = Query(50, ge=1, le=200),
-):
-    return await search_engine.list_insights(db, organization_id=org.id, kind=kind, limit=limit)
-
-
-@router.get("/search/stats")
-async def search_stats(
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("intelligence:read")),
-    db: AsyncSession = Depends(get_db),
-):
-    return await search_engine.stats(db, organization_id=org.id)
-
-
-# ------------------------------------------------------------------ burnout signals
-
-@router.get("/burnout/signals")
-async def burnout_signals(
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("intelligence:read")),
-    db: AsyncSession = Depends(get_db),
-    min_level: str = Query("moderate"),
-    status: str = Query(None),
-    limit: int = Query(50, ge=1, le=200),
-):
-    return await burnout_engine.list_signals(
-        db, organization_id=org.id, min_level=min_level, status=status, limit=limit
-    )
-
-
-@router.patch("/burnout/signals/{signal_id}")
-async def update_burnout_signal(
-    signal_id: str,
-    payload: dict[str, Any],
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("intelligence:manage")),
-    db: AsyncSession = Depends(get_db),
-):
-    status = payload.get("status")
-    if status not in ("open", "acknowledged", "resolved"):
-        raise HTTPException(status_code=422, detail="status must be open|acknowledged|resolved")
-    result = await burnout_engine.set_status(
-        db, organization_id=org.id, signal_id=signal_id, status=status
-    )
-    await db.commit()
-    if not result:
-        raise HTTPException(status_code=404, detail="Signal not found")
-    return result
-
-
-# ------------------------------------------------------------------ duplicates
-
-@router.get("/duplicates")
-async def duplicate_detections(
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("intelligence:read")),
-    db: AsyncSession = Depends(get_db),
-    kind: str = Query(None),
-    status: str = Query("open"),
-    limit: int = Query(50, ge=1, le=200),
-):
-    return await duplicate_engine.list_detections(
-        db, organization_id=org.id, kind=kind, status=status, limit=limit
-    )
-
-
-@router.patch("/duplicates/{detection_id}")
-async def update_duplicate_detection(
-    detection_id: str,
-    payload: dict[str, Any],
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("intelligence:manage")),
-    db: AsyncSession = Depends(get_db),
-):
-    status = payload.get("status")
-    if status not in ("open", "confirmed", "dismissed"):
-        raise HTTPException(status_code=422, detail="status must be open|confirmed|dismissed")
-    result = await duplicate_engine.set_status(
-        db, organization_id=org.id, detection_id=detection_id, status=status
-    )
-    await db.commit()
-    if not result:
-        raise HTTPException(status_code=404, detail="Detection not found")
-    return result
-
-
-# ------------------------------------------------------------------ patterns
-
-@router.get("/patterns")
-async def org_patterns(
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("intelligence:read")),
-    db: AsyncSession = Depends(get_db),
-    pattern_type: str = Query(None),
-    status: str = Query("open"),
-    limit: int = Query(50, ge=1, le=200),
-):
-    return await pattern_engine.list_patterns(
-        db, organization_id=org.id, pattern_type=pattern_type, status=status, limit=limit
-    )
-
-
-@router.patch("/patterns/{pattern_id}")
-async def update_pattern(
-    pattern_id: str,
-    payload: dict[str, Any],
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("intelligence:manage")),
-    db: AsyncSession = Depends(get_db),
-):
-    status = payload.get("status")
-    allowed = ("open", "acknowledged", "dismissed") + tuple(ACTIVE_PATTERN_STATUSES) + ("resolved",)
-    if status not in allowed:
-        raise HTTPException(
-            status_code=422,
-            detail="status must be open|acknowledged|dismissed|" + "|".join(ACTIVE_PATTERN_STATUSES),
+    """Ingest multiple documents."""
+    pipeline = get_rag_pipeline()
+    await pipeline.initialize()
+    
+    docs = [
+        Document(
+            id=str(uuid.uuid4()),
+            content=doc.content,
+            metadata={**doc.metadata, "user_id": user.id, "org_id": user.organization_id},
+            source=doc.source,
         )
-    result = await pattern_engine.set_status(
-        db, organization_id=org.id, pattern_id=pattern_id, status=status
-    )
-    await db.commit()
-    if not result:
-        raise HTTPException(status_code=404, detail="Pattern not found")
-    return result
-
-
-# ------------------------------------------------------------------ workflow insights
-
-@router.get("/workflow/insights")
-async def workflow_insights(
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("intelligence:read")),
-    db: AsyncSession = Depends(get_db),
-    status: str = Query("open"),
-    limit: int = Query(50, ge=1, le=200),
-):
-    return await workflow_engine.list_insights(
-        db, organization_id=org.id, status=status, limit=limit
-    )
-
-
-@router.patch("/workflow/insights/{insight_id}")
-async def update_workflow_insight(
-    insight_id: str,
-    payload: dict[str, Any],
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("intelligence:manage")),
-    db: AsyncSession = Depends(get_db),
-):
-    status = payload.get("status")
-    if status not in ("open", "accepted", "dismissed"):
-        raise HTTPException(status_code=422, detail="status must be open|accepted|dismissed")
-    result = await workflow_engine.set_status(
-        db, organization_id=org.id, insight_id=insight_id, status=status
-    )
-    await db.commit()
-    if not result:
-        raise HTTPException(status_code=404, detail="Insight not found")
-    return result
-
-
-# ------------------------------------------------------------------ learning
-
-@router.get("/learning/lessons")
-async def lessons_learned(
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("intelligence:read")),
-    db: AsyncSession = Depends(get_db),
-    event_type: str = Query(None),
-    limit: int = Query(50, ge=1, le=200),
-):
-    return await learning_engine.lessons(
-        db, organization_id=org.id, event_type=event_type, limit=limit
-    )
-
-
-@router.get("/learning/summary")
-async def learning_summary(
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("intelligence:read")),
-    db: AsyncSession = Depends(get_db),
-):
-    return await learning_engine.summary(db, organization_id=org.id)
-
-
-# ------------------------------------------------------------------ event catalog
-
-@router.get("/catalog")
-async def event_catalog(
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("intelligence:read")),
-):
-    return [
-        {"name": name, "description": describe(name), "points": points}
-        for name, points in [
-            (n, _expertise_points(n))
-            for n in sorted(
-                __import__("app.events.event_models", fromlist=["EVENT_CATALOG"])
-                .EVENT_CATALOG
-            )
-        ]
+        for doc in documents
     ]
+    
+    all_ids = []
+    for doc in docs:
+        ids = await pipeline.ingest_document(doc)
+        all_ids.extend(ids)
+    
+    return DocumentIngestResponse(
+        document_id="batch",
+        chunks_created=len(all_ids),
+        chunk_ids=all_ids,
+    )
 
 
-def _expertise_points(name: str) -> Optional[float]:
-    from app.events.event_models import EXPERTISE_EVENTS
+@router.post("/intelligence/documents/upload")
+async def upload_document(
+    file: UploadFile = File(...),
+    collection: Optional[str] = Form(None),
+    metadata: str = Form("{}"),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload and ingest a document file."""
+    import json
+    import uuid
+    
+    content = await file.read()
+    
+    # Try to decode as text
+    try:
+        text_content = content.decode("utf-8")
+    except UnicodeDecodeError:
+        # Try other encodings or use OCR for PDFs
+        text_content = content.decode("latin-1")
+    
+    meta = json.loads(metadata)
+    meta["filename"] = file.filename
+    meta["content_type"] = file.content_type
+    
+    pipeline = get_rag_pipeline()
+    await pipeline.initialize()
+    
+    document = Document(
+        id=str(uuid.uuid4()),
+        content=text_content,
+        metadata={**meta, "user_id": user.id, "org_id": user.organization_id},
+        source=f"upload:{file.filename}",
+    )
+    
+    ids = await pipeline.ingest_document(document)
+    
+    return DocumentIngestResponse(
+        document_id=document.id,
+        chunks_created=len(ids),
+        chunk_ids=ids,
+    )
 
-    return EXPERTISE_EVENTS.get(name)
+
+@router.delete("/intelligence/documents/{document_id}")
+async def delete_document(
+    document_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a document by ID."""
+    pipeline = get_rag_pipeline()
+    await pipeline.initialize()
+    
+    count = await pipeline.delete_document(document_id)
+    
+    return {"success": True, "chunks_deleted": count}
+
+
+# ==================== Vector Search ====================
+
+@router.post("/intelligence/search", response_model=SearchResponse)
+async def vector_search(
+    request: SearchRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Vector similarity search."""
+    vector_db = get_vector_db()
+    pipeline = get_embedding_pipeline()
+    await pipeline.initialize()
+    
+    # Generate query embedding
+    response = await pipeline.embed_texts([request.query])
+    query_vector = response.embeddings[0]
+    
+    collection = request.collection or "documents"
+    
+    try:
+        strategy = RetrievalStrategy(request.strategy)
+    except ValueError:
+        raise HTTPException(400, f"Invalid search strategy: {request.strategy}")
+    
+    if strategy == RetrievalStrategy.VECTOR:
+        results = await vector_db.search(
+            collection=collection,
+            query_vector=query_vector,
+            limit=request.limit,
+            filter_metadata=request.metadata_filters,
+        )
+    elif strategy == RetrievalStrategy.HYBRID:
+        results = await vector_db.search_hybrid(
+            collection=collection,
+            query_vector=query_vector,
+            query_text=request.query,
+            limit=request.limit,
+            vector_weight=request.vector_weight,
+            keyword_weight=request.keyword_weight,
+            filter_metadata=request.metadata_filters,
+        )
+    else:
+        raise HTTPException(400, f"Strategy {strategy.value} not implemented via direct API")
+    
+    search_results = [
+        SearchResultResponse(
+            id=r.id,
+            score=r.score,
+            content=r.content,
+            metadata=r.metadata,
+            distance=r.distance,
+        )
+        for r in results
+    ]
+    
+    return SearchResponse(
+        results=search_results,
+        query=request.query,
+        strategy=request.strategy,
+        total_results=len(search_results),
+    )
+
+
+@router.post("/intelligence/search/metadata")
+async def search_by_metadata(
+    collection: str = Query(...),
+    filters: str = Query(..., description="JSON encoded filters"),
+    limit: int = Query(100, le=1000),
+    offset: int = Query(0, ge=0),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Search vectors by metadata only."""
+    import json
+    filter_dict = json.loads(filters)
+    vector_db = get_vector_db()
+    
+    results = await vector_db.search_by_metadata(
+        collection=collection,
+        filter_metadata=filter_dict,
+        limit=limit,
+        offset=offset,
+    )
+    
+    return {
+        "results": [
+            SearchResultResponse(
+                id=r.id,
+                score=1.0,
+                content=r.content,
+                metadata=r.metadata,
+                distance=0.0,
+            )
+            for r in results
+        ],
+        "total": len(results),
+    }
+
+
+# ==================== RAG Query ====================
+
+@router.post("/intelligence/rag/query", response_model=RAGQueryResponse)
+async def rag_query(
+    request: RAGQueryRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Full RAG query pipeline."""
+    pipeline = get_rag_pipeline()
+    await pipeline.initialize()
+    
+    # Build configs from request
+    retrieval_config = None
+    if request.retrieval_config:
+        retrieval_config = RetrievalConfig(**request.retrieval_config)
+    
+    generation_config = None
+    if request.generation_config:
+        generation_config = GenerationConfig(**request.generation_config)
+    
+    response = await pipeline.query(
+        question=request.question,
+        collection=request.collection,
+        retrieval_config=retrieval_config,
+        generation_config=generation_config,
+    )
+    
+    return RAGQueryResponse(
+        answer=response.answer,
+        citations=response.citations,
+        contexts=[
+            SearchResultResponse(
+                id=c.id,
+                score=c.score,
+                content=c.content,
+                metadata=c.metadata,
+                distance=c.distance,
+            )
+            for c in response.contexts
+        ],
+        confidence=response.confidence,
+        tokens_used=response.tokens_used,
+        latency_ms=response.latency_ms,
+        metadata=response.metadata,
+    )
+
+
+@router.post("/intelligence/rag/stream")
+async def rag_stream_query(
+    request: RAGStreamRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Stream RAG query response."""
+    from fastapi.responses import StreamingResponse
+    
+    pipeline = get_rag_pipeline()
+    await pipeline.initialize()
+    
+    async def generate():
+        async for chunk in pipeline.stream_query(request.question, request.collection):
+            yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+        yield "data: [DONE]\n\n"
+    
+    import json
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+# ==================== Evaluation ====================
+
+@router.post("/intelligence/rag/evaluate")
+async def evaluate_rag(
+    test_questions: List[Dict[str, Any]],
+    collection: Optional[str] = None,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Evaluate RAG pipeline on test questions."""
+    if not user.is_superuser:
+        raise HTTPException(403, "Admin access required")
+    
+    pipeline = get_rag_pipeline()
+    await pipeline.initialize()
+    
+    results = await pipeline.evaluate(test_questions, collection)
+    return results
+
+
+# ==================== System ====================
+
+@router.get("/intelligence/stats")
+async def get_intelligence_stats(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get intelligence layer statistics."""
+    if not user.is_superuser:
+        raise HTTPException(403, "Admin access required")
+    
+    vector_db = get_vector_db()
+    collections = await vector_db.list_collections()
+    
+    total_docs = 0
+    for coll in collections:
+        stats = await vector_db.get_collection_stats(coll.name)
+        total_docs += stats.get("document_count", 0)
+    
+    embedding_pipeline = get_embedding_pipeline()
+    await embedding_pipeline.initialize()
+    
+    return {
+        "collections": len(collections),
+        "total_documents": total_docs,
+        "embedding_model": embedding_pipeline.config.model,
+        "embedding_provider": embedding_pipeline.config.provider.value,
+        "embedding_dimensions": embedding_pipeline.config.dimensions,
+    }
+
+
+import uuid

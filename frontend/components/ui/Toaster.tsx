@@ -12,14 +12,17 @@ interface Toast {
   message?: string;
 }
 
-let pushToast: ((kind: ToastKind, title: string, message?: string) => void) | null = null;
+let pushToast:
+  ((kind: ToastKind, title: string, message?: string) => void) | null = null;
 
 export function toast(kind: ToastKind, title: string, message?: string) {
   pushToast?.(kind, title, message);
 }
 
-export const toastSuccess = (title: string, message?: string) => toast("success", title, message);
-export const toastError = (title: string, message?: string) => toast("error", title, message);
+export const toastSuccess = (title: string, message?: string) =>
+  toast("success", title, message);
+export const toastError = (title: string, message?: string) =>
+  toast("error", title, message);
 
 export function Toaster() {
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -53,15 +56,20 @@ export function Toaster() {
         <div
           key={t.id}
           className={classNames(
-            "pointer-events-auto flex animate-pop items-start gap-3 rounded-xl border border-line bg-elevated p-3.5 shadow-popover"
+            "pointer-events-auto flex animate-pop items-start gap-3 rounded-xl border border-line bg-elevated p-3.5 shadow-popover",
           )}
         >
           <span className="mt-0.5 shrink-0">{icons[t.kind]}</span>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-ink">{t.title}</p>
-            {t.message && <p className="mt-0.5 text-xs text-muted">{t.message}</p>}
+            {t.message && (
+              <p className="mt-0.5 text-xs text-muted">{t.message}</p>
+            )}
           </div>
-          <button onClick={() => dismiss(t.id)} className="text-faint hover:text-ink">
+          <button
+            onClick={() => dismiss(t.id)}
+            className="text-faint hover:text-ink"
+          >
             <X className="h-3.5 w-3.5" />
           </button>
         </div>

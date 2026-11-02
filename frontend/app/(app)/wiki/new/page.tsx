@@ -79,7 +79,10 @@ function NewWikiContent() {
     }
   }
 
-  function flatten(nodes: WikiTreeNode[], prefix = ""): { value: string; label: string }[] {
+  function flatten(
+    nodes: WikiTreeNode[],
+    prefix = "",
+  ): { value: string; label: string }[] {
     return nodes.flatMap((node) => [
       { value: node.id, label: `${prefix}${node.title}` },
       ...flatten(node.children ?? [], `${prefix}${node.title} / `),
@@ -94,15 +97,38 @@ function NewWikiContent() {
         description="Write it and place it in the tree."
       />
       <form onSubmit={handleSubmit} className="card space-y-4 p-6">
-        {error && <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger">{error}</div>}
-        <Input label="Title" name="title" required placeholder="e.g. Engineering Handbook" />
-        <Textarea label="Description" name="description" rows={2} placeholder="One-line summary" />
+        {error && (
+          <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger">
+            {error}
+          </div>
+        )}
+        <Input
+          label="Title"
+          name="title"
+          required
+          placeholder="e.g. Engineering Handbook"
+        />
+        <Textarea
+          label="Description"
+          name="description"
+          rows={2}
+          placeholder="One-line summary"
+        />
         <div className="grid gap-4 sm:grid-cols-2">
           <Select
             label="Space"
             name="space"
             defaultValue="organization"
-            options={["organization", "department", "project", "team", "personal"].map((s) => ({ value: s, label: s[0].toUpperCase() + s.slice(1) }))}
+            options={[
+              "organization",
+              "department",
+              "project",
+              "team",
+              "personal",
+            ].map((s) => ({
+              value: s,
+              label: s[0].toUpperCase() + s.slice(1),
+            }))}
           />
           <Select
             label="Parent page"
@@ -112,20 +138,42 @@ function NewWikiContent() {
           />
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Input label="Category" name="category" placeholder="e.g. engineering" />
-          <Select label="Project" name="project_id" options={projects.map((p) => ({ value: p.id, label: p.name }))} />
+          <Input
+            label="Category"
+            name="category"
+            placeholder="e.g. engineering"
+          />
+          <Select
+            label="Project"
+            name="project_id"
+            options={projects.map((p) => ({ value: p.id, label: p.name }))}
+          />
         </div>
         <div>
-          <label className="mb-1 block text-[13px] font-medium text-ink">Tags</label>
+          <label className="mb-1 block text-[13px] font-medium text-ink">
+            Tags
+          </label>
           <TagInput name="tags" />
         </div>
         <div>
-          <label className="mb-1 block text-[13px] font-medium text-ink">Content</label>
-          <Textarea name="content" rows={12} placeholder="Write the page body…" />
+          <label className="mb-1 block text-[13px] font-medium text-ink">
+            Content
+          </label>
+          <Textarea
+            name="content"
+            rows={12}
+            placeholder="Write the page body…"
+          />
         </div>
         <div className="flex justify-end gap-2 pt-2">
-          <Link href="/wiki"><Button type="button" variant="ghost">Cancel</Button></Link>
-          <Button type="submit" loading={saving}>Create page</Button>
+          <Link href="/wiki">
+            <Button type="button" variant="ghost">
+              Cancel
+            </Button>
+          </Link>
+          <Button type="submit" loading={saving}>
+            Create page
+          </Button>
         </div>
       </form>
     </div>

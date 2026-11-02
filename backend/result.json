@@ -1,0 +1,313 @@
+{
+  "run_id": "9b074980-e47",
+  "evidence_schema_version": "1.0",
+  "scale_profile": "startup",
+  "employee_count": 5,
+  "tenant_count": 1,
+  "seed": 42,
+  "dataset_identity": {
+    "vcos_revision": "cd653b84c2a4",
+    "schema_revision": "unknown",
+    "generator_revision": "1.0",
+    "scale_profile": "startup",
+    "employee_count": 5,
+    "tenant_count": 1,
+    "seed": 42,
+    "density_strategy": "standard",
+    "environment_fingerprint": "pending"
+  },
+  "environment_fingerprint": {
+    "vcos_revision": "cd653b84c2a4",
+    "schema_revision": "unknown",
+    "postgresql_version": "PostgreSQL 18.2 on x86_64-windows, compiled by msvc-19.44.35222, 64-bit",
+    "runtime": "external_postgres",
+    "runtime_version": "unknown",
+    "image": "external",
+    "image_digest": "unknown",
+    "cpu_count": 8,
+    "memory_bytes": "unknown",
+    "storage_type": "external",
+    "extensions": [
+      {
+        "name": "btree_gin",
+        "version": "1.3"
+      },
+      {
+        "name": "btree_gist",
+        "version": "1.8"
+      },
+      {
+        "name": "pg_trgm",
+        "version": "1.6"
+      },
+      {
+        "name": "pgcrypto",
+        "version": "1.4"
+      },
+      {
+        "name": "uuid-ossp",
+        "version": "1.1"
+      }
+    ],
+    "configuration_fingerprint": "a486493b8a2b23f5",
+    "scale_profile": "unknown",
+    "employee_count": 0,
+    "tenant_count": 1,
+    "dataset_seed": "42",
+    "dataset_fingerprint": "deterministic",
+    "started_at": "unknown",
+    "completed_at": "unknown",
+    "configuration": {
+      "checkpoint_timeout": "1800",
+      "effective_cache_size": "1310720",
+      "maintenance_work_mem": "262144",
+      "max_connections": "50",
+      "max_parallel_workers_per_gather": "1",
+      "max_wal_size": "1024",
+      "shared_buffers": "65536",
+      "work_mem": "32768"
+    }
+  },
+  "schema_revision": "unknown",
+  "vcos_revision": "cd653b84c2a4",
+  "generator_revision": "1.0",
+  "environment": {
+    "postgresql_version": "PostgreSQL 18.2 on x86_64-windows, compiled by msvc-19.44.35222, 64-bit",
+    "environment_type": "external_postgres",
+    "endpoint_identifier": "localhost:5432/vcos_test",
+    "extensions": [
+      "pg_trgm",
+      "btree_gin",
+      "btree_gist",
+      "uuid-ossp"
+    ],
+    "configuration_fingerprint": "unknown",
+    "cpu_count": null,
+    "memory_bytes": null,
+    "storage_type": null
+  },
+  "generation": {
+    "entities_generated": {
+      "roles": 6,
+      "departments": 1,
+      "teams": 3,
+      "employees": 5,
+      "user_roles": 0,
+      "projects": 6,
+      "tasks": 120,
+      "goals": 2,
+      "meetings": 1440,
+      "decisions": 1272,
+      "documents": 10,
+      "wiki_pages": 1,
+      "policies": 1,
+      "sops": 1,
+      "templates": 1,
+      "conversations": 71,
+      "messages": 3550,
+      "budgets": 1,
+      "vendors": 1,
+      "invoices": 2,
+      "purchase_orders": 1,
+      "purchase_requests": 1,
+      "expenses": 10,
+      "customers": 1,
+      "integrations": 0,
+      "security_events": 1,
+      "operations": 25,
+      "observations": 25000,
+      "correlations": 1,
+      "degradations": 1,
+      "health_dimensions": 39,
+      "slo_targets": 1,
+      "freshness_checks": 2,
+      "operational_targets": 1,
+      "learning": 1,
+      "attention": 1
+    },
+    "total_rows": 31580,
+    "generation_duration_seconds": 22.07017269998323,
+    "throughput_rows_per_second": 1430.890479621122,
+    "checkpoint_completion": {
+      "roles": true,
+      "departments": true,
+      "teams": true,
+      "employees": true,
+      "user_roles": true,
+      "projects": true,
+      "tasks": true,
+      "goals": true,
+      "meetings": true,
+      "decisions": true,
+      "documents": true,
+      "wiki_pages": true,
+      "policies": true,
+      "sops": true,
+      "templates": true,
+      "conversations": true,
+      "messages": true,
+      "budgets": true,
+      "vendors": true,
+      "invoices": true,
+      "purchase_orders": true,
+      "purchase_requests": true,
+      "expenses": true,
+      "customers": true,
+      "integrations": true,
+      "security_events": true,
+      "operations": true,
+      "observations": true,
+      "correlations": true,
+      "degradations": true,
+      "health_dimensions": true,
+      "slo_targets": true,
+      "freshness_checks": true,
+      "operational_targets": true,
+      "learning": true,
+      "attention": true
+    },
+    "retry_count": 0,
+    "interrupted": false
+  },
+  "structural_integrity": {
+    "fk_validation_passed": true,
+    "required_fields_passed": true,
+    "enum_validity_passed": true,
+    "duplicate_fingerprints": 0,
+    "organization_ownership_passed": false,
+    "failed_entities": [],
+    "anomalies": [
+      {
+        "type": "org_ownership_violation",
+        "table": "employees",
+        "invalid_count": 15750
+      },
+      {
+        "type": "org_ownership_violation",
+        "table": "departments",
+        "invalid_count": 250
+      },
+      {
+        "type": "org_ownership_violation",
+        "table": "teams",
+        "invalid_count": 920
+      },
+      {
+        "type": "org_ownership_violation",
+        "table": "projects",
+        "invalid_count": 9510
+      },
+      {
+        "type": "org_ownership_violation",
+        "table": "tasks",
+        "invalid_count": 190200
+      },
+      {
+        "type": "org_ownership_violation",
+        "table": "decisions",
+        "invalid_count": 2771448
+      },
+      {
+        "type": "org_ownership_violation",
+        "table": "documents",
+        "invalid_count": 31500
+      },
+      {
+        "type": "org_ownership_violation",
+        "table": "wiki_pages",
+        "invalid_count": 3150
+      },
+      {
+        "type": "org_ownership_violation",
+        "table": "policies",
+        "invalid_count": 1585
+      },
+      {
+        "type": "org_ownership_violation",
+        "table": "sops",
+        "invalid_count": 1585
+      },
+      {
+        "type": "org_ownership_violation",
+        "table": "templates",
+        "invalid_count": 1585
+      },
+      {
+        "type": "org_ownership_violation",
+        "table": "conversations",
+        "invalid_count": 36482
+      },
+      {
+        "type": "org_ownership_violation",
+        "table": "conversation_members",
+        "invalid_count": 128554
+      },
+      {
+        "type": "org_ownership_violation",
+        "table": "messages",
+        "invalid_count": 1824100
+      },
+      {
+        "type": "org_ownership_violation",
+        "table": "budgets",
+        "invalid_count": 1585
+      },
+      {
+        "type": "org_ownership_violation",
+        "table": "vendors",
+        "invalid_count": 798
+      },
+      {
+        "type": "org_ownership_violation",
+        "table": "invoices",
+        "invalid_count": 1596
+      },
+      {
+        "type": "org_ownership_violation",
+        "table": "purchase_orders",
+        "invalid_count": 798
+      },
+      {
+        "type": "org_ownership_violation",
+        "table": "purchase_requests",
+        "invalid_count": 3150
+      },
+      {
+        "type": "org_ownership_violation",
+        "table": "expenses",
+        "invalid_count": 31500
+      },
+      {
+        "type": "org_ownership_violation",
+        "table": "customers",
+        "invalid_count": 1585
+      },
+      {
+        "type": "org_ownership_violation",
+        "table": "meetings",
+        "invalid_count": 4536000
+      },
+      {
+        "type": "org_ownership_violation",
+        "table": "decisions",
+        "invalid_count": 2771448
+      },
+      {
+        "type": "org_ownership_violation",
+        "table": "documents",
+        "invalid_count": 31500
+      }
+    ]
+  },
+  "acceptance_result": "FAIL",
+  "acceptance_reason": "",
+  "mandatory_checks": {
+    "environment_preflight": true,
+    "schema_validation": true,
+    "generation_complete": true,
+    "structural_integrity": false
+  },
+  "started_at": "2026-09-26T01:26:34.630492",
+  "completed_at": "2026-09-26T01:26:58.932206",
+  "duration_seconds": 24.301719
+}

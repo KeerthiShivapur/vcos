@@ -1,0 +1,53 @@
+with open('app/intelligence/canonical_mutation.py', 'rb') as f:
+    lines = f.read().split(b'\n')
+
+# Fix the indentation for the type_map block at lines 1815-1837 (indices 1814-1836)
+# Line 1815 (index 1814): '            type_map = {' -> should be 20 spaces
+if lines[1814].startswith(b'            type_map = {'):
+    lines[1814] = b'                    type_map = {'
+
+# Fix lines 1816-1830 (indices 1815-1830): dict entries should be 24 spaces
+for i in range(1815, 1831):
+    if i < len(lines):
+        line = lines[i]
+        if line.startswith(b'                    ') and not line.startswith(b'                    }'):
+            lines[i] = b'                        ' + line.lstrip()
+
+# Fix line 1831 (index 1830): '                    }' -> 20 spaces
+if lines[1830].startswith(b'                    }'):
+    lines[1830] = b'                    }'
+
+# Fix line 1832 (index 1831): '                model = type_map.get(target_entity_type)' -> 20 spaces
+if lines[1831].startswith(b'                model = type_map.get(target_entity_type)'):
+    lines[1817] = b'                    model = type_map.get(target_entity_type)'
+
+# Fix line 1833 (index 1832): '                    if model:' -> 20 spaces
+if lines[1832].startswith(b'                    if model:'):
+    lines[1832] = b'                    if model:'
+
+# Fix line 1834 (index 1833): '                        # Use database-level optimistic update' -> 24 spaces
+if lines[1833].startswith(b'                        # Use database-level optimistic update'):
+    lines[1834] = b'                        # Use database-level optimistic update'
+
+# Fix line 1835 (index 1834): '                        pass' -> 24 spaces
+if lines[1834].startswith(b'                        pass'):
+    lines[1834] = b'                        pass'
+
+# Fix line 1837 (index 1836): '                result = await mutation_fn(db)' -> 16 spaces
+if lines[1836].startswith(b'                result = await mutation_fn(db)'):
+    lines[1836] = b'                result = await mutation_fn(db)'
+
+# Fix line 1837 (index 1836): '                ' -> 16 spaces
+if lines[1836].startswith(b'                '):
+    lines[1836] = b'                '
+
+# Fix line 1838 (index 1837): '                # For UPDATE mutations, verify the version was actually updated' -> 16 spaces
+if lines[1837].startswith(b'                # For UPDATE mutations, verify the version was actually updated'):
+    lines[1837] = b'                # For UPDATE mutations, verify the version was actually updated'
+
+content = b'\n'.join(lines)
+
+with open('app/intelligence/canonical_mutation.py', 'wb') as f:
+    f.write(b'\n'.join(lines))
+
+print('Fixed')

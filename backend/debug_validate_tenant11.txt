@@ -1,0 +1,127 @@
+async def _validate_tenant_isolation(self, db: AsyncSession, organization_id: str) -> ValidationResult:
+        """Validate tenant isolation after restore using adversarial tests."""
+        print("DEBUG VALIDATE: Starting tenant isolation validation")
+        self.detector.db = db
+        result = ValidationResult(domain="tenant_isolation")
+        
+        # Run standard adversarial tests with TWO separate organizations
+        print("DEBUG VALIDATE: Running standard adversarial tests")
+        try:
+            from tests.acceptance.test_tenant_isolation_adversarial import (
+                TenantIsolationAdversarialTests,
+            )
+            
+            # Create TWO separate organizations for proper cross-tenant testing
+            from app.models.organization import Organization
+            from app.models.user import User
+            from app.models.employee import Employee
+            from app.intelligence.company_context import CallerAccess
+            import uuid
+            
+            # Create org_a
+            org_a = Organization(
+                id=f"ua-tenant-a-{uuid.uuid4().hex[:8]}",
+                name="Tenant A Test Org",
+                slug=f"tenant-a-{uuid.uuid4().hex[:8]}",
+                status="active",
+            )
+            db.add(org_a)
+            await db.flush()
+            
+            user_a = User(
+                id=f"ua-user-{uuid.uuid4().hex[:8]}",
+                email=f"ua-a-{uuid.uuid4().hex[:8]}@acceptance.test",
+                password_hash="test_hash",
+                full_name="Admin A",
+                organization_id=org_a.id,
+                status="active",
+                role="admin",
+            )
+            db.add(user_a)
+            await db.flush()
+            
+            emp_a = Employee(
+                id=f"ua-emp-{uuid.uuid4().hex[:8]}",
+                organization_id=org_a.id,
+                user_id=str(user_a.id),
+                employee_number=f"UA{uuid.uuid4().hex[:6].upper()}",
+                first_name="Admin",
+                last_name="A",
+                display_name="Admin A",
+                email=f"admin-a-{uuid.uuid4().hex[:8]}@acceptance.test",
+                joining_date=datetime.now(timezone.utc).date(),
+                status="active",
+                employment_type="full_time",
+            )
+            db.add(emp_a)
+            await db.flush()
+            
+            caller_a = CallerAccess(
+                organization_id=org_a.id,
+                user_id=str(user_a.id),
+                employee_id=emp_a.id,
+                org_wide=True,
+            )
+            
+            # Create org_b
+            org_b = Organization(
+                id=f"ua-tenant-b-{uuid.uuid4().hex[:8]}",
+                name="Tenant B Test Org",
+                slug=f"tenant-b-{uuid.uuid4().hex[:8]}",
+                status="active",
+            )
+            db.add(org_b)
+            await db.flush()
+            
+            user_b = User(
+                id=f"ub-user-{uuid.uuid4().hex[:8]}",
+                email=f"ub-b-{uuid.uuid4().hex[:8]}@acceptance.test",
+                password_hash="test_hash",
+                full_name="Admin B",
+                organization_id=org_b.id,
+                status="active",
+                role="admin",
+            )
+            db.add(user_b)
+            await db.flush()
+            
+            emp_b = Employee(
+                id=f"ub-emp-{uuid.uuid4().hex[:8]}",
+                organization_id=org_b.id,
+                user_id=str(user_b.id),
+                employee_number=f"UB{uuid.uuid4().hex[:6].upper()}",
+                first_name="Admin",
+                last_name="B",
+                display_name="Admin B",
+                email=f"admin-b-{uuid.uuid4().hex[:8]}@acceptance.test",
+                joining_date=datetime.now(timezone.utc).date(),
+                status="active",
+                employment_type="full_time",
+            )
+            db.add(emp_b)
+            await db.flush()
+            
+            caller_b = CallerAccess(
+                organization_id=org_b.id,
+                user_id=str(user_b.id),
+                employee_id=emp_b.id,
+                org_wide=True,
+            )
+            
+            await db.commit()
+            
+            tester = TenantIsolationAdversarialTests(db, caller_a, caller_b)
+            test_result = await tester.run_all_tests()
+            print("DEBUG VALIDATE: Standard adversarial tests result: {}".format(test_result))
+            
+            if test_result["failed"] == 0:
+                result.add_check(ValidationCheck(
+                    name="adversarial_tests",
+                    status=ValidationStatus.VERIFIED,
+                    message=f"All {test_result['passed']}/{test_result['total_tests']} adversarial tests passed",
+                    details=test_result,
+                ))
+            else:
+                result.add_check(ValidationCheck(
+                    name="adversarial_tests",
+                    

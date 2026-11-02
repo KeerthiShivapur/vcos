@@ -26,6 +26,7 @@ from app.models.intelligence import GraphUpdate, OrgGraphEdge
 from app.models.knowledge import Decision
 from app.models.project import Project, ProjectMember
 from app.models.task import Task
+from app.intelligence.company_context import resolve_caller_access, resolve_accessible_ids, CallerAccess
 
 logger = logging.getLogger("vcos.intelligence.graph")
 
@@ -446,7 +447,49 @@ class GraphEngine:
         self, db: AsyncSession, *, organization_id: str, limit: int = 100,
         relation: Optional[str] = None, entity_type: Optional[str] = None,
     ) -> list[dict[str, Any]]:
+        """Legacy unscoped query - use edges_visible for governance-scoped access."""
         filters = [OrgGraphEdge.organization_id == organization_id, OrgGraphEdge.active.is_(True)]
+        if relation:
+            filters.append(OrgGraphEdge.relation == relation)
+        if entity_type:
+            filters.append(
+                or_(
+                    OrgGraphEdge.source_type == entity_type,
+                    OrgGraphEdge.target_type == entity_type,
+                )
+            )
+        rows = (
+            await db.execute(
+                select(OrgGraphEdge).where(*filters).order_by(OrgGraphEdge.weight.desc()).limit(limit)
+            )
+        ).scalars().all()
+        return [self._edge_dict(r) for r in rows]
+
+    async def edges_visible(
+        self, db: AsyncSession, *, organization_id: str, access: CallerAccess, limit: int = 100,
+        relation: Optional[str] = None, entity_type: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """Governance-scoped edges: only returns edges the caller may access."""
+        filters = [OrgGraphEdge.organization_id == organization_id, OrgGraphEdge.active.is_(True)]
+        if relation:
+            filters.append(OrgGraphEdge.relation == relation)
+        if entity_type:
+            filters.append(
+                or_(
+                    OrgGraphEdge.source_type == entity_type,
+                    OrgGraphEdge.target_type == entity_type,
+                )
+            )
+        # Apply scope filtering for non-org-wide callers
+        if not access.org_wide:
+            if not access.project_ids:
+                return []
+            # Filter to edges where source or target is in accessible projects
+            project_edge_filter = or_(
+                OrgGraphEdge.source_id.in_(access.project_ids),
+                OrgGraphEdge.target_id.in_(access.project_ids),
+            )
+            filters.append(project_edge_filter)
         if relation:
             filters.append(OrgGraphEdge.relation == relation)
         if entity_type:

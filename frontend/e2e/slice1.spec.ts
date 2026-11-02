@@ -1,4 +1,10 @@
-import { expect, test, type APIRequestContext, type BrowserContext, type Page } from "@playwright/test";
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type BrowserContext,
+  type Page,
+} from "@playwright/test";
 
 const API = "http://localhost:8999/api/v1";
 
@@ -6,13 +12,22 @@ function ts(): string {
   return Date.now().toString().slice(-8);
 }
 
-async function apiLogin(ctx: APIRequestContext, email: string, password: string) {
+async function apiLogin(
+  ctx: APIRequestContext,
+  email: string,
+  password: string,
+) {
   const r = await ctx.post(`${API}/auth/login`, { data: { email, password } });
   expect(r.status(), await r.text()).toBe(200);
   return (await r.json()) as { access_token: string };
 }
 
-async function inviteByApi(ctx: APIRequestContext, token: string, email: string, role: string) {
+async function inviteByApi(
+  ctx: APIRequestContext,
+  token: string,
+  email: string,
+  role: string,
+) {
   const r = await ctx.post(`${API}/users/invite`, {
     headers: { Authorization: `Bearer ${token}` },
     data: { email, full_name: email.split("@")[0], role },
@@ -21,13 +36,22 @@ async function inviteByApi(ctx: APIRequestContext, token: string, email: string,
   return (await r.json()) as { token: string; invitation: { id: string } };
 }
 
-async function registerOrg(page: Page, name: string, slug: string, email: string, fullName: string, password: string) {
+async function registerOrg(
+  page: Page,
+  name: string,
+  slug: string,
+  email: string,
+  fullName: string,
+  password: string,
+) {
   await page.goto("/register");
   await page.getByLabel("Company name").fill(name);
   await page.getByLabel("Company slug (unique address)").fill(slug);
   await page.getByLabel("Industry").fill("Software");
   await page.getByLabel("Country").fill("United States");
-  await page.getByLabel("Your full name (founder / administrator)").fill(fullName);
+  await page
+    .getByLabel("Your full name (founder / administrator)")
+    .fill(fullName);
   await page.getByLabel("Work email").fill(email);
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByLabel("Confirm password", { exact: true }).fill(password);
@@ -35,7 +59,10 @@ async function registerOrg(page: Page, name: string, slug: string, email: string
   await page.waitForURL("**/home", { timeout: 20_000 });
 }
 
-test("founder journey: register, invite, accept, RBAC visibility", async ({ browser, request }) => {
+test("founder journey: register, invite, accept, RBAC visibility", async ({
+  browser,
+  request,
+}) => {
   const t = ts();
   const orgName = `Acme Startup ${t}`;
   const slug = `acme-${t}`;
@@ -46,10 +73,19 @@ test("founder journey: register, invite, accept, RBAC visibility", async ({ brow
   // 1. Founder registers the company.
   const aliceCtx = await browser.newContext();
   const alice = await aliceCtx.newPage();
-  await registerOrg(alice, orgName, slug, aliceEmail, "Alice Founder", password);
+  await registerOrg(
+    alice,
+    orgName,
+    slug,
+    aliceEmail,
+    "Alice Founder",
+    password,
+  );
 
   // Dashboard loads for the founder.
-  await expect(alice.getByText(/good (morning|afternoon|evening), alice/i)).toBeVisible({ timeout: 15_000 });
+  await expect(
+    alice.getByText(/good (morning|afternoon|evening), alice/i),
+  ).toBeVisible({ timeout: 15_000 });
 
   // 2. Alice opens Settings -> Members and invites Bob as employee.
   await alice.goto("/settings?tab=members");
@@ -77,16 +113,26 @@ test("founder journey: register, invite, accept, RBAC visibility", async ({ brow
   await bob.getByLabel("Your full name").fill("Bob Worker");
   await bob.getByLabel("Password", { exact: true }).fill(password);
   await bob.getByLabel("Confirm password", { exact: true }).fill(password);
-  await bob.getByRole("button", { name: "Accept invitation & continue" }).click();
+  await bob
+    .getByRole("button", { name: "Accept invitation & continue" })
+    .click();
   await bob.waitForURL("**/home", { timeout: 20_000 });
 
   // 4. Bob cannot see admin surfaces: only the Organization tab remains.
   await bob.goto("/settings?tab=members");
   await expect(bob.getByRole("heading", { name: "Settings" })).toBeVisible();
-  await expect(bob.getByRole("button", { name: "Members", exact: true })).not.toBeVisible();
-  await expect(bob.getByRole("button", { name: "Roles", exact: true })).not.toBeVisible();
-  await expect(bob.getByRole("button", { name: "Audit log", exact: true })).not.toBeVisible();
-  await expect(bob.getByRole("button", { name: "Organization", exact: true })).toBeVisible();
+  await expect(
+    bob.getByRole("button", { name: "Members", exact: true }),
+  ).not.toBeVisible();
+  await expect(
+    bob.getByRole("button", { name: "Roles", exact: true }),
+  ).not.toBeVisible();
+  await expect(
+    bob.getByRole("button", { name: "Audit log", exact: true }),
+  ).not.toBeVisible();
+  await expect(
+    bob.getByRole("button", { name: "Organization", exact: true }),
+  ).toBeVisible();
 
   // Server-side guard: Bob cannot hit the invite API.
   const bobToken = await apiLogin(request, bobEmail, password);
@@ -98,13 +144,18 @@ test("founder journey: register, invite, accept, RBAC visibility", async ({ brow
 
   // 5. Alice sees Bob in the member directory.
   await alice.goto("/settings?tab=members");
-  await expect(alice.locator("table").getByText(bobEmail)).toBeVisible({ timeout: 15_000 });
+  await expect(alice.locator("table").getByText(bobEmail)).toBeVisible({
+    timeout: 15_000,
+  });
 
   await bobCtx.close();
   await aliceCtx.close();
 });
 
-test("hr role sees Members but not Roles; cannot invite admin", async ({ browser, request }) => {
+test("hr role sees Members but not Roles; cannot invite admin", async ({
+  browser,
+  request,
+}) => {
   const t = ts();
 
   // Setup org + HR member via API (faster than driving the UI for setup).
@@ -122,11 +173,24 @@ test("hr role sees Members but not Roles; cannot invite admin", async ({ browser
     },
   });
   expect(reg.status(), await reg.text()).toBe(201);
-  const boss = (await reg.json()) as { access_token: string; user: { id: string } };
+  const boss = (await reg.json()) as {
+    access_token: string;
+    user: { id: string };
+  };
 
-  const hrInvite = await inviteByApi(request, boss.access_token, `dana${t}@acme.com`, "hr");
+  const hrInvite = await inviteByApi(
+    request,
+    boss.access_token,
+    `dana${t}@acme.com`,
+    "hr",
+  );
   const accept = await request.post(`${API}/auth/register/invite`, {
-    data: { token: hrInvite.token, email: `dana${t}@acme.com`, full_name: "Dana Hr", password: "StrongPass123!" },
+    data: {
+      token: hrInvite.token,
+      email: `dana${t}@acme.com`,
+      full_name: "Dana Hr",
+      password: "StrongPass123!",
+    },
   });
   expect(accept.status(), await accept.text()).toBe(201);
 
@@ -140,12 +204,22 @@ test("hr role sees Members but not Roles; cannot invite admin", async ({ browser
   await dana.waitForURL("**/home", { timeout: 20_000 });
   await dana.goto("/settings?tab=members");
   await expect(dana.getByRole("heading", { name: "Settings" })).toBeVisible();
-  await expect(dana.getByRole("button", { name: "Members", exact: true })).toBeVisible();
-  await expect(dana.getByRole("button", { name: "Roles", exact: true })).not.toBeVisible();
-  await expect(dana.getByRole("button", { name: "Audit log", exact: true })).toBeVisible();
+  await expect(
+    dana.getByRole("button", { name: "Members", exact: true }),
+  ).toBeVisible();
+  await expect(
+    dana.getByRole("button", { name: "Roles", exact: true }),
+  ).not.toBeVisible();
+  await expect(
+    dana.getByRole("button", { name: "Audit log", exact: true }),
+  ).toBeVisible();
 
   // Server-side policy: HR cannot invite an admin.
-  const danaToken = await apiLogin(request, `dana${t}@acme.com`, "StrongPass123!");
+  const danaToken = await apiLogin(
+    request,
+    `dana${t}@acme.com`,
+    "StrongPass123!",
+  );
   const blocked = await request.post(`${API}/users/invite`, {
     headers: { Authorization: `Bearer ${danaToken.access_token}` },
     data: { email: `adminx${t}@acme.com`, role: "admin" },

@@ -1,0 +1,342 @@
+# Prometheus Alerting Rules for LiveKit Cluster
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: livekit-alerts
+  namespace: livekit
+  labels:
+    release: prometheus
+spec:
+  groups:
+    # LiveKit Server Alerts
+    - name: livekit-server.rules
+      rules:
+        # High connection count
+        - alert: LiveKitHighConnections
+          expr: |
+            sum(ws_active_connections{type="crdt"}) by (pod) > 4000
+          for: 5m
+          labels:
+            severity: warning
+            component: livekit-server
+          annotations:
+            summary: "High WebSocket connections on {{ $labels.pod }}"
+            description: "Pod {{ $labels.pod }} has {{ $value }} active connections (threshold: 4000)"
+
+        # Very high connection count
+        - alert: LiveKitCriticalConnections
+          expr: |
+            sum(ws_active_connections{type="crdt"}) by (pod) > 4500
+          for: 2m
+          labels:
+            severity: critical
+            component: livekit-server
+          annotations:
+            summary: "Critical WebSocket connections on {{ $labels.pod }}"
+            description: "Pod {{ $labels.pod }} has {{ $value }} active connections (threshold: 4500)"
+
+        # High message latency
+        - alert: LiveKitHighMessageLatency
+          expr: |
+            histogram_quantile(0.95, rate(ws_message_latency_seconds_bucket[5m])) > 0.1
+          for: 5m
+          labels:
+            severity: warning
+            component: livekit-server
+          annotations:
+            summary: "High message latency on {{ $labels.pod }}"
+            description: "P95 message latency is {{ $value }}s (threshold: 0.1s)"
+
+        # High error rate
+        - alert: LiveKitHighErrorRate
+          expr: |
+            rate(ws_errors_total[5m]) > 0.1
+          for: 3m
+          labels:
+            severity: warning
+            component: livekit-server
+          annotations:
+            summary: "High error rate on {{ $labels.pod }}"
+            description: "Error rate is {{ $value }} errors/sec (threshold: 0.1)"
+
+        # Pod crash looping
+        - alert: LiveKitPodCrashLooping
+          expr: |
+            rate(container_restart_count{container="livekit-server"}[15m]) > 0
+          for: 1m
+          labels:
+            severity: critical
+            component: livekit-server
+          annotations:
+            summary: "LiveKit pod {{ $labels.pod }} is crash looping"
+            description: "Pod {{ $labels.pod }} has restarted {{ $value }} times in the last 15 minutes"
+
+        # High memory usage
+        - alert: LiveKitHighMemoryUsage
+          expr: |
+            (container_memory_usage_bytes{container="livekit-server"} / container_spec_memory_limit_bytes{container="livekit-server"}) > 0.9
+          for: 5m
+          labels:
+            severity: warning
+            component: livekit-server
+          annotations:
+            summary: "High memory usage on {{ $labels.pod }}"
+            description: "Memory usage is {{ $value | humanizePercentage }} of limit"
+
+        # High CPU usage
+        - alert: LiveKitHighCPUUsage
+          expr: |
+            (rate(container_cpu_usage_seconds_total{container="livekit-server"}[5m]) / container_spec_cpu_quota{container="livekit-server"}) > 0.9
+          for: 5m
+          labels:
+            severity: warning
+            component: livekit-server
+          annotations:
+            summary: "High CPU usage on {{ $labels.pod }}"
+            description: "CPU usage is {{ $value | humanizePercentage }} of limit"
+
+        # Redis connection issues
+        - alert: LiveKitRedisConnectionFailed
+          expr: |
+            rate(ws_redis_operations_total{operation=~"ping|get|set",status="error"}[5m]) > 0.1
+          for: 3m
+          labels:
+            severity: critical
+            component: livekit-server
+          annotations:
+            summary: "Redis connection failures on {{ $labels.pod }}"
+            description: "Redis error rate is {{ $value }} ops/sec"
+
+    # LiveKit Egress Alerts
+    - name: livekit-egress.rules
+      rules:
+        - alert: EgressHighQueueDepth
+          expr: |
+            livekit_egress_queue_depth > 20
+          for: 5m
+          labels:
+            severity: warning
+            component: livekit-egress
+          annotations:
+            summary: "High egress queue depth"
+            description: "Egress queue has {{ $value }} pending jobs"
+
+        - alert: EgressHighFailureRate
+          expr: |
+            rate(livekit_egress_jobs_total{status="failed"}[5m]) > 0.05
+          for: 3m
+          labels:
+            severity: warning
+            component: livekit-egress
+          annotations:
+            summary: "High egress failure rate"
+            description: "{{ $value }}% of egress jobs are failing"
+
+        - alert: EgressWorkerDown
+          expr: |
+            up{job="livekit-egress"} == 0
+          for: 2m
+          labels:
+            severity: critical
+            component: livekit-egress
+          annotations:
+            summary: "Egress worker is down"
+            description: "Egress worker {{ $labels.pod }} has been down for 2 minutes"
+
+    # LiveKit Ingress Alerts
+    - name: livekit-ingress.rules
+      rules:
+        - alert: IngressHighConcurrentStreams
+          expr: |
+            livekit_ingress_active_sessions > 40
+          for: 5m
+          labels:
+            severity: warning
+            component: livekit-ingress
+          annotations:
+            summary: "High concurrent ingress streams"
+            description: "{{ $value }} active ingress streams (threshold: 40)"
+
+        - alert: IngressHighErrorRate
+          expr: |
+            rate(livekit_ingress_errors_total[5m]) > 0.05
+          for: 3m
+          labels:
+            severity: warning
+            component: livekit-ingress
+          annotations:
+            summary: "High ingress error rate"
+            description: "{{ $value }}% of ingress operations are failing"
+
+    # LiveKit Recorder Alerts
+    - name: livekit-recorder.rules
+      rules:
+        - alert: RecorderHighActiveRecordings
+          expr: |
+            livekit_recorder_active_recordings > 10
+          for: 5m
+          labels:
+            severity: warning
+            component: livekit-recorder
+          annotations:
+            summary: "High active recordings"
+            description: "{{ $value }} active recordings per worker (threshold: 10)"
+
+        - alert: RecorderDiskSpaceLow
+          expr: |
+            (node_filesystem_avail_bytes{mountpoint="/var/lib/livekit/recordings"} / node_filesystem_size_bytes{mountpoint="/var/lib/livekit/recordings"}) < 0.1
+          for: 5m
+          labels:
+            severity: critical
+            component: livekit-recorder
+          annotations:
+            summary: "Low disk space for recordings"
+            description: "Less than 10% disk space remaining on recordings volume"
+
+    # Infrastructure Alerts
+    - name: livekit-infrastructure.rules
+      rules:
+        - alert: RedisDown
+          expr: |
+            up{job="redis"} == 0
+          for: 1m
+          labels:
+            severity: critical
+            component: redis
+          annotations:
+            summary: "Redis is down"
+            description: "Redis instance {{ $labels.instance }} is down"
+
+        - alert: RedisHighMemoryUsage
+          expr: |
+            (redis_memory_used_bytes / redis_memory_max_bytes) > 0.9
+          for: 5m
+          labels:
+            severity: warning
+            component: redis
+          annotations:
+            summary: "Redis high memory usage"
+            description: "Redis memory usage is {{ $value | humanizePercentage }} of max"
+
+        - alert: PostgresDown
+          expr: |
+            up{job="postgres"} == 0
+          for: 1m
+          labels:
+            severity: critical
+            component: postgres
+          annotations:
+            summary: "PostgreSQL is down"
+            description: "PostgreSQL instance {{ $labels.instance }} is down"
+
+        - alert: PostgresHighConnections
+          expr: |
+            (pg_stat_database_numbackends / pg_settings_max_connections) > 0.8
+          for: 5m
+          labels:
+            severity: warning
+            component: postgres
+          annotations:
+            summary: "PostgreSQL high connection usage"
+            description: "{{ $value | humanizePercentage }} of max connections used"
+
+        - alert: HAProxyDown
+          expr: |
+            up{job="haproxy"} == 0
+          for: 1m
+          labels:
+            severity: critical
+            component: haproxy
+          annotations:
+            summary: "HAProxy is down"
+            description: "HAProxy instance {{ $labels.instance }} is down"
+
+        - alert: CoturnDown
+          expr: |
+            up{job="coturn"} == 0
+          for: 1m
+          labels:
+            severity: critical
+            component: coturn
+          annotations:
+            summary: "Coturn TURN/STUN server is down"
+            description: "Coturn instance {{ $labels.instance }} is down"
+
+    # Capacity Alerts
+    - name: livekit-capacity.rules
+      rules:
+        - alert: LiveKitClusterNearCapacity
+          expr: |
+            (sum(ws_active_connections) / (count(livekit_server_pods) * 5000)) > 0.8
+          for: 10m
+          labels:
+            severity: warning
+            component: livekit-cluster
+          annotations:
+            summary: "LiveKit cluster near capacity"
+            description: "Cluster is at {{ $value | humanizePercentage }} capacity. Consider scaling."
+
+        - alert: LiveKitRecordingStorageFull
+          expr: |
+            (node_filesystem_avail_bytes{mountpoint="/var/lib/livekit/recordings"} / node_filesystem_size_bytes{mountpoint="/var/lib/livekit/recordings"}) < 0.15
+          for: 5m
+          labels:
+            severity: critical
+            component: storage
+          annotations:
+            summary: "Recording storage nearly full"
+            description: "Less than 15% storage remaining for recordings"
+
+        - alert: LiveKitCertExpiringSoon
+          expr: |
+            (ssl_certificate_expiration_timestamp_seconds - time()) < 86400 * 30
+          for: 1h
+          labels:
+            severity: warning
+            component: security
+          annotations:
+            summary: "SSL certificate expiring soon"
+            description: "Certificate for {{ $labels.host }} expires in {{ $value | humanizeDuration }}"
+
+---
+# Additional recording rules for SLO tracking
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: livekit-slos
+  namespace: livekit
+  labels:
+    release: prometheus
+spec:
+  groups:
+    - name: livekit-slos
+      interval: 30s
+      rules:
+        # SLI: Connection success rate
+        - record: livekit:sli:connection_success_rate:ratio_rate5m
+          expr: |
+            sum(rate(ws_connections_total{status="connected"}[5m])) /
+            sum(rate(ws_connections_total[5m]))
+
+        # SLI: Message delivery latency (p99)
+        - record: livekit:sli:message_latency_p99:ratio_rate5m
+          expr: |
+            histogram_quantile(0.99, sum(rate(ws_message_latency_seconds_bucket[5m])) by (le))
+
+        # SLI: Egress job success rate
+        - record: livekit:sli:egress_success_rate:ratio_rate5m
+          expr: |
+            sum(rate(livekit_egress_jobs_total{status="completed"}[5m])) /
+            sum(rate(livekit_egress_jobs_total[5m]))
+
+        # SLI: Ingress stream health
+        - record: livekit:sli:ingress_health:ratio_rate5m
+          expr: |
+            sum(rate(livekit_ingress_streams_total{status="healthy"}[5m])) /
+            sum(rate(livekit_ingress_streams_total[5m]))
+
+        # SLI: Recording success rate
+        - record: livekit:sli:recording_success_rate:ratio_rate5m
+          expr: |
+            sum(rate(livekit_recording_jobs_total{status="completed"}[5m])) /
+            sum(rate(livekit_recording_jobs_total[5m]))

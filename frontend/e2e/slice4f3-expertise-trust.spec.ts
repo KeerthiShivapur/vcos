@@ -1,4 +1,9 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Page,
+} from "@playwright/test";
 
 const API = "http://localhost:8999/api/v1";
 
@@ -6,13 +11,24 @@ function ts(): string {
   return Date.now().toString().slice(-8);
 }
 
-async function apiLogin(ctx: APIRequestContext, email: string, password: string) {
+async function apiLogin(
+  ctx: APIRequestContext,
+  email: string,
+  password: string,
+) {
   const r = await ctx.post(`${API}/auth/login`, { data: { email, password } });
   expect(r.status(), await r.text()).toBe(200);
   return (await r.json()) as { access_token: string };
 }
 
-async function apiRegister(ctx: APIRequestContext, name: string, slug: string, email: string, fullName: string, password: string) {
+async function apiRegister(
+  ctx: APIRequestContext,
+  name: string,
+  slug: string,
+  email: string,
+  fullName: string,
+  password: string,
+) {
   const r = await ctx.post(`${API}/auth/register`, {
     data: {
       organization_name: name,
@@ -27,7 +43,11 @@ async function apiRegister(ctx: APIRequestContext, name: string, slug: string, e
   expect(r.status(), await r.text()).toBe(201);
 }
 
-async function dispatchAll(request: APIRequestContext, auth: Record<string, string>, limit = 500) {
+async function dispatchAll(
+  request: APIRequestContext,
+  auth: Record<string, string>,
+  limit = 500,
+) {
   for (let round = 0; round < 10; round++) {
     const r = await request.post(`${API}/intelligence/events/process`, {
       headers: auth,
@@ -52,10 +72,17 @@ interface TrustBody {
   freshness: string;
   evidence_total: number;
   contradictions: Array<{ outcome: string; expired: boolean }>;
-  recent_evidence: Array<{ source_type: string; source_id: string; outcome: string }>;
+  recent_evidence: Array<{
+    source_type: string;
+    source_id: string;
+    outcome: string;
+  }>;
 }
 
-test("slice 4f.3: task outcomes leave a governed, explainable trust trail that the profile UI surfaces", async ({ browser, request }) => {
+test("slice 4f.3: task outcomes leave a governed, explainable trust trail that the profile UI surfaces", async ({
+  browser,
+  request,
+}) => {
   test.setTimeout(900_000);
   const t = ts();
   const email = `trust${t}@acme.com`;
@@ -64,10 +91,20 @@ test("slice 4f.3: task outcomes leave a governed, explainable trust trail that t
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
   page.on("console", (msg) => {
-    if (msg.type() === "error") console.log(`[${Date.now() % 100000}] console:error ${msg.text().slice(0, 200)}`);
+    if (msg.type() === "error")
+      console.log(
+        `[${Date.now() % 100000}] console:error ${msg.text().slice(0, 200)}`,
+      );
   });
 
-  await apiRegister(request, `Trust Co ${t}`, `trust-${t}`, email, "Vera", password);
+  await apiRegister(
+    request,
+    `Trust Co ${t}`,
+    `trust-${t}`,
+    email,
+    "Vera",
+    password,
+  );
   const token = (await apiLogin(request, email, password)).access_token;
   const auth = { Authorization: `Bearer ${token}` };
 
@@ -101,10 +138,13 @@ test("slice 4f.3: task outcomes leave a governed, explainable trust trail that t
         assignee_id: employee.id,
       },
     });
-    const done = await request.post(`${API}/tasks/${(await task.json()).id}/transition`, {
-      headers: auth,
-      data: { status: "completed" },
-    });
+    const done = await request.post(
+      `${API}/tasks/${(await task.json()).id}/transition`,
+      {
+        headers: auth,
+        data: { status: "completed" },
+      },
+    );
     expect(done.status(), await done.text()).toBe(200);
   }
 
@@ -116,10 +156,13 @@ test("slice 4f.3: task outcomes leave a governed, explainable trust trail that t
   });
   expect(rejected.status(), await rejected.text()).toBe(201);
   const approvalId = (await rejected.json()).id;
-  const rejectCall = await request.post(`${API}/approvals/${approvalId}/decide`, {
-    headers: auth,
-    data: { decision: "rejected", note: "insufficient review" },
-  });
+  const rejectCall = await request.post(
+    `${API}/approvals/${approvalId}/decide`,
+    {
+      headers: auth,
+      data: { decision: "rejected", note: "insufficient review" },
+    },
+  );
   expect(rejectCall.status(), await rejectCall.text()).toBe(200);
 
   await dispatchAll(request, auth);
@@ -131,18 +174,31 @@ test("slice 4f.3: task outcomes leave a governed, explainable trust trail that t
       params: { q: "python" },
     })
   ).json();
-  const me = (search.experts as Array<{ person_id: string; name: string; successful_count: number; failed_count: number; confidence: number; lifecycle: string }>).find(
-    (e) => e.person_id === employee.id
-  );
-  expect(me, "the python expert must be discoverable with trust facets").toBeTruthy();
+  const me = (
+    search.experts as Array<{
+      person_id: string;
+      name: string;
+      successful_count: number;
+      failed_count: number;
+      confidence: number;
+      lifecycle: string;
+    }>
+  ).find((e) => e.person_id === employee.id);
+  expect(
+    me,
+    "the python expert must be discoverable with trust facets",
+  ).toBeTruthy();
   expect(me!.successful_count).toBeGreaterThanOrEqual(5);
   expect(me!.failed_count).toBeGreaterThanOrEqual(1);
 
   const skillId = (me as unknown as { skill_id: string }).skill_id;
   const trust = (await (
-    await request.get(`${API}/brain/people/${employee.id}/expertise/${skillId}/trust`, {
-      headers: auth,
-    })
+    await request.get(
+      `${API}/brain/people/${employee.id}/expertise/${skillId}/trust`,
+      {
+        headers: auth,
+      },
+    )
   ).json()) as TrustBody;
   expect(trust.trust).toBe(true);
   expect(trust.person_name).toBe("Py Dev");
@@ -152,17 +208,27 @@ test("slice 4f.3: task outcomes leave a governed, explainable trust trail that t
   expect(trust.corroborated_kinds).toBeGreaterThanOrEqual(1);
   expect(trust.freshness).toMatch(/^(active|recent)$/);
   expect(trust.contradictions.length).toBeGreaterThanOrEqual(1);
-  expect(trust.recent_evidence.some((r) => r.source_type === "task")).toBe(true);
+  expect(trust.recent_evidence.some((r) => r.source_type === "task")).toBe(
+    true,
+  );
 
   // ------------------------------------------------------------- profile UI
   await page.goto(`/people/${employee.id}`);
-  await expect(page.getByRole("heading", { name: "Py Dev" }).first()).toBeVisible({ timeout: 20_000 });
+  await expect(
+    page.getByRole("heading", { name: "Py Dev" }).first(),
+  ).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText("Skills & expertise")).toBeVisible();
 
   await page.getByRole("button", { name: "Why we trust it" }).first().click();
-  await expect(page.getByText(/strong.*confidence/i).first()).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText(/successful \/ .* failed outcome/i).first()).toBeVisible();
-  await expect(page.locator("button", { hasText: "task:" }).first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/strong.*confidence/i).first()).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(
+    page.getByText(/successful \/ .* failed outcome/i).first(),
+  ).toBeVisible();
+  await expect(
+    page.locator("button", { hasText: "task:" }).first(),
+  ).toBeVisible({ timeout: 20_000 });
 
   // The contradictions stay visible: a rejected action is never hidden.
   await expect(page.getByText(/failed or expired item/i).first()).toBeVisible();

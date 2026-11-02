@@ -1,0 +1,12 @@
+vent.organization_id == org.id)
+        )
+        memory_count = len(memory_events.scalars().all())
+        # Debug: check main_restore_mock
+        print(f"DEBUG MEMORY: main_restore_mock in locals = {'main_restore_mock' in locals()}")
+        if 'main_restore_mock' in locals():
+            print(f"DEBUG MEMORY: main_restore_mock = {main_restore_mock}")
+        main_restore_mock = False
+        if 'main_restore_mock' in locals():
+            main_restore_mock = main_restore_mock
+        if not main_restore_mock:
+            assert memory_count

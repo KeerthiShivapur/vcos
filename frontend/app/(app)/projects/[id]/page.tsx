@@ -51,7 +51,20 @@ import {
   updateTask,
 } from "@/lib/api";
 import { roleCan, PERMISSIONS } from "@/lib/permissions";
-import type { Epic, EmployeeSummary, Meeting, Milestone, Project, ProjectHealth, ProjectMember, ProjectStats, Risk, Sprint, Task, TimelineEntry } from "@/types";
+import type {
+  Epic,
+  EmployeeSummary,
+  Meeting,
+  Milestone,
+  Project,
+  ProjectHealth,
+  ProjectMember,
+  ProjectStats,
+  Risk,
+  Sprint,
+  Task,
+  TimelineEntry,
+} from "@/types";
 import { useAuth } from "@/hooks/useAuth";
 import { PageHeader, StatCard } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
@@ -115,21 +128,33 @@ function DetailContent() {
     setLoading(true);
     setError(null);
     try {
-      const [projectData, statsData, healthData, memberList, timelineList, epicList, milestoneList, sprintList, taskList, empList, meetingList, riskList] =
-        await Promise.all([
-          getProject(id),
-          getProjectStats(id).catch(() => null),
-          getProjectHealth(id).catch(() => null),
-          listProjectMembers(id),
-          getProjectTimeline(id).catch(() => [] as TimelineEntry[]),
-          listEpics(id),
-          listMilestones(id),
-          listSprints(id),
-          listTasks({ project_id: id }),
-          listEmployees({ page_size: 200 }),
-          listMeetings({ project_id: id }),
-          listRisks({ project_id: id }),
-        ]);
+      const [
+        projectData,
+        statsData,
+        healthData,
+        memberList,
+        timelineList,
+        epicList,
+        milestoneList,
+        sprintList,
+        taskList,
+        empList,
+        meetingList,
+        riskList,
+      ] = await Promise.all([
+        getProject(id),
+        getProjectStats(id).catch(() => null),
+        getProjectHealth(id).catch(() => null),
+        listProjectMembers(id),
+        getProjectTimeline(id).catch(() => [] as TimelineEntry[]),
+        listEpics(id),
+        listMilestones(id),
+        listSprints(id),
+        listTasks({ project_id: id }),
+        listEmployees({ page_size: 200 }),
+        listMeetings({ project_id: id }),
+        listRisks({ project_id: id }),
+      ]);
       setProject(projectData);
       setStats(statsData);
       setHealth(healthData);
@@ -161,7 +186,11 @@ function DetailContent() {
     setSaving(true);
     setFormError(null);
     try {
-      await addProjectMember(id, employeeId, String(form.get("role") ?? "") || undefined);
+      await addProjectMember(
+        id,
+        employeeId,
+        String(form.get("role") ?? "") || undefined,
+      );
       toastSuccess("Member added");
       setShowAddMember(false);
       await load();
@@ -178,7 +207,9 @@ function DetailContent() {
       toastSuccess("Member removed");
       await load();
     } catch (err) {
-      toastError(err instanceof Error ? err.message : "Unable to remove member");
+      toastError(
+        err instanceof Error ? err.message : "Unable to remove member",
+      );
     }
   }
 
@@ -198,13 +229,17 @@ function DetailContent() {
       setShowEpicModal(false);
       await load();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Unable to create epic");
+      setFormError(
+        err instanceof Error ? err.message : "Unable to create epic",
+      );
     } finally {
       setSaving(false);
     }
   }
 
-  async function handleCreateMilestone(event: React.FormEvent<HTMLFormElement>) {
+  async function handleCreateMilestone(
+    event: React.FormEvent<HTMLFormElement>,
+  ) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     setSaving(true);
@@ -220,7 +255,9 @@ function DetailContent() {
       setShowMilestoneModal(false);
       await load();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Unable to create milestone");
+      setFormError(
+        err instanceof Error ? err.message : "Unable to create milestone",
+      );
     } finally {
       setSaving(false);
     }
@@ -243,7 +280,9 @@ function DetailContent() {
       setShowSprintModal(false);
       await load();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Unable to create sprint");
+      setFormError(
+        err instanceof Error ? err.message : "Unable to create sprint",
+      );
     } finally {
       setSaving(false);
     }
@@ -268,7 +307,9 @@ function DetailContent() {
       setShowRiskModal(false);
       await load();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Unable to create risk");
+      setFormError(
+        err instanceof Error ? err.message : "Unable to create risk",
+      );
     } finally {
       setSaving(false);
     }
@@ -291,21 +332,30 @@ function DetailContent() {
       toastSuccess(`Project ${action}`);
       await load();
     } catch (err) {
-      toastError(err instanceof Error ? err.message : `Unable to ${action} project`);
+      toastError(
+        err instanceof Error ? err.message : `Unable to ${action} project`,
+      );
     } finally {
       setLifecycleBusy(null);
     }
   }
 
   async function handleDeleteProject() {
-    if (!window.confirm(`Delete project "${project?.name}"? This cannot be undone.`)) return;
+    if (
+      !window.confirm(
+        `Delete project "${project?.name}"? This cannot be undone.`,
+      )
+    )
+      return;
     setDeleting(true);
     try {
       await deleteProject(id);
       toastSuccess("Project deleted");
       window.location.assign("/projects");
     } catch (err) {
-      toastError(err instanceof Error ? err.message : "Unable to delete project");
+      toastError(
+        err instanceof Error ? err.message : "Unable to delete project",
+      );
       setDeleting(false);
     }
   }
@@ -329,20 +379,27 @@ function DetailContent() {
       setEditOpen(false);
       await load();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Unable to update project");
+      setFormError(
+        err instanceof Error ? err.message : "Unable to update project",
+      );
     } finally {
       setSaving(false);
     }
   }
 
-  async function handleEpicLifecycle(epicId: string, action: "start" | "complete") {
+  async function handleEpicLifecycle(
+    epicId: string,
+    action: "start" | "complete",
+  ) {
     try {
       if (action === "start") await startEpic(epicId);
       else await completeEpic(epicId);
       toastSuccess(`Epic ${action === "start" ? "started" : "completed"}`);
       await load();
     } catch (err) {
-      toastError(err instanceof Error ? err.message : `Unable to ${action} epic`);
+      toastError(
+        err instanceof Error ? err.message : `Unable to ${action} epic`,
+      );
     }
   }
 
@@ -353,59 +410,142 @@ function DetailContent() {
       toastSuccess("Task added to sprint");
       await load();
     } catch (err) {
-      toastError(err instanceof Error ? err.message : "Unable to add task to sprint");
+      toastError(
+        err instanceof Error ? err.message : "Unable to add task to sprint",
+      );
     } finally {
       setPlanBusy(null);
     }
   }
 
-  if (error) return <ErrorState title="Could not load project" message={error} />;
-  if (loading || !project) return <div className="flex justify-center py-24"><Spinner label="Loading project" /></div>;
+  if (error)
+    return <ErrorState title="Could not load project" message={error} />;
+  if (loading || !project)
+    return (
+      <div className="flex justify-center py-24">
+        <Spinner label="Loading project" />
+      </div>
+    );
 
-  const healthTone = health?.status === "good" ? "success" : health?.status === "watch" ? "warning" : "danger";
+  const healthTone =
+    health?.status === "good"
+      ? "success"
+      : health?.status === "watch"
+        ? "warning"
+        : "danger";
 
   return (
     <div className="space-y-6">
       <PageHeader
         breadcrumb="Projects"
         title={project.name}
-        description={project.description ?? `${project.code} — owned by ${project.owner_name ?? "no owner"}`}
+        description={
+          project.description ??
+          `${project.code} — owned by ${project.owner_name ?? "no owner"}`
+        }
         actions={
           <div className="flex items-center gap-2">
             <Badge tone={statusTone(project.status)}>{project.status}</Badge>
-            <Badge tone={project.priority === "critical" ? "danger" : project.priority === "high" ? "warning" : "neutral"}>
+            <Badge
+              tone={
+                project.priority === "critical"
+                  ? "danger"
+                  : project.priority === "high"
+                    ? "warning"
+                    : "neutral"
+              }
+            >
               {project.priority}
             </Badge>
             {canManage && project.status !== "archived" && (
               <>
                 {["draft", "cancelled"].includes(project.status) && (
-                  <Button size="sm" variant="secondary" onClick={() => handleLifecycle("start")} disabled={lifecycleBusy === "start"}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => handleLifecycle("start")}
+                    disabled={lifecycleBusy === "start"}
+                  >
                     {lifecycleBusy === "start" ? "Starting…" : "Start"}
                   </Button>
                 )}
                 {project.status === "active" && (
                   <>
-                    <Button size="sm" variant="secondary" onClick={() => handleLifecycle("pause")} disabled={lifecycleBusy === "pause"}>Pause</Button>
-                    <Button size="sm" variant="secondary" onClick={() => handleLifecycle("complete")} disabled={lifecycleBusy === "complete"}>Complete</Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => handleLifecycle("pause")}
+                      disabled={lifecycleBusy === "pause"}
+                    >
+                      Pause
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => handleLifecycle("complete")}
+                      disabled={lifecycleBusy === "complete"}
+                    >
+                      Complete
+                    </Button>
                   </>
                 )}
                 {project.status === "paused" && (
                   <>
-                    <Button size="sm" variant="secondary" onClick={() => handleLifecycle("resume")} disabled={lifecycleBusy === "resume"}>Resume</Button>
-                    <Button size="sm" variant="secondary" onClick={() => handleLifecycle("complete")} disabled={lifecycleBusy === "complete"}>Complete</Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => handleLifecycle("resume")}
+                      disabled={lifecycleBusy === "resume"}
+                    >
+                      Resume
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => handleLifecycle("complete")}
+                      disabled={lifecycleBusy === "complete"}
+                    >
+                      Complete
+                    </Button>
                   </>
                 )}
                 {["active", "paused"].includes(project.status) && (
-                  <Button size="sm" variant="ghost" onClick={() => handleLifecycle("cancel")} disabled={lifecycleBusy === "cancel"}>Cancel</Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => handleLifecycle("cancel")}
+                    disabled={lifecycleBusy === "cancel"}
+                  >
+                    Cancel
+                  </Button>
                 )}
                 {["completed", "cancelled"].includes(project.status) && (
-                  <Button size="sm" variant="secondary" onClick={() => handleLifecycle("archive")} disabled={lifecycleBusy === "archive"}>Archive</Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => handleLifecycle("archive")}
+                    disabled={lifecycleBusy === "archive"}
+                  >
+                    Archive
+                  </Button>
                 )}
-                <Button size="sm" variant="secondary" onClick={() => setEditOpen(true)}><Pencil className="h-3.5 w-3.5" /> Edit</Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setEditOpen(true)}
+                >
+                  <Pencil className="h-3.5 w-3.5" /> Edit
+                </Button>
               </>
             )}
             {canManage && ["draft", "archived"].includes(project.status) && (
-              <Button size="sm" variant="ghost" onClick={handleDeleteProject} disabled={deleting} className="text-danger hover:bg-danger/10">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={handleDeleteProject}
+                disabled={deleting}
+                className="text-danger hover:bg-danger/10"
+              >
                 <Trash2 className="h-3.5 w-3.5" /> Delete
               </Button>
             )}
@@ -414,25 +554,70 @@ function DetailContent() {
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Progress" value={`${project.progress}%`} hint={`${project.completed_count} of ${project.tasks_count} tasks done`} icon={CheckCircle2} />
-        <StatCard label="Health" value={health ? `${health.health}/100` : project.health} hint={health?.signals.length ? health.signals[0] : "No active signals"} icon={AlertTriangle} />
-        <StatCard label="Members" value={project.members_count} hint={project.team_name ?? "Team not set"} icon={Users} />
-        <StatCard label="Timeline" value={`${formatDate(project.start_date)} → ${formatDate(project.end_date)}`} hint={project.budget ? `Budget ${project.budget}` : "No budget"} icon={CalendarClock} />
+        <StatCard
+          label="Progress"
+          value={`${project.progress}%`}
+          hint={`${project.completed_count} of ${project.tasks_count} tasks done`}
+          icon={CheckCircle2}
+        />
+        <StatCard
+          label="Health"
+          value={health ? `${health.health}/100` : project.health}
+          hint={
+            health?.signals.length ? health.signals[0] : "No active signals"
+          }
+          icon={AlertTriangle}
+        />
+        <StatCard
+          label="Members"
+          value={project.members_count}
+          hint={project.team_name ?? "Team not set"}
+          icon={Users}
+        />
+        <StatCard
+          label="Timeline"
+          value={`${formatDate(project.start_date)} → ${formatDate(project.end_date)}`}
+          hint={project.budget ? `Budget ${project.budget}` : "No budget"}
+          icon={CalendarClock}
+        />
       </div>
 
       {health && health.signals.length > 0 && (
-        <div className={`rounded-xl border px-4 py-3 text-[13px] ${healthTone === "danger" ? "border-danger/30 bg-danger/10 text-danger" : healthTone === "warning" ? "border-warning/30 bg-warning/10 text-warning" : "border-success/30 bg-success/10 text-success"}`}>
-          <span className="font-semibold">Health signals:</span> {health.signals.join(" · ")}
+        <div
+          className={`rounded-xl border px-4 py-3 text-[13px] ${healthTone === "danger" ? "border-danger/30 bg-danger/10 text-danger" : healthTone === "warning" ? "border-warning/30 bg-warning/10 text-warning" : "border-success/30 bg-success/10 text-success"}`}
+        >
+          <span className="font-semibold">Health signals:</span>{" "}
+          {health.signals.join(" · ")}
         </div>
       )}
 
       <Tabs
         tabs={[
           { id: "overview", label: "Overview", icon: FolderKanban },
-          { id: "structure", label: "Structure", icon: Layers, count: epics.length + milestones.length + sprints.length },
-          { id: "tasks", label: "Tasks", icon: ListChecks, count: tasks.length },
-          { id: "meetings", label: "Meetings", icon: CalendarDays, count: meetings.length },
-          { id: "risks", label: "Risks", icon: ShieldAlert, count: risks.length },
+          {
+            id: "structure",
+            label: "Structure",
+            icon: Layers,
+            count: epics.length + milestones.length + sprints.length,
+          },
+          {
+            id: "tasks",
+            label: "Tasks",
+            icon: ListChecks,
+            count: tasks.length,
+          },
+          {
+            id: "meetings",
+            label: "Meetings",
+            icon: CalendarDays,
+            count: meetings.length,
+          },
+          {
+            id: "risks",
+            label: "Risks",
+            icon: ShieldAlert,
+            count: risks.length,
+          },
         ]}
         active={tab}
         onChange={setTab}
@@ -445,32 +630,55 @@ function DetailContent() {
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
                 {[
                   ["Total tasks", stats?.total_tasks ?? project.tasks_count],
-                  ["Completed", stats?.completed_tasks ?? project.completed_count],
+                  [
+                    "Completed",
+                    stats?.completed_tasks ?? project.completed_count,
+                  ],
                   ["In progress", stats?.in_progress_tasks ?? 0],
                   ["Blocked", stats?.blocked_tasks ?? 0],
-                  ["Milestones", `${stats?.milestones_completed ?? 0}/${stats?.milestones_total ?? 0}`],
+                  [
+                    "Milestones",
+                    `${stats?.milestones_completed ?? 0}/${stats?.milestones_total ?? 0}`,
+                  ],
                   ["Overdue tasks", health?.overdue_tasks ?? 0],
                 ].map(([label, value]) => (
                   <div key={String(label)} className="rounded-lg bg-canvas p-3">
                     <p className="text-xs text-faint">{label}</p>
-                    <p className="mt-0.5 text-lg font-semibold text-ink">{value}</p>
+                    <p className="mt-0.5 text-lg font-semibold text-ink">
+                      {value}
+                    </p>
                   </div>
                 ))}
               </div>
             </Card>
             <Card title="Timeline" subtitle="Recent activity on this project">
               {timeline.length === 0 ? (
-                <EmptyState icon={ListChecks} title="No activity yet" description="Project events will show up here." />
+                <EmptyState
+                  icon={ListChecks}
+                  title="No activity yet"
+                  description="Project events will show up here."
+                />
               ) : (
                 <ul className="space-y-0">
                   {timeline.slice(0, 12).map((entry) => (
-                    <li key={entry.id} className="flex items-start gap-3 border-b border-line py-2.5 last:border-0">
+                    <li
+                      key={entry.id}
+                      className="flex items-start gap-3 border-b border-line py-2.5 last:border-0"
+                    >
                       <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-brand" />
                       <div className="min-w-0 flex-1">
-                        <p className="text-[13px] font-medium text-ink">{entry.title}</p>
-                        {entry.description && <p className="text-[12px] text-muted">{entry.description}</p>}
+                        <p className="text-[13px] font-medium text-ink">
+                          {entry.title}
+                        </p>
+                        {entry.description && (
+                          <p className="text-[12px] text-muted">
+                            {entry.description}
+                          </p>
+                        )}
                       </div>
-                      <span className="shrink-0 text-[11px] text-faint">{timeAgo(entry.occurred_at)}</span>
+                      <span className="shrink-0 text-[11px] text-faint">
+                        {timeAgo(entry.occurred_at)}
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -478,20 +686,41 @@ function DetailContent() {
             </Card>
           </div>
           <div className="space-y-6">
-            <Card title="Members" actions={canManage ? <Button size="sm" onClick={() => setShowAddMember(true)}><Plus className="h-3.5 w-3.5" /> Add</Button> : undefined}>
+            <Card
+              title="Members"
+              actions={
+                canManage ? (
+                  <Button size="sm" onClick={() => setShowAddMember(true)}>
+                    <Plus className="h-3.5 w-3.5" /> Add
+                  </Button>
+                ) : undefined
+              }
+            >
               {members.length === 0 ? (
-                <EmptyState icon={Users} title="No members" description="Add people to collaborate." />
+                <EmptyState
+                  icon={Users}
+                  title="No members"
+                  description="Add people to collaborate."
+                />
               ) : (
                 <ul className="space-y-3">
                   {members.map((member) => (
                     <li key={member.id} className="flex items-center gap-2.5">
                       <Avatar name={member.name} size="sm" />
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-[13px] font-medium text-ink">{member.name}</p>
-                        <p className="truncate text-[11px] text-faint">{member.designation ?? member.role ?? "Member"}</p>
+                        <p className="truncate text-[13px] font-medium text-ink">
+                          {member.name}
+                        </p>
+                        <p className="truncate text-[11px] text-faint">
+                          {member.designation ?? member.role ?? "Member"}
+                        </p>
                       </div>
                       {canManage && (
-                        <button onClick={() => handleRemoveMember(member.employee_id)} className="rounded-lg p-1 text-faint hover:bg-danger/10 hover:text-danger" title="Remove member">
+                        <button
+                          onClick={() => handleRemoveMember(member.employee_id)}
+                          className="rounded-lg p-1 text-faint hover:bg-danger/10 hover:text-danger"
+                          title="Remove member"
+                        >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       )}
@@ -503,13 +732,29 @@ function DetailContent() {
             {health && (
               <Card title="Risks" subtitle="Top open risks by score">
                 {health.risks.length === 0 ? (
-                  <p className="py-6 text-center text-[13px] text-faint">No open risks.</p>
+                  <p className="py-6 text-center text-[13px] text-faint">
+                    No open risks.
+                  </p>
                 ) : (
                   <ul className="space-y-2.5">
                     {health.risks.map((risk) => (
-                      <li key={risk.id} className="flex items-center justify-between gap-2">
-                        <span className="min-w-0 truncate text-[13px] text-ink">{risk.title}</span>
-                        <Badge tone={risk.severity === "critical" || risk.severity === "high" ? "danger" : risk.severity === "medium" ? "warning" : "neutral"}>
+                      <li
+                        key={risk.id}
+                        className="flex items-center justify-between gap-2"
+                      >
+                        <span className="min-w-0 truncate text-[13px] text-ink">
+                          {risk.title}
+                        </span>
+                        <Badge
+                          tone={
+                            risk.severity === "critical" ||
+                            risk.severity === "high"
+                              ? "danger"
+                              : risk.severity === "medium"
+                                ? "warning"
+                                : "neutral"
+                          }
+                        >
                           {risk.risk_score} · {risk.severity}
                         </Badge>
                       </li>
@@ -527,34 +772,77 @@ function DetailContent() {
           <div className="flex flex-wrap gap-2">
             {canManage && (
               <>
-                <Button size="sm" variant="secondary" onClick={() => setShowEpicModal(true)}><Plus className="h-4 w-4" /> Epic</Button>
-                <Button size="sm" variant="secondary" onClick={() => setShowMilestoneModal(true)}><Plus className="h-4 w-4" /> Milestone</Button>
-                <Button size="sm" variant="secondary" onClick={() => setShowSprintModal(true)}><Plus className="h-4 w-4" /> Sprint</Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setShowEpicModal(true)}
+                >
+                  <Plus className="h-4 w-4" /> Epic
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setShowMilestoneModal(true)}
+                >
+                  <Plus className="h-4 w-4" /> Milestone
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setShowSprintModal(true)}
+                >
+                  <Plus className="h-4 w-4" /> Sprint
+                </Button>
               </>
             )}
           </div>
 
           <Card title="Epics" subtitle={`${epics.length} epics`}>
             {epics.length === 0 ? (
-              <EmptyState icon={Layers} title="No epics" description="Epics group related work streams." />
+              <EmptyState
+                icon={Layers}
+                title="No epics"
+                description="Epics group related work streams."
+              />
             ) : (
               <ul className="divide-y divide-line">
                 {epics.map((epic) => (
                   <li key={epic.id} className="flex items-center gap-3 py-3">
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-[13px] font-medium text-ink">{epic.name}</p>
-                      {epic.description && <p className="truncate text-[12px] text-muted">{epic.description}</p>}
+                      <p className="truncate text-[13px] font-medium text-ink">
+                        {epic.name}
+                      </p>
+                      {epic.description && (
+                        <p className="truncate text-[12px] text-muted">
+                          {epic.description}
+                        </p>
+                      )}
                       <div className="mt-1.5 h-1.5 w-full max-w-[240px] overflow-hidden rounded-full bg-line">
-                        <div className="h-full rounded-full bg-brand" style={{ width: `${epic.progress ?? 0}%` }} />
+                        <div
+                          className="h-full rounded-full bg-brand"
+                          style={{ width: `${epic.progress ?? 0}%` }}
+                        />
                       </div>
                     </div>
-                    <span className="text-[12px] text-faint">{epic.tasks_count} tasks</span>
+                    <span className="text-[12px] text-faint">
+                      {epic.tasks_count} tasks
+                    </span>
                     <Badge tone={statusTone(epic.status)}>{epic.status}</Badge>
                     {canManage && epic.status === "planned" && (
-                      <Button size="sm" variant="ghost" onClick={() => handleEpicLifecycle(epic.id, "start")}>Start</Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleEpicLifecycle(epic.id, "start")}
+                      >
+                        Start
+                      </Button>
                     )}
                     {canManage && epic.status === "in_progress" && (
-                      <Button size="sm" variant="ghost" onClick={() => handleEpicLifecycle(epic.id, "complete")}>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleEpicLifecycle(epic.id, "complete")}
+                      >
                         <CheckCircle2 className="h-3.5 w-3.5" /> Complete
                       </Button>
                     )}
@@ -571,14 +859,31 @@ function DetailContent() {
               ) : (
                 <ul className="divide-y divide-line">
                   {milestones.map((milestone) => (
-                    <li key={milestone.id} className="flex items-center gap-3 py-3">
+                    <li
+                      key={milestone.id}
+                      className="flex items-center gap-3 py-3"
+                    >
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-[13px] font-medium text-ink">{milestone.name}</p>
-                        <p className="text-[12px] text-faint">Due {formatDate(milestone.due_date)}</p>
+                        <p className="truncate text-[13px] font-medium text-ink">
+                          {milestone.name}
+                        </p>
+                        <p className="text-[12px] text-faint">
+                          Due {formatDate(milestone.due_date)}
+                        </p>
                       </div>
-                      <Badge tone={statusTone(milestone.status)}>{milestone.status}</Badge>
+                      <Badge tone={statusTone(milestone.status)}>
+                        {milestone.status}
+                      </Badge>
                       {canManage && milestone.status !== "completed" && (
-                        <Button size="sm" variant="ghost" onClick={async () => { await completeMilestone(milestone.id); toastSuccess("Milestone completed"); await load(); }}>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={async () => {
+                            await completeMilestone(milestone.id);
+                            toastSuccess("Milestone completed");
+                            await load();
+                          }}
+                        >
                           <CheckCircle2 className="h-3.5 w-3.5" />
                         </Button>
                       )}
@@ -590,66 +895,138 @@ function DetailContent() {
 
             <Card title="Sprints" subtitle="Time-boxed delivery cycles">
               {sprints.length === 0 ? (
-                <EmptyState icon={Rocket} title="No sprints" description="Create a sprint to plan delivery cycles." />
+                <EmptyState
+                  icon={Rocket}
+                  title="No sprints"
+                  description="Create a sprint to plan delivery cycles."
+                />
               ) : (
                 <div className="space-y-3">
                   {sprints.map((sprint) => {
-                    const sprintTasks = tasks.filter((t) => t.sprint_id === sprint.id);
-                    const doneTasks = sprintTasks.filter((t) => t.status === "completed").length;
+                    const sprintTasks = tasks.filter(
+                      (t) => t.sprint_id === sprint.id,
+                    );
+                    const doneTasks = sprintTasks.filter(
+                      (t) => t.status === "completed",
+                    ).length;
                     const planning = planningSprintId === sprint.id;
-                    const backlog = tasks.filter((t) => !t.sprint_id && t.status !== "completed");
+                    const backlog = tasks.filter(
+                      (t) => !t.sprint_id && t.status !== "completed",
+                    );
                     return (
-                      <div key={sprint.id} className="rounded-xl border border-line bg-canvas/40 p-3">
+                      <div
+                        key={sprint.id}
+                        className="rounded-xl border border-line bg-canvas/40 p-3"
+                      >
                         <div className="flex flex-wrap items-center gap-2">
                           <div className="min-w-0 flex-1">
-                            <p className="text-[13px] font-semibold text-ink">{sprint.name}</p>
+                            <p className="text-[13px] font-semibold text-ink">
+                              {sprint.name}
+                            </p>
                             <p className="text-[11px] text-faint">
-                              {formatDate(sprint.start_date)} → {formatDate(sprint.end_date)} · {doneTasks}/{sprintTasks.length} tasks done
+                              {formatDate(sprint.start_date)} →{" "}
+                              {formatDate(sprint.end_date)} · {doneTasks}/
+                              {sprintTasks.length} tasks done
                             </p>
                           </div>
-                          <Badge tone={statusTone(sprint.status)}>{sprint.status}</Badge>
+                          <Badge tone={statusTone(sprint.status)}>
+                            {sprint.status}
+                          </Badge>
                           {canManage && sprint.status === "planned" && (
-                            <Button size="sm" variant="secondary" onClick={async () => { await startSprint(sprint.id); toastSuccess("Sprint started"); await load(); }}>Start</Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={async () => {
+                                await startSprint(sprint.id);
+                                toastSuccess("Sprint started");
+                                await load();
+                              }}
+                            >
+                              Start
+                            </Button>
                           )}
                           {canManage && sprint.status === "active" && (
-                            <Button size="sm" variant="secondary" onClick={async () => { await completeSprint(sprint.id); toastSuccess("Sprint completed"); await load(); }}>Complete</Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={async () => {
+                                await completeSprint(sprint.id);
+                                toastSuccess("Sprint completed");
+                                await load();
+                              }}
+                            >
+                              Complete
+                            </Button>
                           )}
                         </div>
                         <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-line">
-                          <div className="h-full rounded-full bg-brand transition-all" style={{ width: `${sprint.progress ?? 0}%` }} />
+                          <div
+                            className="h-full rounded-full bg-brand transition-all"
+                            style={{ width: `${sprint.progress ?? 0}%` }}
+                          />
                         </div>
                         {sprintTasks.length > 0 && (
                           <div className="mt-2 flex flex-wrap gap-1.5">
                             {sprintTasks.map((t) => (
-                              <Link key={t.id} href={`/tasks/${t.id}`} className={`rounded-full border px-2 py-0.5 text-[11px] ${t.status === "completed" ? "border-success/30 bg-success/10 text-success" : "border-line bg-canvas text-muted"}`}>
+                              <Link
+                                key={t.id}
+                                href={`/tasks/${t.id}`}
+                                className={`rounded-full border px-2 py-0.5 text-[11px] ${t.status === "completed" ? "border-success/30 bg-success/10 text-success" : "border-line bg-canvas text-muted"}`}
+                              >
                                 {t.title}
                               </Link>
                             ))}
                           </div>
                         )}
-                        {canManage && ["planned", "active"].includes(sprint.status) && (
-                          <>
-                            <button onClick={() => setPlanningSprintId(planning ? null : sprint.id)} className="mt-2 text-[11px] font-medium text-brand hover:underline">
-                              {planning ? "Close planning" : "Plan tasks"}
-                            </button>
-                            {planning && (
-                              <div className="mt-2 space-y-1.5 border-t border-line pt-2">
-                                {backlog.length === 0 ? (
-                                  <p className="text-[11px] text-faint">No backlog tasks — every project task is already in a sprint.</p>
-                                ) : (
-                                  backlog.map((t) => (
-                                    <div key={t.id} className="flex items-center gap-2">
-                                      <Link href={`/tasks/${t.id}`} className="min-w-0 flex-1 truncate text-[12px] text-ink hover:underline">{t.title}</Link>
-                                      <Button size="sm" variant="ghost" disabled={planBusy === t.id} onClick={() => handlePlanTask(t.id, sprint.id)}>
-                                        <Plus className="h-3 w-3" /> Add
-                                      </Button>
-                                    </div>
-                                  ))
-                                )}
-                              </div>
-                            )}
-                          </>
-                        )}
+                        {canManage &&
+                          ["planned", "active"].includes(sprint.status) && (
+                            <>
+                              <button
+                                onClick={() =>
+                                  setPlanningSprintId(
+                                    planning ? null : sprint.id,
+                                  )
+                                }
+                                className="mt-2 text-[11px] font-medium text-brand hover:underline"
+                              >
+                                {planning ? "Close planning" : "Plan tasks"}
+                              </button>
+                              {planning && (
+                                <div className="mt-2 space-y-1.5 border-t border-line pt-2">
+                                  {backlog.length === 0 ? (
+                                    <p className="text-[11px] text-faint">
+                                      No backlog tasks — every project task is
+                                      already in a sprint.
+                                    </p>
+                                  ) : (
+                                    backlog.map((t) => (
+                                      <div
+                                        key={t.id}
+                                        className="flex items-center gap-2"
+                                      >
+                                        <Link
+                                          href={`/tasks/${t.id}`}
+                                          className="min-w-0 flex-1 truncate text-[12px] text-ink hover:underline"
+                                        >
+                                          {t.title}
+                                        </Link>
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          disabled={planBusy === t.id}
+                                          onClick={() =>
+                                            handlePlanTask(t.id, sprint.id)
+                                          }
+                                        >
+                                          <Plus className="h-3 w-3" /> Add
+                                        </Button>
+                                      </div>
+                                    ))
+                                  )}
+                                </div>
+                              )}
+                            </>
+                          )}
                       </div>
                     );
                   })}
@@ -661,20 +1038,56 @@ function DetailContent() {
       )}
 
       {tab === "tasks" && (
-        <Card title="Tasks" subtitle="All tasks in this project" bodyClassName="p-0"
-          actions={<Button size="sm" variant="secondary" onClick={() => window.location.assign(`/tasks?project_id=${id}`)}>Open task board</Button>}>
+        <Card
+          title="Tasks"
+          subtitle="All tasks in this project"
+          bodyClassName="p-0"
+          actions={
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => window.location.assign(`/tasks?project_id=${id}`)}
+            >
+              Open task board
+            </Button>
+          }
+        >
           {tasks.length === 0 ? (
-            <div className="p-5"><EmptyState icon={ListChecks} title="No tasks" description="Create tasks to start executing." /></div>
+            <div className="p-5">
+              <EmptyState
+                icon={ListChecks}
+                title="No tasks"
+                description="Create tasks to start executing."
+              />
+            </div>
           ) : (
             <ul className="divide-y divide-line">
               {tasks.map((task) => (
                 <li key={task.id}>
-                  <Link href={`/tasks/${task.id}`} className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-canvas/60">
+                  <Link
+                    href={`/tasks/${task.id}`}
+                    className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-canvas/60"
+                  >
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-[13px] font-medium text-ink">{task.title}</p>
-                      <p className="text-[12px] text-faint">{task.project_name ?? titleCase(task.status)} · {task.assignee_name ?? "Unassigned"}</p>
+                      <p className="truncate text-[13px] font-medium text-ink">
+                        {task.title}
+                      </p>
+                      <p className="text-[12px] text-faint">
+                        {task.project_name ?? titleCase(task.status)} ·{" "}
+                        {task.assignee_name ?? "Unassigned"}
+                      </p>
                     </div>
-                    <Badge tone={task.priority === "critical" ? "danger" : task.priority === "high" ? "warning" : "neutral"}>{task.priority}</Badge>
+                    <Badge
+                      tone={
+                        task.priority === "critical"
+                          ? "danger"
+                          : task.priority === "high"
+                            ? "warning"
+                            : "neutral"
+                      }
+                    >
+                      {task.priority}
+                    </Badge>
                     <Badge tone={statusTone(task.status)}>{task.status}</Badge>
                   </Link>
                 </li>
@@ -685,25 +1098,48 @@ function DetailContent() {
       )}
 
       {tab === "meetings" && (
-        <Card title="Meetings" subtitle={`${meetings.length} meetings linked to this project`} bodyClassName="p-0">
+        <Card
+          title="Meetings"
+          subtitle={`${meetings.length} meetings linked to this project`}
+          bodyClassName="p-0"
+        >
           {meetings.length === 0 ? (
             <div className="p-5">
-              <EmptyState icon={CalendarDays} title="No meetings yet" description="Schedule a meeting and link it to this project." action={
-                <Button size="sm" variant="secondary" onClick={() => window.location.assign("/meetings")}>Open meetings</Button>
-              } />
+              <EmptyState
+                icon={CalendarDays}
+                title="No meetings yet"
+                description="Schedule a meeting and link it to this project."
+                action={
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => window.location.assign("/meetings")}
+                  >
+                    Open meetings
+                  </Button>
+                }
+              />
             </div>
           ) : (
             <ul className="divide-y divide-line">
               {meetings.map((meeting) => (
                 <li key={meeting.id}>
-                  <Link href={`/meetings/${meeting.id}`} className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-canvas/60">
+                  <Link
+                    href={`/meetings/${meeting.id}`}
+                    className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-canvas/60"
+                  >
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-[13px] font-medium text-ink">{meeting.title}</p>
+                      <p className="truncate text-[13px] font-medium text-ink">
+                        {meeting.title}
+                      </p>
                       <p className="text-[12px] text-faint">
-                        {titleCase(meeting.meeting_type)} · {formatDateTime(meeting.start_at)}
+                        {titleCase(meeting.meeting_type)} ·{" "}
+                        {formatDateTime(meeting.start_at)}
                       </p>
                     </div>
-                    <Badge tone={statusTone(meeting.status)}>{meeting.status}</Badge>
+                    <Badge tone={statusTone(meeting.status)}>
+                      {meeting.status}
+                    </Badge>
                   </Link>
                 </li>
               ))}
@@ -713,31 +1149,71 @@ function DetailContent() {
       )}
 
       {tab === "risks" && (
-        <Card title="Risks" subtitle="Probability × impact scoring with mitigation"
-          actions={canManage ? <Button size="sm" onClick={() => setShowRiskModal(true)}><Plus className="h-4 w-4" /> Log risk</Button> : undefined}>
+        <Card
+          title="Risks"
+          subtitle="Probability × impact scoring with mitigation"
+          actions={
+            canManage ? (
+              <Button size="sm" onClick={() => setShowRiskModal(true)}>
+                <Plus className="h-4 w-4" /> Log risk
+              </Button>
+            ) : undefined
+          }
+        >
           {risks.length === 0 ? (
-            <EmptyState icon={ShieldAlert} title="No risks logged" description="Log risks so the health signal stays honest." />
+            <EmptyState
+              icon={ShieldAlert}
+              title="No risks logged"
+              description="Log risks so the health signal stays honest."
+            />
           ) : (
             <ul className="space-y-3">
               {risks.map((risk) => (
-                <li key={risk.id} className="flex items-start gap-3 rounded-lg border border-line p-3">
+                <li
+                  key={risk.id}
+                  className="flex items-start gap-3 rounded-lg border border-line p-3"
+                >
                   <div className="min-w-0 flex-1">
-                    <p className="text-[13px] font-semibold text-ink">{risk.title}</p>
-                    {risk.description && <p className="mt-0.5 text-[12px] text-muted">{risk.description}</p>}
+                    <p className="text-[13px] font-semibold text-ink">
+                      {risk.title}
+                    </p>
+                    {risk.description && (
+                      <p className="mt-0.5 text-[12px] text-muted">
+                        {risk.description}
+                      </p>
+                    )}
                     <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-faint">
-                      <span>P{risk.probability} × I{risk.impact} = {risk.risk_score}</span>
+                      <span>
+                        P{risk.probability} × I{risk.impact} = {risk.risk_score}
+                      </span>
                       <span>· {risk.owner_name ?? "Unassigned"}</span>
-                      {risk.mitigation && <span>· Mitigation: {risk.mitigation}</span>}
-                      {risk.due_at && <span>· Due {formatDate(risk.due_at)}</span>}
+                      {risk.mitigation && (
+                        <span>· Mitigation: {risk.mitigation}</span>
+                      )}
+                      {risk.due_at && (
+                        <span>· Due {formatDate(risk.due_at)}</span>
+                      )}
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    <Badge tone={risk.severity === "critical" || risk.severity === "high" ? "danger" : risk.severity === "medium" ? "warning" : "neutral"}>
+                    <Badge
+                      tone={
+                        risk.severity === "critical" || risk.severity === "high"
+                          ? "danger"
+                          : risk.severity === "medium"
+                            ? "warning"
+                            : "neutral"
+                      }
+                    >
                       {risk.severity}
                     </Badge>
                     <Badge tone={statusTone(risk.status)}>{risk.status}</Badge>
                     {canManage && risk.status !== "closed" && (
-                      <Button size="sm" variant="ghost" onClick={() => handleCloseRisk(risk.id)}>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleCloseRisk(risk.id)}
+                      >
                         <CheckCircle2 className="h-3.5 w-3.5" /> Close
                       </Button>
                     )}
@@ -749,49 +1225,132 @@ function DetailContent() {
         </Card>
       )}
 
-      <Modal open={showAddMember} onClose={() => setShowAddMember(false)} title="Add member" description="Add someone to this project.">
+      <Modal
+        open={showAddMember}
+        onClose={() => setShowAddMember(false)}
+        title="Add member"
+        description="Add someone to this project."
+      >
         <form onSubmit={handleAddMember} className="space-y-4">
-          {formError && <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger">{formError}</div>}
-          <Select label="Employee" name="employee_id" required options={employees
-            .filter((e) => !members.some((m) => m.employee_id === e.id))
-            .map((e) => ({ value: e.id, label: `${e.full_name} — ${e.designation ?? e.department_name ?? ""}` }))} />
-          <Select label="Role" name="role" options={["owner", "lead", "member", "reviewer"].map((r) => ({ value: r, label: r }))} />
+          {formError && (
+            <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger">
+              {formError}
+            </div>
+          )}
+          <Select
+            label="Employee"
+            name="employee_id"
+            required
+            options={employees
+              .filter((e) => !members.some((m) => m.employee_id === e.id))
+              .map((e) => ({
+                value: e.id,
+                label: `${e.full_name} — ${e.designation ?? e.department_name ?? ""}`,
+              }))}
+          />
+          <Select
+            label="Role"
+            name="role"
+            options={["owner", "lead", "member", "reviewer"].map((r) => ({
+              value: r,
+              label: r,
+            }))}
+          />
           <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="ghost" onClick={() => setShowAddMember(false)}>Cancel</Button>
-            <Button type="submit" loading={saving}>Add member</Button>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setShowAddMember(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" loading={saving}>
+              Add member
+            </Button>
           </div>
         </form>
       </Modal>
 
-      <Modal open={showEpicModal} onClose={() => setShowEpicModal(false)} title="New epic" description="Group related work streams.">
+      <Modal
+        open={showEpicModal}
+        onClose={() => setShowEpicModal(false)}
+        title="New epic"
+        description="Group related work streams."
+      >
         <form onSubmit={handleCreateEpic} className="space-y-4">
-          {formError && <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger">{formError}</div>}
+          {formError && (
+            <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger">
+              {formError}
+            </div>
+          )}
           <Input label="Name" name="name" required placeholder="Mobile app" />
           <TextareaField label="Description" name="description" rows={3} />
-          <Select label="Priority" name="priority" defaultValue="medium" options={["low", "medium", "high", "critical"].map((s) => ({ value: s, label: s }))} />
+          <Select
+            label="Priority"
+            name="priority"
+            defaultValue="medium"
+            options={["low", "medium", "high", "critical"].map((s) => ({
+              value: s,
+              label: s,
+            }))}
+          />
           <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="ghost" onClick={() => setShowEpicModal(false)}>Cancel</Button>
-            <Button type="submit" loading={saving}>Create epic</Button>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setShowEpicModal(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" loading={saving}>
+              Create epic
+            </Button>
           </div>
         </form>
       </Modal>
 
-      <Modal open={showMilestoneModal} onClose={() => setShowMilestoneModal(false)} title="New milestone" description="Set a key checkpoint.">
+      <Modal
+        open={showMilestoneModal}
+        onClose={() => setShowMilestoneModal(false)}
+        title="New milestone"
+        description="Set a key checkpoint."
+      >
         <form onSubmit={handleCreateMilestone} className="space-y-4">
-          {formError && <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger">{formError}</div>}
+          {formError && (
+            <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger">
+              {formError}
+            </div>
+          )}
           <Input label="Name" name="name" required placeholder="Beta cutoff" />
           <TextareaField label="Description" name="description" rows={3} />
           <Input label="Due date" name="due_date" type="date" />
           <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="ghost" onClick={() => setShowMilestoneModal(false)}>Cancel</Button>
-            <Button type="submit" loading={saving}>Create milestone</Button>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setShowMilestoneModal(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" loading={saving}>
+              Create milestone
+            </Button>
           </div>
         </form>
       </Modal>
 
-      <Modal open={showSprintModal} onClose={() => setShowSprintModal(false)} title="New sprint" description="Time-boxed delivery cycle.">
+      <Modal
+        open={showSprintModal}
+        onClose={() => setShowSprintModal(false)}
+        title="New sprint"
+        description="Time-boxed delivery cycle."
+      >
         <form onSubmit={handleCreateSprint} className="space-y-4">
-          {formError && <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger">{formError}</div>}
+          {formError && (
+            <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger">
+              {formError}
+            </div>
+          )}
           <Input label="Name" name="name" required placeholder="Sprint 12" />
           <Input label="Goal" name="goal" placeholder="Ship checkout v2" />
           <div className="grid gap-4 sm:grid-cols-2">
@@ -799,45 +1358,157 @@ function DetailContent() {
             <Input label="End date" name="end_date" type="date" />
           </div>
           <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="ghost" onClick={() => setShowSprintModal(false)}>Cancel</Button>
-            <Button type="submit" loading={saving}>Create sprint</Button>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setShowSprintModal(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" loading={saving}>
+              Create sprint
+            </Button>
           </div>
         </form>
       </Modal>
 
-      <Modal open={showRiskModal} onClose={() => setShowRiskModal(false)} title="Log risk" description="Probability × impact drives the health signal.">
+      <Modal
+        open={showRiskModal}
+        onClose={() => setShowRiskModal(false)}
+        title="Log risk"
+        description="Probability × impact drives the health signal."
+      >
         <form onSubmit={handleCreateRisk} className="space-y-4">
-          {formError && <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger">{formError}</div>}
-          <Input label="Title" name="title" required placeholder="Vendor delivery delay" />
+          {formError && (
+            <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger">
+              {formError}
+            </div>
+          )}
+          <Input
+            label="Title"
+            name="title"
+            required
+            placeholder="Vendor delivery delay"
+          />
           <TextareaField label="Description" name="description" rows={2} />
           <div className="grid gap-4 sm:grid-cols-2">
-            <Input label="Probability (1-5)" name="probability" type="number" min={1} max={5} defaultValue={2} />
-            <Input label="Impact (1-5)" name="impact" type="number" min={1} max={5} defaultValue={2} />
+            <Input
+              label="Probability (1-5)"
+              name="probability"
+              type="number"
+              min={1}
+              max={5}
+              defaultValue={2}
+            />
+            <Input
+              label="Impact (1-5)"
+              name="impact"
+              type="number"
+              min={1}
+              max={5}
+              defaultValue={2}
+            />
           </div>
-          <Select label="Owner" name="owner_id" options={employees.map((e) => ({ value: e.id, label: e.full_name }))} />
+          <Select
+            label="Owner"
+            name="owner_id"
+            options={employees.map((e) => ({
+              value: e.id,
+              label: e.full_name,
+            }))}
+          />
           <TextareaField label="Mitigation" name="mitigation" rows={2} />
           <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="ghost" onClick={() => setShowRiskModal(false)}>Cancel</Button>
-            <Button type="submit" loading={saving}>Log risk</Button>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setShowRiskModal(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" loading={saving}>
+              Log risk
+            </Button>
           </div>
         </form>
       </Modal>
 
-      <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Edit project" description="Update project details. Status is managed via lifecycle actions.">
+      <Modal
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        title="Edit project"
+        description="Update project details. Status is managed via lifecycle actions."
+      >
         <form onSubmit={handleSaveProject} className="space-y-4">
-          {formError && <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger">{formError}</div>}
-          <Input label="Name" name="name" required defaultValue={project?.name ?? ""} />
-          <TextareaField label="Description" name="description" rows={3} defaultValue={project?.description ?? ""} />
+          {formError && (
+            <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger">
+              {formError}
+            </div>
+          )}
+          <Input
+            label="Name"
+            name="name"
+            required
+            defaultValue={project?.name ?? ""}
+          />
+          <TextareaField
+            label="Description"
+            name="description"
+            rows={3}
+            defaultValue={project?.description ?? ""}
+          />
           <div className="grid gap-4 sm:grid-cols-2">
-            <Select label="Priority" name="priority" defaultValue={project?.priority ?? "medium"} options={["low", "medium", "high", "critical"].map((s) => ({ value: s, label: s }))} />
-            <Select label="Owner" name="owner_id" defaultValue={project?.owner_id ?? ""} options={employees.map((e) => ({ value: e.id, label: e.full_name }))} />
-            <Input label="Start date" name="start_date" type="date" defaultValue={project?.start_date ?? ""} />
-            <Input label="End date" name="end_date" type="date" defaultValue={project?.end_date ?? ""} />
+            <Select
+              label="Priority"
+              name="priority"
+              defaultValue={project?.priority ?? "medium"}
+              options={["low", "medium", "high", "critical"].map((s) => ({
+                value: s,
+                label: s,
+              }))}
+            />
+            <Select
+              label="Owner"
+              name="owner_id"
+              defaultValue={project?.owner_id ?? ""}
+              options={employees.map((e) => ({
+                value: e.id,
+                label: e.full_name,
+              }))}
+            />
+            <Input
+              label="Start date"
+              name="start_date"
+              type="date"
+              defaultValue={project?.start_date ?? ""}
+            />
+            <Input
+              label="End date"
+              name="end_date"
+              type="date"
+              defaultValue={project?.end_date ?? ""}
+            />
           </div>
-          <Input label="Budget" name="budget" type="number" min={0} step="0.01" defaultValue={project?.budget != null ? String(project.budget) : ""} placeholder="500000" />
+          <Input
+            label="Budget"
+            name="budget"
+            type="number"
+            min={0}
+            step="0.01"
+            defaultValue={project?.budget != null ? String(project.budget) : ""}
+            placeholder="500000"
+          />
           <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="ghost" onClick={() => setEditOpen(false)}>Cancel</Button>
-            <Button type="submit" loading={saving}>Save changes</Button>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setEditOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" loading={saving}>
+              Save changes
+            </Button>
           </div>
         </form>
       </Modal>
@@ -845,11 +1516,26 @@ function DetailContent() {
   );
 }
 
-function TextareaField({ label, name, rows = 3, defaultValue }: { label: string; name: string; rows?: number; defaultValue?: string }) {
+function TextareaField({
+  label,
+  name,
+  rows = 3,
+  defaultValue,
+}: {
+  label: string;
+  name: string;
+  rows?: number;
+  defaultValue?: string;
+}) {
   return (
     <div className="w-full">
       <label className="label">{label}</label>
-      <textarea name={name} rows={rows} defaultValue={defaultValue} className="input w-full resize-y" />
+      <textarea
+        name={name}
+        rows={rows}
+        defaultValue={defaultValue}
+        className="input w-full resize-y"
+      />
     </div>
   );
 }

@@ -1,0 +1,37 @@
+{
+  "run_id": "3aa7bcca-2f4",
+  "state": "BLOCKED",
+  "profile_name": "startup",
+  "employee_count": 5,
+  "tenant_count": 1,
+  "environment_type": "external_postgres",
+  "dataset_identity": {
+    "vcos_revision": "cd653b84c2a4",
+    "schema_revision": "unknown",
+    "generator_revision": "1.0",
+    "scale_profile": "startup",
+    "employee_count": 5,
+    "tenant_count": 1,
+    "seed": 42,
+    "density_strategy": "standard",
+    "environment_fingerprint": "a486493b8a2b23f5"
+  },
+  "ownership": {
+    "run_id": "3aa7bcca-2f4",
+    "owns_database": false,
+    "owns_schema": false,
+    "owns_tables": false,
+    "database_name": null,
+    "schema_name": null,
+    "created_tables": [],
+    "temporary_resources": []
+  },
+  "checkpoints": [],
+  "current_phase": "database_health",
+  "started_at": "2026-09-26T02:51:43.651099",
+  "updated_at": "2026-09-26T02:51:44.163973",
+  "completed_at": "2026-09-26T02:51:44.163980",
+  "error": "(sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column \"severity\" does not exist\n[SQL: CREATE INDEX IF NOT EXISTS ix_company_insights_org_severity ON company_insights (organization_id, severity)]\n(Background on this error at: https://sqlalche.me/e/20/f405)",
+  "retry_count": 0,
+  "max_retries": 3
+}

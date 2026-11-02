@@ -1,0 +1,53 @@
+with open('app/models/execution_strategy.py', 'r') as f:
+    lines = f.readlines()
+
+# Find VERIFICATION_STATES and add VERIFICATION_TRIGGERS after it
+insert_idx = None
+for i, line in enumerate(lines):
+    if 'VERIFICATION_STATES = (' in line:
+        # Find the closing ) of VERIFICATION_STATES
+        for j in range(i, len(lines)):
+            if lines[j].strip() == ')':
+                insert_idx = j + 1
+                break
+            break
+
+if insert_idx is not None:
+    verification_triggers = [
+        '\n',
+        'VERIFICATION_TRIGGERS = (\n',
+        '    "plan_vs_reality",\n',
+        '    "commitment_fulfillment",\n',
+        '    "objective_achievement",\n',
+        '    "capacity_exceeded",\n',
+        '    "dependency_risk",\n',
+        '    "budget_variance",\n',
+        '    "timeline_deviation",\n',
+        '    "quality_degradation",\n',
+        '    "risk_threshold_breach",\n',
+        ')\n',
+        '\n',
+    ]
+
+    for i, item in enumerate([
+        '\n',
+        'VERIFICATION_TRIGGERS = (\n',
+        '    "plan_vs_reality",\n',
+        '    "commitment_fulfillment",\n',
+        '    "objective_achievement",\n',
+        '    "capacity_exceeded",\n',
+        '    "dependency_risk",\n',
+        '    "budget_variance",\n',
+        '    "timeline_deviation",\n',
+        '    "quality_degradation",\n',
+        '    "risk_threshold_breach",\n',
+        ')\n',
+        '\n',
+    ]):
+        lines.insert(insert_idx + 1 + i, item)
+
+    with open('app/models/execution_strategy.py', 'w') as f:
+        f.writelines(lines)
+    print('Added VERIFICATION_TRIGGERS')
+else:
+    print('VERIFICATION_STATES not found')

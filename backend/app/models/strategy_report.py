@@ -1,33 +1,57 @@
-"""Phase 19 — Strategy reports from the executive strategy engine."""
+"""Strategy Report model."""
 
-from typing import Any, Optional
+from datetime import datetime, date
+from typing import Optional, List
+from sqlalchemy import Date, DateTime, ForeignKey, String, Text, JSON, Boolean, Index, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from sqlalchemy import JSON, ForeignKey, Index, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from app.models.base import Base, TimestampMixin, gen_uuid
 
-from app.db.database import Base
-from app.models.organization import TimestampMixin, gen_uuid
+
+class StrategyReportStatus(str):
+    DRAFT = "draft"
+    GENERATING = "generating"
+    COMPLETED = "completed"
+    DISTRIBUTED = "distributed"
+    ARCHIVED = "archived"
+
+
+class StrategyReportType(str):
+    WEEKLY = "weekly"
+    MONTHLY = "monthly"
+    QUARTERLY = "quarterly"
+    ANNUAL = "annual"
+    CUSTOM = "custom"
 
 
 class StrategyReport(Base, TimestampMixin):
-    """A strategic analysis of the entire organization."""
-
     __tablename__ = "strategy_reports"
-    __table_args__ = (
-        Index("ix_strategy_reports_org", "organization_id"),
-    )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
     organization_id: Mapped[str] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    period: Mapped[str] = mapped_column(String(20), default="weekly")
-    title: Mapped[str] = mapped_column(String(255), nullable=False)
-    summary: Mapped[Optional[str]] = mapped_column(Text)
-    findings: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(JSON, default=list)
-    recommendations: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(JSON, default=list)
-    priorities: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(JSON, default=list)
-    risks: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(JSON, default=list)
-    focus_areas: Mapped[Optional[list[str]]] = mapped_column(JSON, default=list)
-    weak_departments: Mapped[Optional[list[str]]] = mapped_column(JSON, default=list)
-    source_event: Mapped[Optional[str]] = mapped_column(String(120))
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    report_type: Mapped[str] = mapped_column(String(24), default=StrategyReportType.MONTHLY, nullable=False, index=True)
+    period_start: Mapped[date] = mapped_column(Date, nullable=False)
+    period_end: Mapped[date] = mapped_column(Date, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default=StrategyReportStatus.DRAFT, nullable=False)
+    generated_by: Mapped[str] = mapped_column(ForeignKey("employees.id", ondelete="CASCADE"), index=True)
+    executive_summary: Mapped[Optional[str]] = mapped_column(Text)
+    key_findings: Mapped[List[str]] = mapped_column(JSON, default=list)
+    strategic_priorities: Mapped[List[dict]] = mapped_column(JSON, default=list)
+    key_metrics: Mapped[dict] = mapped_column(JSON, default=dict)
+    risks: Mapped[List[dict]] = mapped_column(JSON, default=list)
+    opportunities: Mapped[List[dict]] = mapped_column(JSON, default=list)
+    action_items: Mapped[List[dict]] = mapped_column(JSON, default=list)
+    resource_allocation: Mapped[dict] = mapped_column(JSON, default=dict)
+    budget_summary: Mapped[dict] = mapped_column(JSON, default=dict)
+    generated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    distributed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    recipients: Mapped[List[str]] = mapped_column(JSON, default=list)
+    strategyreportstatus_metadata: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+
+    __table_args__ = (
+        Index("ix_strategy_reports_org_period", "organization_id", "period_end"),
+        Index("ix_strategy_reports_org_type", "organization_id", "report_type"),
+    )

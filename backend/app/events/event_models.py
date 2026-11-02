@@ -424,6 +424,25 @@ EVENT_CATALOG: dict[str, str] = {
     "company.action.executed": "An approved company action was executed",
     "company.outcome.recorded": "The outcome of an executed company action was recorded",
     "company.health.recomputed": "The universal company health was recomputed",
+    # --- Slice 4H.1 — universal company / organizational intelligence
+    "company.causal_edge.refreshed": "The derived company causality snapshot recomputed (internal)",
+    "company.prediction.recorded": "A company decision recorded its expected outcome + confidence (fired by the decision write)",
+    "company.memory.lesson.derived": "A closed company decision loop derived its lesson memory (internal)",
+    # --- Slice 4H.2 — universal organizational decision intelligence
+    "company.decision.evaluated": "A company decision opened/continued its evaluation (advisory, evidence lineage)",
+    "company.decision.recommended": "A company decision reached the advisory recommended stage",
+    "company.decision.alternatives.recorded": "Alternatives were recorded for a company decision (exactly one chosen)",
+    "company.decision.why_not.recorded": "The rejected-alternatives record (why-not + reversibility) was written",
+    "company.decision.precedents.linked": "A comparable past decision was cited as a precedent",
+    "company.decision.contradiction.surfaced": "A contradiction between the recommendation and a lesson/precedent was surfaced",
+    "company.decision.quality.composed": "An append-only quality snapshot was composed for a decision stage",
+    "company.decision.track.updated": "A cohort prediction track-record rollup was appended",
+    # --- Slice 4H.3 — living company state
+    "company.state.composed": "A living-company state snapshot row was actually written",
+    "company.state.changed": "A living-company state composition produced a non-empty delta",
+    # --- Slice 4H.4 — decision rehearsal (exactly one event; emitted only on
+    # an actual scenario row write — reads/replays/dry-runs emit zero)
+    "company.scenario.recorded": "A decision-rehearsal scenario row was actually written",
 }
 # Events that feed the expertise engine (entity employee).
 EXPERTISE_EVENTS: dict[str, tuple[float, str]] = {

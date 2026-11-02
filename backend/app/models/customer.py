@@ -6,7 +6,7 @@ connect customers to projects, meetings and documents — all tenant-scoped.
 """
 
 from datetime import date, datetime
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 from sqlalchemy import (
     JSON,
@@ -21,7 +21,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
 from app.models.organization import TimestampMixin, gen_uuid
@@ -64,6 +64,10 @@ class Customer(Base, TimestampMixin):
     first_contact_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     annual_value: Mapped[Optional[float]] = mapped_column(Float)
     attributes: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, default=dict)
+
+    # Relationships
+    owner: Mapped[Optional["Employee"]] = relationship(foreign_keys=[owner_id])
+    projects: Mapped[List["Project"]] = relationship(back_populates="client", foreign_keys="Project.client_id")
 
 
 class CustomerAddress(Base, TimestampMixin):

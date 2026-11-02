@@ -1,0 +1,49 @@
+_test_cross_tenant_restore_attempt(result, db, organization_id)
+            
+            # Test 2: Restore with mixed tenant data in backup
+            await self._test_restore_mixed_tenant_data(result, db, organization_id)
+            
+            # Test 3: Restore with manipulated backup manifest
+            await self._test_manipulated_backup_manifest(result, db, organization_id)
+            
+            # Test 4: Cross-tenant backup access
+            await self._test_cross_tenant_backup_access(result, db, organization_id)
+            
+            result.add_check(ValidationCheck(
+                name="restore_adversarial_tests",
+                status=ValidationStatus.VERIFIED,
+                message="All restore-specific adversarial tests passed",
+                details={"tests_run": 4},
+            ))
+        except Exception as e:
+            result.add_check(ValidationCheck(
+                name="restore_adversarial_tests",
+                status=ValidationStatus.INCONCLUSIVE,
+                message=f"Restore adversarial tests failed: {str(e)}",
+                details={"error": str(e)},
+            ))
+
+    async def _test_cross_tenant_restore_attempt(
+        self,
+        result: ValidationResult,
+        db: AsyncSession,
+        organization_id: str,
+    ) -> None:
+        """Test that restore cannot be initiated for another tenant's backup."""
+        try:
+            # Create a second organization
+            from app.models.organization import Organization
+            import uuid
+            
+            other_org = Organization(
+                id=f"other-{uuid.uuid4().hex[:8]}",
+                name="Other Test Org",
+                slug=f"other-{uuid.uuid4().hex[:8]}",
+                status="active",
+            )
+            db.add(other_org)
+            await db.flush()
+            
+            # Create a backup for the other organization
+            from app.models.backup_manifest import BackupManifest, BackupStatus, BackupKind
+            

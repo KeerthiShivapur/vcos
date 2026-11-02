@@ -1,9 +1,24 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, PencilLine, ShieldAlert, ShieldCheck, Trash2, XCircle } from "lucide-react";
+import {
+  AlertTriangle,
+  PencilLine,
+  ShieldAlert,
+  ShieldCheck,
+  Trash2,
+  XCircle,
+} from "lucide-react";
 
-import { closeRisk, createRisk, deleteRisk, listEmployees, listProjects, listRisks, updateRisk } from "@/lib/api";
+import {
+  closeRisk,
+  createRisk,
+  deleteRisk,
+  listEmployees,
+  listProjects,
+  listRisks,
+  updateRisk,
+} from "@/lib/api";
 import { roleCan, PERMISSIONS } from "@/lib/permissions";
 import type { EmployeeSummary, Project, Risk } from "@/types";
 import { useAuth } from "@/hooks/useAuth";
@@ -21,7 +36,14 @@ import { Spinner } from "@/components/ui/Spinner";
 import { formatDate, titleCase } from "@/lib/utils";
 import { toastError, toastSuccess } from "@/components/ui/Toaster";
 
-const RISK_STATUSES = ["identified", "assessing", "mitigating", "accepted", "monitoring", "closed"];
+const RISK_STATUSES = [
+  "identified",
+  "assessing",
+  "mitigating",
+  "accepted",
+  "monitoring",
+  "closed",
+];
 const SEVERITIES = ["critical", "high", "medium", "low"];
 
 export default function RisksPage() {
@@ -51,7 +73,16 @@ function RisksContent() {
   const [deleting, setDeleting] = useState<Risk | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const emptyForm = { project_id: "", title: "", description: "", probability: "2", impact: "2", owner_id: "", mitigation: "", due_at: "" };
+  const emptyForm = {
+    project_id: "",
+    title: "",
+    description: "",
+    probability: "2",
+    impact: "2",
+    owner_id: "",
+    mitigation: "",
+    due_at: "",
+  };
   const [form, setForm] = useState(emptyForm);
 
   async function load() {
@@ -59,7 +90,11 @@ function RisksContent() {
     setError(null);
     try {
       const [items, projectList, empList] = await Promise.all([
-        listRisks({ project_id: projectId || undefined, status: status || undefined, severity: severity || undefined }),
+        listRisks({
+          project_id: projectId || undefined,
+          status: status || undefined,
+          severity: severity || undefined,
+        }),
         listProjects(),
         listEmployees({ page_size: 200 }),
       ]);
@@ -84,11 +119,18 @@ function RisksContent() {
       open: open.length,
       critical: open.filter((r) => r.severity === "critical").length,
       high: open.filter((r) => r.severity === "high").length,
-      avg: open.length ? Math.round(open.reduce((acc, r) => acc + (r.risk_score ?? 0), 0) / open.length) : 0,
+      avg: open.length
+        ? Math.round(
+            open.reduce((acc, r) => acc + (r.risk_score ?? 0), 0) / open.length,
+          )
+        : 0,
     };
   }, [risks]);
 
-  const severityTone: Record<string, "danger" | "warning" | "neutral" | "success"> = {
+  const severityTone: Record<
+    string,
+    "danger" | "warning" | "neutral" | "success"
+  > = {
     critical: "danger",
     high: "warning",
     medium: "neutral",
@@ -129,7 +171,8 @@ function RisksContent() {
         owner_id: form.owner_id || undefined,
         mitigation: form.mitigation.trim() || undefined,
       };
-      if (form.due_at) payload.due_at = new Date(`${form.due_at}T00:00:00`).toISOString();
+      if (form.due_at)
+        payload.due_at = new Date(`${form.due_at}T00:00:00`).toISOString();
       if (editing) {
         await updateRisk(editing.id, payload);
         toastSuccess("Risk updated");
@@ -172,8 +215,16 @@ function RisksContent() {
     }
   }
 
-  if (loading && risks.length === 0) return <Spinner label="Loading risk register…" />;
-  if (error) return <ErrorState title="Risk register unavailable" message={error} onRetry={load} />;
+  if (loading && risks.length === 0)
+    return <Spinner label="Loading risk register…" />;
+  if (error)
+    return (
+      <ErrorState
+        title="Risk register unavailable"
+        message={error}
+        onRetry={load}
+      />
+    );
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-6">
@@ -223,7 +274,10 @@ function RisksContent() {
           onChange={(event) => setStatus(event.target.value)}
           placeholder="All statuses"
           className="w-44"
-          options={RISK_STATUSES.map((s) => ({ value: s, label: titleCase(s) }))}
+          options={RISK_STATUSES.map((s) => ({
+            value: s,
+            label: titleCase(s),
+          }))}
         />
         <Select
           aria-label="Severity"
@@ -238,25 +292,37 @@ function RisksContent() {
       {risks.length === 0 ? (
         <EmptyState
           title="No risks match"
-          description={canManage ? "Log the first risk to start the register." : "Nothing to see here yet."}
+          description={
+            canManage
+              ? "Log the first risk to start the register."
+              : "Nothing to see here yet."
+          }
         />
       ) : (
         <div className="space-y-2">
           {risks.map((risk) => (
-            <Card key={risk.id} className="flex flex-wrap items-center justify-between gap-4 p-4">
+            <Card
+              key={risk.id}
+              className="flex flex-wrap items-center justify-between gap-4 p-4"
+            >
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium text-ink">{risk.title}</span>
-                  <Badge tone={severityTone[risk.severity ?? ""] ?? "neutral"}>{titleCase(risk.severity ?? "unknown")}</Badge>
+                  <Badge tone={severityTone[risk.severity ?? ""] ?? "neutral"}>
+                    {titleCase(risk.severity ?? "unknown")}
+                  </Badge>
                   <Badge tone="neutral">
                     P{risk.probability} × I{risk.impact} = {risk.risk_score}
                   </Badge>
                   <Badge tone="neutral">{titleCase(risk.status)}</Badge>
                 </div>
-                {risk.description && <p className="mt-1 text-sm text-ink/70">{risk.description}</p>}
+                {risk.description && (
+                  <p className="mt-1 text-sm text-ink/70">{risk.description}</p>
+                )}
                 {risk.mitigation && (
                   <p className="mt-1 text-xs text-faint">
-                    <span className="font-medium text-ink/60">Mitigation:</span> {risk.mitigation}
+                    <span className="font-medium text-ink/60">Mitigation:</span>{" "}
+                    {risk.mitigation}
                   </p>
                 )}
                 <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-faint">
@@ -267,16 +333,29 @@ function RisksContent() {
               </div>
               <div className="flex items-center gap-2">
                 {risk.status !== "closed" && canManage && (
-                  <Button size="sm" variant="secondary" onClick={() => handleClose(risk)}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => handleClose(risk)}
+                  >
                     Close
                   </Button>
                 )}
                 {canManage && (
                   <>
-                    <Button size="sm" variant="secondary" onClick={() => openEdit(risk)}>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => openEdit(risk)}
+                    >
                       <PencilLine className="h-3.5 w-3.5" /> Edit
                     </Button>
-                    <Button size="sm" variant="secondary" aria-label={`Delete ${risk.title}`} onClick={() => setDeleting(risk)}>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      aria-label={`Delete ${risk.title}`}
+                      onClick={() => setDeleting(risk)}
+                    >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                   </>
@@ -317,39 +396,97 @@ function RisksContent() {
             aria-label="Risk project"
             label="Project"
             value={form.project_id}
-            onChange={(event) => setForm({ ...form, project_id: event.target.value })}
+            onChange={(event) =>
+              setForm({ ...form, project_id: event.target.value })
+            }
             placeholder="Optional project context"
             options={projects.map((p) => ({ value: p.id, label: p.name }))}
           />
           <div>
-            <Input label="Title" name="risk-title" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="What could go wrong?" />
+            <Input
+              label="Title"
+              name="risk-title"
+              value={form.title}
+              onChange={(event) =>
+                setForm({ ...form, title: event.target.value })
+              }
+              placeholder="What could go wrong?"
+            />
           </div>
           <div>
             <label className="label">Description</label>
-            <Textarea aria-label="Risk description" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} rows={3} />
+            <Textarea
+              aria-label="Risk description"
+              value={form.description}
+              onChange={(event) =>
+                setForm({ ...form, description: event.target.value })
+              }
+              rows={3}
+            />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Input label="Probability (1–5)" name="risk-probability" type="number" min={1} max={5} value={form.probability} onChange={(event) => setForm({ ...form, probability: event.target.value })} />
+              <Input
+                label="Probability (1–5)"
+                name="risk-probability"
+                type="number"
+                min={1}
+                max={5}
+                value={form.probability}
+                onChange={(event) =>
+                  setForm({ ...form, probability: event.target.value })
+                }
+              />
             </div>
             <div>
-              <Input label="Impact (1–5)" name="risk-impact" type="number" min={1} max={5} value={form.impact} onChange={(event) => setForm({ ...form, impact: event.target.value })} />
+              <Input
+                label="Impact (1–5)"
+                name="risk-impact"
+                type="number"
+                min={1}
+                max={5}
+                value={form.impact}
+                onChange={(event) =>
+                  setForm({ ...form, impact: event.target.value })
+                }
+              />
             </div>
           </div>
           <Select
             aria-label="Risk owner"
             label="Owner"
             value={form.owner_id}
-            onChange={(event) => setForm({ ...form, owner_id: event.target.value })}
+            onChange={(event) =>
+              setForm({ ...form, owner_id: event.target.value })
+            }
             placeholder="Assign an owner"
-            options={employees.map((e) => ({ value: e.id, label: e.full_name }))}
+            options={employees.map((e) => ({
+              value: e.id,
+              label: e.full_name,
+            }))}
           />
           <div>
             <label className="label">Mitigation plan</label>
-            <Textarea aria-label="Mitigation plan" value={form.mitigation} onChange={(event) => setForm({ ...form, mitigation: event.target.value })} rows={3} placeholder="How will we reduce this risk?" />
+            <Textarea
+              aria-label="Mitigation plan"
+              value={form.mitigation}
+              onChange={(event) =>
+                setForm({ ...form, mitigation: event.target.value })
+              }
+              rows={3}
+              placeholder="How will we reduce this risk?"
+            />
           </div>
           <div>
-            <Input label="Due by" name="risk-due" type="date" value={form.due_at} onChange={(event) => setForm({ ...form, due_at: event.target.value })} />
+            <Input
+              label="Due by"
+              name="risk-due"
+              type="date"
+              value={form.due_at}
+              onChange={(event) =>
+                setForm({ ...form, due_at: event.target.value })
+              }
+            />
           </div>
         </div>
       </Modal>
@@ -371,7 +508,8 @@ function RisksContent() {
         }
       >
         <p className="text-sm text-ink/70">
-          Delete <span className="font-medium text-ink">{deleting?.title}</span>? The audit trail still records this action.
+          Delete <span className="font-medium text-ink">{deleting?.title}</span>
+          ? The audit trail still records this action.
         </p>
       </Modal>
     </div>

@@ -1,0 +1,29 @@
+async def _execute_phase(
+        self,
+        db: AsyncSession,
+        context: RestoreContext,
+        phase_name: str,
+        restore_op: RestoreOperation,
+    ):
+        """Execute a single restore phase with error handling."""
+        phase_start = utcnow()
+        phase_record = {
+            "phase": phase_name,
+            "started_at": utcnow().isoformat(),
+            "completed_at": None,
+            "passed": False,
+            "message": "",
+            "details": {},
+            "validation_status": ValidationStatus.INCONCLUSIVE.value,
+        }
+        context.phases.append(phase_record)
+        restore_op.phase = phase_name
+        await db.flush()
+        
+        phase_func = getattr(self, f"_phase_{phase_name.lower()}", None)
+        if not phase_func:
+            raise RuntimeError(f"No implementation for phase: {phase_name}")
+        
+        try:
+            result = await phase_func(db, context, restore_op)
+            phase_record["passed"] = result.get("pass

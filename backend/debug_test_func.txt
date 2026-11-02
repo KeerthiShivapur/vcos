@@ -1,0 +1,57 @@
+async def compute_detailed(self) -> Dict[str, Any]:
+        """Compute detailed fingerprint breakdown for comparison."""
+        fingerprint = await self.compute()
+        
+        # Also return counts for each domain
+        counts = {}
+        
+        org = await self.db.get(Organization, self.organization_id)
+        counts["organization"] = 1 if org else 0
+        
+        for model_name, model_class, filter_field in [
+            ("employees", Employee, "organization_id"),
+            ("departments", Department, "organization_id"),
+            ("teams", Team, "organization_id"),
+            ("roles", Role, "organization_id"),
+            ("decisions", CompanyDecision, "organization_id"),
+            ("commitments", CompanyCommitment, "organization_id"),
+            ("authorizations", CompanyAuthorization, "organization_id"),
+            ("actions", CompanyAction, "organization_id"),
+            ("timeline_events", CompanyTimelineEvent, "organization_id"),
+            ("knowledge_snapshots", CompanyKnowledgeSnapshot, "organization_id"),
+            ("autonomy_proposals", AutonomyProposal, "organization_id"),
+            ("approval_policies", ApprovalPolicy, "organization_id"),
+        ]:
+            result = await self.db.execute(
+                select(func.count(model_class.id))
+                .where(getattr(model_class, filter_field) == self.organization_id)
+            )
+            counts[model_name] = result.scalar() or 0
+        
+        return {
+            "fingerprint": fingerprint,
+            "organization_id": self.organization_id,
+            "computed_at": utcnow().isoformat(),
+            "counts": counts,
+        }
+
+
+# ============================================================================
+# Phase 3 Test Class
+# ============================================================================
+
+class TestProductionDeploymentDRE2E:
+    """Phase 3: Production Deployment + Backup/Restore + DR E2E."""
+    
+    @pytest.mark.asyncio
+    async def test_complete_production_dr_lifecycle(self, db_session, production_company):
+        """
+        Complete Production Deployment + DR E2E lifecycle.
+        
+        PROVISION → OPERATE → BUILD MEMORY → ASK COMPANY → SIMULATE → GOVERN 
+        → CONTINUITY → BACKUP → DISASTER → RESTORE → VALIDATE → REBUILD 
+        → ASK AGAIN → SIMULATE AGAIN → GOVERN AGAIN → CONTINUE OPERATING
+        """
+        
+        org = production_company["organization"]
+        admin_user = production_company

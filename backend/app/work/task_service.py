@@ -460,5 +460,20 @@ class TaskService:
         )
 
 
+    async def count_open_by_assignee(
+        self, db: AsyncSession, *, organization_id: str, assignee_id: str,
+    ) -> int:
+        """Count open (non-completed, non-archived) tasks assigned to a user."""
+        from sqlalchemy import select, func
+        result = await db.execute(
+            select(func.count(Task.id)).where(
+                Task.organization_id == organization_id,
+                Task.assignee_id == assignee_id,
+                Task.status.notin_(("completed", "archived")),
+            )
+        )
+        return result.scalar() or 0
+
+
 task_service = TaskService()
 

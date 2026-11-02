@@ -84,10 +84,10 @@ async def _entity_context(
         if row is None or row.organization_id != organization_id:
             return (None, None, None, {})
         return (
-            row.title, row.status,
+            row.name, row.status,
             await _scope_for_entity(db, organization_id=organization_id,
                                     entity_type="project", entity_id=entity_id),
-            {"title": row.title, "status": row.status},
+            {"title": row.name, "status": row.status},
         )
     if entity_type == "task":
         from app.models.task import Task

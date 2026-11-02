@@ -52,6 +52,7 @@ def _login_result(data: dict) -> LoginResult:
 @router.post("/register", response_model=LoginResult, status_code=201)
 async def register(payload: RegisterRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """Register a new company and its founding administrator."""
+    print(f"DEBUG Register request: email={payload.email}, org_name={payload.organization_name}, org_slug={payload.organization_slug}")
     allowed, retry = await rate_limiter.check(f"register:{request.client.host}")
     if not allowed:
         raise HTTPException(429, f"Too many attempts, retry in {retry}s")
@@ -61,9 +62,11 @@ async def register(payload: RegisterRequest, request: Request, db: AsyncSession 
         )
         await db.commit()
     except AuthError as exc:
+        print(f"DEBUG AuthError: {exc.message}")
         raise HTTPException(exc.status, exc.message) from exc
     except IntegrityError as exc:
         await db.rollback()
+        print(f"DEBUG IntegrityError: {exc}")
         raise HTTPException(409, "This organization name or slug is already taken.") from exc
     return _login_result(data)
 
@@ -151,6 +154,60 @@ async def me(user: User = Depends(get_current_user), db: AsyncSession = Depends(
     out = UserOut.model_validate(user)
     out.permissions = sorted(perms)
     return out
+
+
+@router.get("/debug/permissions")
+async def debug_permissions(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Debug endpoint to check database permissions."""
+    from app.models.role import UserRoleModel, Role, RolePermission, Permission
+    from sqlalchemy import select
+    from app.models.permission_helpers import user_permission_codes
+    
+    # Check UserRoleModel
+    result = await db.execute(select(UserRoleModel).where(
+        UserRoleModel.user_id == user.id,
+        UserRoleModel.organization_id == user.organization_id
+    ))
+    user_roles = result.scalars().all()
+    
+    role_details = []
+    for ur in user_roles:
+        role = await db.get(Role, ur.role_id)
+        role_details.append({
+            "user_role_id": ur.id,
+            "role_id": ur.role_id,
+            "role_code": role.code if role else "NOT FOUND",
+            "role_name": role.name if role else "NOT FOUND",
+        })
+    
+    # Check permissions via helper
+    codes = await user_permission_codes(db, organization_id=user.organization_id, user_id=user.id)
+    
+    # Check all roles in org
+    result = await db.execute(select(Role).where(Role.organization_id == user.organization_id))
+    all_roles = result.scalars().all()
+    
+    all_perms = []
+    for role in all_roles:
+        result = await db.execute(select(RolePermission).where(RolePermission.role_id == role.id))
+        rps = result.scalars().all()
+        for rp in rps:
+            perm = await db.get(Permission, rp.permission_id)
+            all_perms.append({
+                "role_code": role.code,
+                "role_name": role.name,
+                "perm_code": perm.code if perm else "NOT FOUND",
+                "perm_name": perm.name if perm else "NOT FOUND",
+            })
+    
+    return {
+        "user_id": user.id,
+        "user_role_field": user.role,
+        "organization_id": user.organization_id,
+        "user_roles": role_details,
+        "permission_codes_from_helper": sorted(codes),
+        "all_role_permissions": all_perms,
+    }
 
 
 @router.post("/forgot-password", response_model=Message)

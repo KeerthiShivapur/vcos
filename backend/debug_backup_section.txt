@@ -1,0 +1,16 @@
+organization_id
+        import uuid
+        import hashlib
+        import uuid
+        logger.info("Creating backup for org_id: {}".format(org.id))
+        backup_id = "bkp-{}".format(uuid.uuid4().hex[:12])
+        logger.info("Generated backup_id: {}".format(backup_id))
+        backup_metadata = BackupManifest(
+            id=backup_id,
+            organization_id=org.id,
+            backup_kind=BackupKind.FULL,
+            status=BackupStatus.VERIFIED,
+            started_at=utcnow(),
+            completed_at=utcnow(),
+            retention_days=30,
+            expires_at=utcnow() + timedelt

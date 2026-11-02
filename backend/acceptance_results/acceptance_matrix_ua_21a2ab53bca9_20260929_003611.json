@@ -1,0 +1,124 @@
+{
+  "run_id": "ua_21a2ab53bca9",
+  "started_at": "2026-09-29T00:36:11.952713",
+  "completed_at": "2026-09-29T00:36:12.163831",
+  "duration_seconds": 0.211118,
+  "environment": {
+    "python_version": "3.13.7 (tags/v3.13.7:bcee1c3, Aug 14 2025, 14:15:11) [MSC v.1944 64 bit (AMD64)]",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "timestamp": "2026-09-29T00:36:12.161922",
+    "runner": "AcceptanceMatrixRunner"
+  },
+  "summary": {
+    "total_profiles": 1,
+    "total_scenarios": 2,
+    "passed": 0,
+    "failed": 2,
+    "blocked": 0,
+    "all_passed": false
+  },
+  "profiles": [
+    {
+      "profile_name": "test",
+      "profile": {
+        "A": "startup_5",
+        "B": "flat",
+        "C": "software",
+        "D": "united_states",
+        "E": "single_entity",
+        "F": "parent_subsidiary_2",
+        "G": "en_us_only",
+        "H": "single_role",
+        "I": "startup_governance",
+        "J": "project_work",
+        "K": "simple_finance",
+        "L": "full_time_only",
+        "M": "email_slack",
+        "N": "wiki_knowledge",
+        "O": "github_only",
+        "P": "basic_brain",
+        "Q": "startup_memory",
+        "R": "hiring_prediction",
+        "S": "hiring_scenario",
+        "T": "low_autonomy",
+        "U": "employee_turnover",
+        "V": "startup_to_scale",
+        "W": "asset_acquisition",
+        "X": "standard_security",
+        "Y": "backup_restore",
+        "Z": "rest_api"
+      },
+      "started_at": "2026-09-29T00:36:12.162114",
+      "completed_at": "2026-09-29T00:36:12.163813",
+      "duration_seconds": 0.001699,
+      "passed": 0,
+      "failed": 2,
+      "blocked": 0,
+      "all_passed": false,
+      "scenarios": [
+        {
+          "scenario_id": "prov_265cbf8e",
+          "scenario_name": "Company Provisioning",
+          "scenario_type": "provisioning",
+          "status": "failed",
+          "started_at": "2026-09-29T00:36:12.163376",
+          "completed_at": "2026-09-29T00:36:12.163655",
+          "duration_seconds": 0.000279,
+          "error": "Expected tenant_created=True, got None",
+          "steps": [
+            {
+              "step_name": "initialize_canonical_context",
+              "phase": "setup",
+              "status": "passed",
+              "duration_seconds": 0.000132,
+              "error": null,
+              "invariants_verified": [
+                "PROPERTY_1_TENANT_OWNERSHIP"
+              ]
+            },
+            {
+              "step_name": "provision_company",
+              "phase": "provision",
+              "status": "failed",
+              "duration_seconds": 8.5e-05,
+              "error": "Expected tenant_created=True, got None",
+              "invariants_verified": []
+            }
+          ],
+          "invariants": []
+        },
+        {
+          "scenario_id": "ident_92d9116f",
+          "scenario_name": "Universal Identity",
+          "scenario_type": "identity",
+          "status": "failed",
+          "started_at": "2026-09-29T00:36:12.163673",
+          "completed_at": "2026-09-29T00:36:12.163805",
+          "duration_seconds": 0.000132,
+          "error": "Expected tenant_created=True, got None",
+          "steps": [
+            {
+              "step_name": "initialize_canonical_context",
+              "phase": "setup",
+              "status": "passed",
+              "duration_seconds": 4.6e-05,
+              "error": null,
+              "invariants_verified": [
+                "PROPERTY_1_TENANT_OWNERSHIP"
+              ]
+            },
+            {
+              "step_name": "provision_company",
+              "phase": "provision",
+              "status": "failed",
+              "duration_seconds": 4.8e-05,
+              "error": "Expected tenant_created=True, got None",
+              "invariants_verified": []
+            }
+          ],
+          "invariants": []
+        }
+      ]
+    }
+  ]
+}

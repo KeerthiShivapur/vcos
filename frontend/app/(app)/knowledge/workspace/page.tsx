@@ -78,12 +78,17 @@ function CountStat({ label, value }: { label: string; value: number }) {
   return (
     <div className="rounded-lg border border-line bg-surface px-4 py-3">
       <p className="text-xl font-bold text-ink">{value}</p>
-      <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wide text-faint">{label}</p>
+      <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wide text-faint">
+        {label}
+      </p>
     </div>
   );
 }
 
-const ACTION_STATE_TONE: Record<string, "neutral" | "brand" | "success" | "warning" | "danger"> = {
+const ACTION_STATE_TONE: Record<
+  string,
+  "neutral" | "brand" | "success" | "warning" | "danger"
+> = {
   proposed: "neutral",
   validating: "brand",
   awaiting_approval: "warning",
@@ -128,7 +133,9 @@ function DiscoveryAnswerCard({ answer }: { answer: KnowledgeDiscoveryAnswer }) {
   return (
     <div className="px-5 py-4">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm font-semibold text-ink">{answer.topic.name}</span>
+        <span className="text-sm font-semibold text-ink">
+          {answer.topic.name}
+        </span>
         <Badge tone="neutral">{(answer.score * 100).toFixed(0)}% match</Badge>
         {answer.confidence !== null && answer.confidence !== undefined && (
           <Badge tone={confidenceTone(answer.confidence)}>
@@ -137,16 +144,23 @@ function DiscoveryAnswerCard({ answer }: { answer: KnowledgeDiscoveryAnswer }) {
         )}
         <Badge tone="brand">{authorityLabel(answer.authority)}</Badge>
         {answer.families.length > 0 && (
-          <span className="text-[11px] text-faint">evidenced by {answer.families.join(", ")}</span>
+          <span className="text-[11px] text-faint">
+            evidenced by {answer.families.join(", ")}
+          </span>
         )}
       </div>
       {answer.statement && (
-        <p className="mt-2 text-[13px] leading-relaxed text-ink">{answer.statement}</p>
+        <p className="mt-2 text-[13px] leading-relaxed text-ink">
+          {answer.statement}
+        </p>
       )}
       {answer.evidence.length > 0 && (
         <ul className="mt-2 space-y-1">
           {answer.evidence.slice(0, 3).map((evidence) => (
-            <li key={evidence.claim_id} className="flex items-start gap-2 text-xs text-muted">
+            <li
+              key={evidence.claim_id}
+              className="flex items-start gap-2 text-xs text-muted"
+            >
               <ArrowRight className="mt-0.5 h-3 w-3 shrink-0 text-faint" />
               <span>
                 {evidence.excerpt}
@@ -166,7 +180,9 @@ export default function KnowledgeWorkspacePage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [brief, setBrief] = useState<KnowledgeBriefResponse | null>(null);
-  const [health, setHealth] = useState<KnowledgeHealthCenterResponse | null>(null);
+  const [health, setHealth] = useState<KnowledgeHealthCenterResponse | null>(
+    null,
+  );
   const [loadingSummary, setLoadingSummary] = useState(true);
 
   const loadSummary = useCallback(async () => {
@@ -198,12 +214,16 @@ export default function KnowledgeWorkspacePage() {
       try {
         setResult(await brainKnowledgeQuery(query));
       } catch (err) {
-        setError(err instanceof Error ? err.message : "The knowledge layer could not answer");
+        setError(
+          err instanceof Error
+            ? err.message
+            : "The knowledge layer could not answer",
+        );
       } finally {
         setBusy(false);
       }
     },
-    [busy, question]
+    [busy, question],
   );
 
   const answerList = useMemo(() => {
@@ -214,13 +234,14 @@ export default function KnowledgeWorkspacePage() {
       return { type: "discovery" as const, items: answers };
     }
     const insights = (result.answers ?? []).filter(
-      (a): a is KnowledgeIntelInsight => typeof (a as KnowledgeIntelInsight).kind === "string"
+      (a): a is KnowledgeIntelInsight =>
+        typeof (a as KnowledgeIntelInsight).kind === "string",
     );
     if (insights.length === 0) return null;
     return { type: "insights" as const, items: insights };
   }, [result]);
 
-  const heading = result ? INTENT_HEADINGS[result.intent] ?? "Answer" : "";
+  const heading = result ? (INTENT_HEADINGS[result.intent] ?? "Answer") : "";
 
   return (
     <div className="space-y-4">
@@ -242,7 +263,10 @@ export default function KnowledgeWorkspacePage() {
             className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:border-brand"
           />
           <div className="flex flex-wrap items-center gap-2">
-            <Button onClick={() => void ask()} disabled={busy || !question.trim()}>
+            <Button
+              onClick={() => void ask()}
+              disabled={busy || !question.trim()}
+            >
               {busy ? (
                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-line border-t-brand" />
               ) : (
@@ -286,11 +310,15 @@ export default function KnowledgeWorkspacePage() {
                   <div className="px-5 py-4">
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge tone="brand">
-                        As of {result.as_of ? new Date(result.as_of).toLocaleDateString() : ""}
+                        As of{" "}
+                        {result.as_of
+                          ? new Date(result.as_of).toLocaleDateString()
+                          : ""}
                       </Badge>
                       {typeof result.state.confidence === "number" && (
                         <Badge tone={confidenceTone(result.state.confidence)}>
-                          {(result.state.confidence * 100).toFixed(0)}% confidence
+                          {(result.state.confidence * 100).toFixed(0)}%
+                          confidence
                         </Badge>
                       )}
                     </div>
@@ -301,7 +329,8 @@ export default function KnowledgeWorkspacePage() {
                   {result.replaced_by && (
                     <div className="px-5 py-4">
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-faint">
-                        Replaced on {new Date(result.replaced_by.at).toLocaleDateString()}
+                        Replaced on{" "}
+                        {new Date(result.replaced_by.at).toLocaleDateString()}
                       </p>
                       <p className="mt-1 text-[13px] leading-relaxed text-muted">
                         {result.replaced_by.statement}
@@ -317,9 +346,16 @@ export default function KnowledgeWorkspacePage() {
             <div className="divide-y divide-line">
               {typeof result.topic === "object" && result.topic && (
                 <p className="px-5 py-3 text-[13px] text-muted">
-                  <span className="font-semibold text-ink">{result.topic.name}</span> —{" "}
-                  {result.total} entities reached across{" "}
-                  {Object.keys((result.by_family ?? {}) as Record<string, number>).length} families
+                  <span className="font-semibold text-ink">
+                    {result.topic.name}
+                  </span>{" "}
+                  — {result.total} entities reached across{" "}
+                  {
+                    Object.keys(
+                      (result.by_family ?? {}) as Record<string, number>,
+                    ).length
+                  }{" "}
+                  families
                 </p>
               )}
               {Array.isArray(result.hops) && result.hops.length === 0 && (
@@ -330,18 +366,25 @@ export default function KnowledgeWorkspacePage() {
                 />
               )}
               {Array.isArray(result.hops) &&
-                (result.hops as Array<Record<string, unknown>>).slice(0, 40).map((hop, index) => (
-                  <div key={index} className="flex items-start gap-3 px-5 py-3">
-                    <Badge tone="neutral">depth {hop.depth as number}</Badge>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[13px] font-semibold text-ink">{hop.title as string}</p>
-                      <p className="mt-0.5 text-[11px] text-faint">
-                        {hop.entity_type as string} · via “{hop.via as string}” (
-                        {hop.relation as string})
-                      </p>
+                (result.hops as Array<Record<string, unknown>>)
+                  .slice(0, 40)
+                  .map((hop, index) => (
+                    <div
+                      key={index}
+                      className="flex items-start gap-3 px-5 py-3"
+                    >
+                      <Badge tone="neutral">depth {hop.depth as number}</Badge>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[13px] font-semibold text-ink">
+                          {hop.title as string}
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-faint">
+                          {hop.entity_type as string} · via “{hop.via as string}
+                          ” ({hop.relation as string})
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
             </div>
           )}
 
@@ -355,15 +398,18 @@ export default function KnowledgeWorkspacePage() {
                     : "no accountable author on record"}
                 </span>
               </p>
-              {Array.isArray(result.stakeholders) && (result.stakeholders as string[]).length > 0 && (
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  {(result.stakeholders as string[]).slice(0, 12).map((name) => (
-                    <Badge key={name} tone="neutral">
-                      {name}
-                    </Badge>
-                  ))}
-                </div>
-              )}
+              {Array.isArray(result.stakeholders) &&
+                (result.stakeholders as string[]).length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {(result.stakeholders as string[])
+                      .slice(0, 12)
+                      .map((name) => (
+                        <Badge key={name} tone="neutral">
+                          {name}
+                        </Badge>
+                      ))}
+                  </div>
+                )}
             </div>
           )}
 
@@ -376,7 +422,12 @@ export default function KnowledgeWorkspacePage() {
               <Activity className="h-4 w-4 text-brand" />
               <span>
                 This question routes to the{" "}
-                <a href={WORKSPACE_LINKS[result.intent] ?? "/knowledge/workspace"} className="font-semibold text-brand hover:underline">
+                <a
+                  href={
+                    WORKSPACE_LINKS[result.intent] ?? "/knowledge/workspace"
+                  }
+                  className="font-semibold text-brand hover:underline"
+                >
                   {heading}
                 </a>{" "}
                 section of this workspace — open it for the full view.
@@ -391,7 +442,8 @@ export default function KnowledgeWorkspacePage() {
             result.intent === "escalation") && (
             <div className="divide-y divide-line">
               {Array.isArray(result.items) &&
-                (result.items as Array<Record<string, unknown>>).length === 0 && (
+                (result.items as Array<Record<string, unknown>>).length ===
+                  0 && (
                   <EmptyState
                     icon={Target}
                     title="No actions here"
@@ -399,49 +451,56 @@ export default function KnowledgeWorkspacePage() {
                   />
                 )}
               {Array.isArray(result.items) &&
-                (result.items as Array<Record<string, unknown>>).slice(0, 40).map((item) => (
-                  <div key={item.id as string} className="px-5 py-4">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge tone={stateTone(String(item.state))}>
-                        {stateLabel(String(item.state))}
-                      </Badge>
-                      <Badge tone="neutral">{item.action_type as string}</Badge>
-                      <Badge
-                        tone={
-                          item.risk === "high"
-                            ? "danger"
-                            : item.risk === "medium"
-                              ? "warning"
-                              : "success"
-                        }
-                      >
-                        {item.risk as string} risk
-                      </Badge>
-                      {Array.isArray(item.attention_reasons) &&
-                        (item.attention_reasons as string[]).map((reason) => (
-                          <Badge key={reason} tone="warning">
-                            {reason}
-                          </Badge>
-                        ))}
-                    </div>
-                    <p className="mt-2 text-sm font-semibold text-ink">{item.title as string}</p>
-                    {item.why ? (
-                      <p className="mt-0.5 text-[12px] leading-relaxed text-muted">
-                        {item.why as string}
+                (result.items as Array<Record<string, unknown>>)
+                  .slice(0, 40)
+                  .map((item) => (
+                    <div key={item.id as string} className="px-5 py-4">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge tone={stateTone(String(item.state))}>
+                          {stateLabel(String(item.state))}
+                        </Badge>
+                        <Badge tone="neutral">
+                          {item.action_type as string}
+                        </Badge>
+                        <Badge
+                          tone={
+                            item.risk === "high"
+                              ? "danger"
+                              : item.risk === "medium"
+                                ? "warning"
+                                : "success"
+                          }
+                        >
+                          {item.risk as string} risk
+                        </Badge>
+                        {Array.isArray(item.attention_reasons) &&
+                          (item.attention_reasons as string[]).map((reason) => (
+                            <Badge key={reason} tone="warning">
+                              {reason}
+                            </Badge>
+                          ))}
+                      </div>
+                      <p className="mt-2 text-sm font-semibold text-ink">
+                        {item.title as string}
                       </p>
-                    ) : null}
-                    <p className="mt-1 text-[11px] text-faint">
-                      {item.due_at
-                        ? `due ${new Date(item.due_at as string).toLocaleString()} · `
-                        : ""}
-                      escalated {String(item.escalation_level)} · updated{" "}
-                      {new Date(item.updated_at as string).toLocaleString()}
-                    </p>
-                  </div>
-                ))}
+                      {item.why ? (
+                        <p className="mt-0.5 text-[12px] leading-relaxed text-muted">
+                          {item.why as string}
+                        </p>
+                      ) : null}
+                      <p className="mt-1 text-[11px] text-faint">
+                        {item.due_at
+                          ? `due ${new Date(item.due_at as string).toLocaleString()} · `
+                          : ""}
+                        escalated {String(item.escalation_level)} · updated{" "}
+                        {new Date(item.updated_at as string).toLocaleString()}
+                      </p>
+                    </div>
+                  ))}
               {result.total > 0 && (
                 <p className="px-5 py-3 text-[11px] text-faint">
-                  {result.total} action{result.total === 1 ? "" : "s"} in this view — open the{" "}
+                  {result.total} action{result.total === 1 ? "" : "s"} in this
+                  view — open the{" "}
                   <a
                     href="/knowledge/workspace/actions"
                     className="font-semibold text-brand hover:underline"
@@ -454,13 +513,15 @@ export default function KnowledgeWorkspacePage() {
             </div>
           )}
 
-          {answerList === null && result.intent !== "temporal" && result.intent !== "affected" && (
-            <EmptyState
-              icon={Brain}
-              title="No grounded answer"
-              description="Nothing in the company's evidence directly answers this question yet."
-            />
-          )}
+          {answerList === null &&
+            result.intent !== "temporal" &&
+            result.intent !== "affected" && (
+              <EmptyState
+                icon={Brain}
+                title="No grounded answer"
+                description="Nothing in the company's evidence directly answers this question yet."
+              />
+            )}
 
           {answerList?.type === "discovery" &&
             answerList.items.map((answer) => (
@@ -471,13 +532,19 @@ export default function KnowledgeWorkspacePage() {
             (answerList.items as KnowledgeIntelInsight[]).map((insight) => (
               <div key={insight.id} className="px-5 py-4">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Badge tone={severityTone(insight.severity)}>{kindLabel(insight.kind)}</Badge>
+                  <Badge tone={severityTone(insight.severity)}>
+                    {kindLabel(insight.kind)}
+                  </Badge>
                   <Badge tone={confidenceTone(insight.confidence)}>
                     {(insight.confidence * 100).toFixed(0)}% confidence
                   </Badge>
-                  {insight.topic_name && <Badge tone="neutral">{insight.topic_name}</Badge>}
+                  {insight.topic_name && (
+                    <Badge tone="neutral">{insight.topic_name}</Badge>
+                  )}
                 </div>
-                <p className="mt-2 text-sm font-semibold text-ink">{insight.title}</p>
+                <p className="mt-2 text-sm font-semibold text-ink">
+                  {insight.title}
+                </p>
                 <p className="mt-1 text-[13px] text-muted">{insight.summary}</p>
               </div>
             ))}
@@ -501,7 +568,11 @@ export default function KnowledgeWorkspacePage() {
                   : "What changed, emerged, and needs a decision"
               }
               actions={
-                <Button size="sm" variant="secondary" onClick={() => void loadSummary()}>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => void loadSummary()}
+                >
                   <RefreshCw className="h-3.5 w-3.5" /> Refresh
                 </Button>
               }
@@ -509,19 +580,25 @@ export default function KnowledgeWorkspacePage() {
             >
               <div className="grid gap-px border-b border-line bg-line sm:grid-cols-2 lg:grid-cols-4">
                 <div className="bg-surface px-5 py-4">
-                  <p className="text-xl font-bold text-ink">{brief.counts.significant_changes}</p>
+                  <p className="text-xl font-bold text-ink">
+                    {brief.counts.significant_changes}
+                  </p>
                   <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wide text-faint">
                     Significant changes
                   </p>
                 </div>
                 <div className="bg-surface px-5 py-4">
-                  <p className="text-xl font-bold text-ink">{brief.counts.emerging_risks}</p>
+                  <p className="text-xl font-bold text-ink">
+                    {brief.counts.emerging_risks}
+                  </p>
                   <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wide text-faint">
                     Emerging risks
                   </p>
                 </div>
                 <div className="bg-surface px-5 py-4">
-                  <p className="text-xl font-bold text-ink">{brief.counts.major_knowledge_gaps}</p>
+                  <p className="text-xl font-bold text-ink">
+                    {brief.counts.major_knowledge_gaps}
+                  </p>
                   <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wide text-faint">
                     Major gaps
                   </p>
@@ -544,13 +621,22 @@ export default function KnowledgeWorkspacePage() {
               ) : (
                 <div className="divide-y divide-line">
                   {brief.attention.map((item) => (
-                    <div key={item.id} className="flex items-start justify-between gap-3 px-5 py-3">
+                    <div
+                      key={item.id}
+                      className="flex items-start justify-between gap-3 px-5 py-3"
+                    >
                       <div>
-                        <p className="text-[13px] font-semibold text-ink">{item.title}</p>
-                        <p className="mt-0.5 text-xs text-muted">{item.summary}</p>
+                        <p className="text-[13px] font-semibold text-ink">
+                          {item.title}
+                        </p>
+                        <p className="mt-0.5 text-xs text-muted">
+                          {item.summary}
+                        </p>
                       </div>
                       <div className="flex shrink-0 items-center gap-1.5">
-                        <Badge tone={severityTone(item.severity)}>{kindLabel(item.kind)}</Badge>
+                        <Badge tone={severityTone(item.severity)}>
+                          {kindLabel(item.kind)}
+                        </Badge>
                         <Badge tone={confidenceTone(item.priority_score / 100)}>
                           {(item.priority_score * 100).toFixed(0)}
                         </Badge>
@@ -573,16 +659,35 @@ export default function KnowledgeWorkspacePage() {
                     Health score · 0-100
                   </p>
                   <p className="text-center text-xs text-muted">
-                    Seven explainable bars, {health.drill_down.total_topics} topics
+                    Seven explainable bars, {health.drill_down.total_topics}{" "}
+                    topics
                   </p>
                   <div className="mt-2 flex flex-wrap justify-center gap-1.5">
-                    <Badge tone={health.drill_down.contradictions > 0 ? "danger" : "success"}>
+                    <Badge
+                      tone={
+                        health.drill_down.contradictions > 0
+                          ? "danger"
+                          : "success"
+                      }
+                    >
                       {health.drill_down.contradictions} contradictions
                     </Badge>
-                    <Badge tone={health.drill_down.critical_gaps > 0 ? "warning" : "success"}>
+                    <Badge
+                      tone={
+                        health.drill_down.critical_gaps > 0
+                          ? "warning"
+                          : "success"
+                      }
+                    >
                       {health.drill_down.critical_gaps} critical gaps
                     </Badge>
-                    <Badge tone={health.drill_down.unverified_claims > 0 ? "warning" : "success"}>
+                    <Badge
+                      tone={
+                        health.drill_down.unverified_claims > 0
+                          ? "warning"
+                          : "success"
+                      }
+                    >
                       {health.drill_down.unverified_claims} unverified
                     </Badge>
                   </div>
@@ -594,9 +699,11 @@ export default function KnowledgeWorkspacePage() {
                   className="rounded-xl border border-line bg-surface p-5 transition hover:border-brand"
                 >
                   <Activity className="h-5 w-5 text-brand" />
-                  <p className="mt-2 text-sm font-semibold text-ink">Changes, insights & gaps</p>
+                  <p className="mt-2 text-sm font-semibold text-ink">
+                    Changes, insights & gaps
+                  </p>
                   <p className="mt-1 text-xs text-muted">
-                    What moved, what it means, and what we don't know.
+                    What moved, what it means, and what we don&apos;t know.
                   </p>
                 </a>
                 <a
@@ -604,7 +711,9 @@ export default function KnowledgeWorkspacePage() {
                   className="rounded-xl border border-line bg-surface p-5 transition hover:border-brand"
                 >
                   <MapPin className="h-5 w-5 text-brand" />
-                  <p className="mt-2 text-sm font-semibold text-ink">Impact analysis</p>
+                  <p className="mt-2 text-sm font-semibold text-ink">
+                    Impact analysis
+                  </p>
                   <p className="mt-1 text-xs text-muted">
                     What a knowledge change reaches through the graph.
                   </p>
@@ -614,7 +723,9 @@ export default function KnowledgeWorkspacePage() {
                   className="rounded-xl border border-line bg-surface p-5 transition hover:border-brand"
                 >
                   <TrendingUp className="h-5 w-5 text-brand" />
-                  <p className="mt-2 text-sm font-semibold text-ink">Command center</p>
+                  <p className="mt-2 text-sm font-semibold text-ink">
+                    Command center
+                  </p>
                   <p className="mt-1 text-xs text-muted">
                     Review, accept and execute recommendations.
                   </p>
@@ -624,7 +735,9 @@ export default function KnowledgeWorkspacePage() {
                   className="rounded-xl border border-line bg-surface p-5 transition hover:border-brand"
                 >
                   <GitBranch className="h-5 w-5 text-brand" />
-                  <p className="mt-2 text-sm font-semibold text-ink">Evolution timeline</p>
+                  <p className="mt-2 text-sm font-semibold text-ink">
+                    Evolution timeline
+                  </p>
                   <p className="mt-1 text-xs text-muted">
                     What was true, when it changed, what replaced it.
                   </p>
@@ -634,7 +747,9 @@ export default function KnowledgeWorkspacePage() {
                   className="rounded-xl border border-line bg-surface p-5 transition hover:border-brand"
                 >
                   <HeartPulse className="h-5 w-5 text-brand" />
-                  <p className="mt-2 text-sm font-semibold text-ink">Health center</p>
+                  <p className="mt-2 text-sm font-semibold text-ink">
+                    Health center
+                  </p>
                   <p className="mt-1 text-xs text-muted">
                     Coverage by business area and the seven bars.
                   </p>
@@ -642,10 +757,22 @@ export default function KnowledgeWorkspacePage() {
                 <div className="rounded-xl border border-dashed border-line bg-surface p-5">
                   <p className="text-sm font-semibold text-ink">Quick look</p>
                   <div className="mt-2 grid grid-cols-2 gap-2">
-                    <CountStat label="Changes" value={brief?.counts.significant_changes ?? 0} />
-                    <CountStat label="Attention" value={brief?.attention.length ?? 0} />
-                    <CountStat label="Active insights" value={health?.drill_down.contradictions ?? 0} />
-                    <CountStat label="Topics" value={health?.drill_down.total_topics ?? 0} />
+                    <CountStat
+                      label="Changes"
+                      value={brief?.counts.significant_changes ?? 0}
+                    />
+                    <CountStat
+                      label="Attention"
+                      value={brief?.attention.length ?? 0}
+                    />
+                    <CountStat
+                      label="Active insights"
+                      value={health?.drill_down.contradictions ?? 0}
+                    />
+                    <CountStat
+                      label="Topics"
+                      value={health?.drill_down.total_topics ?? 0}
+                    />
                   </div>
                 </div>
               </div>

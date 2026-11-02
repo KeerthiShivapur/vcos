@@ -1,0 +1,19 @@
+d: {}".format(backup_id))
+        print("DEBUG: backup_id variable = {}".format(backup_id))
+        backup_metadata = BackupManifest(
+            id=backup_id,
+            organization_id=org.id,
+            backup_kind=BackupKind.FULL,
+            status=BackupStatus.VERIFIED,
+            started_at=utcnow(),
+            completed_at=utcnow(),
+            retention_days=30,
+            expires_at=utcnow() + timedelta(days=30),
+            backup_format="mock",
+            backup_size_bytes=1024 * 1024 * 100,  # 100 MB mock
+            checksum_sha256=hashlib.sha256("mock-backup-{}".format(utcnow().isoformat()).encode()).hexdigest()[:64],
+            tables_included=[
+                "organizations", "users", "employees", "departments", "teams",
+                "projects", "tasks", "company_decisions", "company_actions",
+                "company_commitments", "company_authorizations",
+  

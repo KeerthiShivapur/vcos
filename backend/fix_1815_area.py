@@ -1,0 +1,13 @@
+with open('app/intelligence/canonical_mutation.py', 'rb') as f:
+    content = f.read()
+
+# Fix the indentation around lines 1815-1835
+old = b'            # Load the model for the entity type\r\n                            type_map = {\r\n                        "CompanyDecision": CompanyDecision,\r\n                        "CompanyAuthorization": CompanyAuthorization,\r\n                        "CompanyCommitment": CompanyCommitment,\r\n                        "CompanyAction": CompanyAction,\r\n                        "CompanyDecisionAlternative": CompanyDecisionAlternative,\r\n                        "CompanyDecisionContradiction": CompanyDecisionContradiction,\r\n                        "CompanyGoal": CompanyGoal,\r\n                        "CompanyObjective": CompanyObjective,\r\n                        "CompanyInitiative": CompanyInitiative,\r\n                        "CompanyIntent": CompanyIntent,\r\n                        "Project": Project,\r\n                        "Task": Task,\r\n                        "Employee": User,\r\n                    }\r\n                    model = type_map.get(target_entity_type)\r\n                    if model:\r\n                        # Use database-level optimistic update\r\n                        pass\r\n                '
+
+new = b'            # Load the model for the entity type\r\n            type_map = {\r\n                "CompanyDecision": CompanyDecision,\r\n                "CompanyAuthorization": CompanyAuthorization,\r\n                "CompanyCommitment": CompanyCommitment,\r\n                "CompanyAction": CompanyAction,\r\n                "CompanyDecisionAlternative": CompanyDecisionAlternative,\r\n                "CompanyDecisionContradiction": CompanyDecisionContradiction,\r\n                "CompanyGoal": CompanyGoal,\r\n                "CompanyObjective": CompanyObjective,\r\n                "CompanyInitiative": CompanyInitiative,\r\n                "CompanyIntent": CompanyIntent,\r\n                "Project": Project,\r\n                "Task": Task,\r\n                "Employee": Employee,\r\n            }\r\n            model = type_map.get(target_entity_type)\r\n            if model:\r\n                # Use database-level optimistic update\r\n                pass\r\n            '
+
+content = content.replace(old, new)
+
+with open('app/intelligence/canonical_mutation.py', 'wb') as f:
+    f.write(content)
+print('Fixed')

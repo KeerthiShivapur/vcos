@@ -1,0 +1,237 @@
+# LiveKit Cluster Autoscaling Configuration
+# Horizontal Pod Autoscalers for all components
+
+# LiveKit Server HPA
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: livekit-server-hpa
+  namespace: livekit
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: livekit-server
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+    # Scale based on CPU utilization
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    # Scale based on memory utilization
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+    # Scale based on active connections (custom metric)
+    - type: Pods
+      pods:
+        metric:
+          name: ws_active_connections
+        target:
+          type: AverageValue
+          averageValue: "1500"
+    # Scale based on message rate
+    - type: Pods
+      pods:
+        metric:
+          name: ws_messages_total
+        target:
+          type: AverageValue
+          averageValue: "1000"
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+      selectPolicy: Min
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 60
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+      selectPolicy: Max
+---
+# LiveKit Egress HPA
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: livekit-egress-hpa
+  namespace: livekit
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: livekit-egress
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 70
+    # Scale based on egress queue depth
+    - type: Pods
+      pods:
+        metric:
+          name: livekit_egress_queue_depth
+        target:
+          type: AverageValue
+          averageValue: "5"
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 60
+---
+# LiveKit Ingress HPA
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: livekit-ingress-hpa
+  namespace: livekit
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: livekit-ingress
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 70
+    # Scale based on active ingress sessions
+    - type: Pods
+      pods:
+        metric:
+          name: livekit_ingress_active_sessions
+        target:
+          type: AverageValue
+          averageValue: "20"
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+    scaleUp:
+      stabilizationWindowSeconds: 60
+---
+# LiveKit Recorder HPA
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: livekit-recorder-hpa
+  namespace: livekit
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: livekit-recorder
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 70
+    # Scale based on active recordings
+    - type: Pods
+      pods:
+        metric:
+          name: livekit_recorder_active_recordings
+        target:
+          type: AverageValue
+          averageValue: "3"
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+    scaleUp:
+      stabilizationWindowSeconds: 60
+---
+# Cluster Autoscaler (for node-level scaling)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-autoscaler-config
+  namespace: kube-system
+data:
+  autoscaling: |
+    groups:
+      - name: livekit-workers
+        minSize: 3
+        maxSize: 50
+        cpuUtilizationTarget: 70
+        memoryUtilizationTarget: 80
+        scaleDownUtilizationThreshold: 50
+        scaleDownDelay: 10m
+        scaleDownUnneededTime: 10m
+        scaleDownUnreadyTime: 20m
+        gpuUtilizationTarget: 70
+    pods:
+      - name: livekit-server
+        minReplicas: 3
+        maxReplicas: 20
+        targetCPUUtilization: 70
+        targetMemoryUtilization: 80
+      - name: livekit-egress
+        minReplicas: 2
+        maxReplicas: 10
+        targetCPUUtilization: 60
+        targetMemoryUtilization: 70
+      - name: livekit-ingress
+        minReplicas: 2
+        maxReplicas: 10
+        targetCPUUtilization: 60
+        targetMemoryUtilization: 70
+      - name: livekit-recorder
+        minReplicas: 2
+        maxReplicas: 10
+        targetCPUUtilization: 60
+        targetMemoryUtilization: 70

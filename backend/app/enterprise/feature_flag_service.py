@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.events.publisher import publish_event
-from app.models.enterprise import FeatureFlag
+from app.models.feature_flags import FeatureFlag
 
 
 class FeatureFlagService:

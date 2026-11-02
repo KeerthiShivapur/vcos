@@ -1,0 +1,164 @@
+# LiveKit Ingress Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: livekit-ingress
+  namespace: livekit
+  labels:
+    app: livekit-ingress
+    component: ingress
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: livekit-ingress
+  template:
+    metadata:
+      labels:
+        app: livekit-ingress
+        component: ingress
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: livekit-sa
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        runAsNonRoot: true
+      containers:
+        - name: livekit-ingress
+          image: livekit/ingress:v1.5.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 7882
+              name: whip
+              protocol: TCP
+            - containerPort: 1935
+              name: rtmp
+              protocol: TCP
+            - containerPort: 8888
+              name: srt
+              protocol: UDP
+            - containerPort: 9090
+              name: metrics
+              protocol: TCP
+          env:
+            - name: LIVEKIT_INGRESS_CONFIG_FILE
+              value: "/etc/livekit/ingress.yaml"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: livekit-secrets
+                  key: redis-password
+            - name: LIVEKIT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: livekit-secrets
+                  key: api-key
+            - name: LIVEKIT_API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: livekit-secrets
+                  key: api-secret
+            - name: SRT_PASSPHRASE
+              valueFrom:
+                secretKeyRef:
+                  name: livekit-secrets
+                  key: srt-passphrase
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/livekit
+              readOnly: true
+            - name: certs
+              mountPath: /etc/livekit/certs
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9090
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: config
+          configMap:
+            name: livekit-ingress-config
+        - name: certs
+          secret:
+            secretName: livekit-certs
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: livekit-ingress
+  namespace: livekit
+  labels:
+    app: livekit-ingress
+spec:
+  type: LoadBalancer
+  ports:
+    - name: whip
+      port: 7882
+      targetPort: 7882
+      protocol: TCP
+    - name: rtmp
+      port: 1935
+      targetPort: 1935
+      protocol: TCP
+    - name: srt
+      port: 8888
+      targetPort: 8888
+      protocol: UDP
+    - name: metrics
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+  selector:
+    app: livekit-ingress
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: livekit-ingress-config
+  namespace: livekit
+data:
+  ingress.yaml: |
+    # Ingress configuration loaded from config/ingress.yaml
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: livekit-ingress-monitor
+  namespace: livekit
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: livekit-ingress
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+  namespaceSelector:
+    matchNames:
+      - livekit

@@ -4,8 +4,15 @@ intelligence, org analytics, and calendar intelligence.
 """
 
 import pytest
+from datetime import datetime, timedelta, timezone
 
 from tests.conftest import register_org
+
+
+def _future_iso(days_ahead=1, hour=0):
+    return (datetime.now(timezone.utc) + timedelta(days=days_ahead, hours=hour)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
 
 
 async def _employee_id(client, headers):
@@ -285,14 +292,15 @@ async def test_org_analytics_and_suggestions(client):
 
     # Calendar intelligence endpoint (static path must beat /meetings/{id}).
     me = await _employee_id(client, headers)
+    start_day = _future_iso(days_ahead=1)
     suggested = await client.get(
         "/api/v1/meetings/suggest",
         params={
             "employee_ids": me,
             "duration_minutes": 30,
             "days": 3,
-            "start_at": "2026-08-17T00:00:00Z",
-            "end_at": "2026-08-17T11:00:00Z",
+            "start_at": start_day,
+            "end_at": _future_iso(days_ahead=1, hour=11),
             "capacity": 4,
         },
         headers=headers,
@@ -302,7 +310,7 @@ async def test_org_analytics_and_suggestions(client):
     assert "free_slots" in body
     assert "rooms" in body
     assert "timezones" in body
-    assert any("2026" in s["day"] for s in body["free_slots"])
+    assert any(start_day[:10] in s["day"] for s in body["free_slots"])
 
     # Conflict detection with an overlapping event.
     conflicts = await client.get(

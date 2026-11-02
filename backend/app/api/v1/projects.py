@@ -2,7 +2,7 @@
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_client_ip, get_current_organization, require_permission
@@ -34,6 +34,7 @@ from app.work.milestone_service import milestone_service
 from app.work.project_service import project_service
 from app.work.roadmap_service import roadmap_service
 from app.work.sprint_service import sprint_service
+from app.intelligence.company_brain import company_brain
 
 router = APIRouter(tags=["Projects"])
 
@@ -853,3 +854,160 @@ async def delete_sprint(
         raise HTTPException(400, str(exc)) from exc
     await db.commit()
     return Message(message="Sprint deleted")
+
+
+# ================================================================================
+# Phase H — Institutional Learning Integration
+# ================================================================================
+
+@router.get("/projects/{project_id}/learning")
+async def project_learning(
+    project_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("projects:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Project-relevant institutional learning from the Company Brain.
+
+    Returns lessons, patterns, and contradictions that are relevant to this project,
+    governed by the caller's access. Enables: "What has the company learned about projects like this?"
+    """
+    from app.intelligence.company_context import resolve_accessible_ids
+
+    # Verify project access
+    visible = await resolve_accessible_ids(
+        db, user, organization_id=org.id, kind="project", ids=[project_id]
+    )
+    if not visible:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Query Company Brain for learning about this project
+    result = await company_brain.answer(
+        db, org.id, f"What did we learn about project {project_id}?",
+        user=user, entity_type="project", entity_id=project_id,
+    )
+
+    if result is None:
+        return {"lessons": [], "patterns": [], "contradictions": [], "project_id": project_id}
+
+    lessons = result.get("lessons", [])
+    patterns = result.get("patterns", [])
+    
+    # Also get contradictions for this project
+    from app.models.company_operating import CompanyDecisionContradiction
+    from sqlalchemy import select
+    
+    contra_stmt = select(CompanyDecisionContradiction).where(
+        CompanyDecisionContradiction.organization_id == org.id
+    )
+    # Note: Would need to filter by project via decision, simplified here
+    contra_result = await db.execute(contra_stmt.limit(10))
+    contradictions = contra_result.scalars().all()
+
+    return {
+        "project_id": project_id,
+        "lessons": lessons,
+        "patterns": patterns,
+        "contradictions": [
+            {
+                "id": c.id,
+                "decision_id": c.decision_id,
+                "contradiction_key": c.contradiction_key,
+                "lesson_memory_id": c.lesson_memory_id,
+                "precedent_decision_id": c.precedent_decision_id,
+                "side_a_json": c.side_a_json,
+                "side_b_json": c.side_b_json,
+                "status": c.status,
+            }
+            for c in contradictions
+        ],
+        "generated_at": result.get("generated_at"),
+    }
+
+
+@router.get("/projects/{project_id}/learning/timeline")
+async def project_learning_timeline(
+    project_id: str,
+    days: int = Query(default=30, ge=1, le=90),
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("projects:read")),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Temporal learning timeline for a project.
+
+    Returns lessons and patterns as they evolved over time for this project.
+    Enables: "How has our understanding of this project changed?"
+    """
+    from app.intelligence.company_context import resolve_accessible_ids
+
+    visible = await resolve_accessible_ids(
+        db, user, organization_id=org.id, kind="project", ids=[project_id]
+    )
+    if not visible:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    from app.models.organizational_learning import OrganizationalLearning
+    from app.models.intelligence import PatternDetection
+    from sqlalchemy import select, and_, or_
+    from datetime import datetime, timedelta, timezone
+
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+
+    # Lessons linked to this project (via source_id or source pattern)
+    lesson_stmt = select(OrganizationalLearning).where(
+        and_(
+            OrganizationalLearning.organization_id == org.id,
+            OrganizationalLearning.status == "active",
+            OrganizationalLearning.created_at >= since,
+            OrganizationalLearning.source_id == project_id,
+        )
+    ).order_by(OrganizationalLearning.created_at.asc())
+
+    lesson_result = await db.execute(lesson_stmt)
+    lessons = lesson_result.scalars().all()
+
+    # Patterns linked to this project
+    pattern_stmt = select(PatternDetection).where(
+        and_(
+            PatternDetection.organization_id == org.id,
+            PatternDetection.auth_project_id == project_id,
+            PatternDetection.first_seen >= since,
+        )
+    ).order_by(PatternDetection.first_seen.asc())
+
+    pattern_result = await db.execute(pattern_stmt)
+    patterns = pattern_result.scalars().all()
+
+    # Combine and sort by time
+    timeline = []
+    for l in lessons:
+        timeline.append({
+            "type": "lesson",
+            "id": l.id,
+            "title": l.title,
+            "lesson": l.lesson,
+            "lifecycle": l.lifecycle,
+            "confidence": l.confidence,
+            "occurred_at": l.created_at.isoformat() if l.created_at else None,
+        })
+    for p in patterns:
+        timeline.append({
+            "type": "pattern",
+            "id": p.id,
+            "title": p.title,
+            "pattern_type": p.pattern_type,
+            "family": p.family,
+            "status": p.status,
+            "count": p.count,
+            "confidence": p.confidence,
+            "occurred_at": p.first_seen.isoformat() if p.first_seen else None,
+        })
+
+    timeline.sort(key=lambda x: x.get("occurred_at") or "")
+
+    return {
+        "project_id": project_id,
+        "days": days,
+        "timeline": timeline,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }

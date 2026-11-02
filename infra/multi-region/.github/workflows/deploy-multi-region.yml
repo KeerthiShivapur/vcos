@@ -1,0 +1,419 @@
+# GitHub Actions Workflow for Multi-Region Infrastructure Deployment
+# Deploys VCOS infrastructure across multiple AWS regions
+
+name: Deploy Multi-Region Infrastructure
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'infra/multi-region/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'infra/multi-region/**'
+  workflow_dispatch:
+    inputs:
+      region:
+        description: 'Region to deploy (or "all")'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - us-east-1
+          - eu-west-1
+          - ap-southeast-1
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - staging
+          - production
+      destroy:
+        description: 'Destroy infrastructure'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  TF_VERSION: '1.6.0'
+  TERRAFORM_VERSION: '1.6.0'
+
+jobs:
+  # Lint and validate
+  validate:
+    name: Validate Terraform
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+      
+      - name: Terraform Format Check
+        run: |
+          cd infra/multi-region/terraform
+          terraform fmt -check -recursive
+      
+      - name: Terraform Init
+        run: |
+          cd infra/multi-region/terraform
+          terraform init -backend=false
+      
+      - name: Terraform Validate
+        run: |
+          cd infra/multi-region/terraform
+          terraform validate
+      
+      - name: Checkov Security Scan
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: infra/multi-region/terraform
+          framework: terraform
+          skip_check: CKV_AWS_18,CKV_AWS_21
+          quiet: true
+
+  # Plan for each region
+  plan:
+    name: Plan Infrastructure
+    needs: validate
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        region: [us-east-1, eu-west-1, ap-southeast-1]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ matrix.region }}
+      
+      - name: Terraform Init
+        run: |
+          cd infra/multi-region/terraform
+          terraform init
+      
+      - name: Terraform Plan
+        id: plan
+        run: |
+          cd infra/multi-region/terraform
+          terraform plan \
+            -target=module.vpc["${{ matrix.region }}"] \
+            -target=module.eks["${{ matrix.region }}"] \
+            -target=module.rds["${{ matrix.region }}"] \
+            -target=module.elasticache["${{ matrix.region }}"] \
+            -out=tfplan-${{ matrix.region }}.out
+        env:
+          TF_VAR_aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          TF_VAR_aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          TF_VAR_postgres_password: ${{ secrets.POSTGRES_PASSWORD }}
+          TF_VAR_redis_password: ${{ secrets.REDIS_PASSWORD }}
+          TF_VAR_livekit_api_key: ${{ secrets.LIVEKIT_API_KEY }}
+          TF_VAR_livekit_api_secret: ${{ secrets.LIVEKIT_API_SECRET }}
+          TF_VAR_turn_password: ${{ secrets.TURN_PASSWORD }}
+          TF_VAR_turn_secret: ${{ secrets.TURN_SECRET }}
+          TF_VAR_aws_access_key: ${{ secrets.AWS_ACCESS_KEY }}
+          TF_VAR_aws_secret_key: ${{ secrets.AWS_SECRET_KEY }}
+          TF_VAR_srt_passphrase: ${{ secrets.SRT_PASSPHRASE }}
+          TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      
+      - name: Upload Plan Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ matrix.region }}
+          path: infra/multi-region/terraform/tfplan-${{ matrix.region }}.out
+          retention-days: 7
+
+  # Deploy (requires approval for production)
+  deploy:
+    name: Deploy Infrastructure
+    needs: plan
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: production
+    strategy:
+      matrix:
+        region: [us-east-1, eu-west-1, ap-southeast-1]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ matrix.region }}
+      
+      - name: Download Plan Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-${{ matrix.region }}
+          path: infra/multi-region/terraform
+      
+      - name: Terraform Apply
+        run: |
+          cd infra/multi-region/terraform
+          terraform apply -auto-approve tfplan-${{ matrix.region }}.out
+        env:
+          TF_VAR_aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          TF_VAR_aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          TF_VAR_postgres_password: ${{ secrets.POSTGRES_PASSWORD }}
+          TF_VAR_redis_password: ${{ secrets.REDIS_PASSWORD }}
+          TF_VAR_livekit_api_key: ${{ secrets.LIVEKIT_API_KEY }}
+          TF_VAR_livekit_api_secret: ${{ secrets.LIVEKIT_API_SECRET }}
+          TF_VAR_turn_password: ${{ secrets.TURN_PASSWORD }}
+          TF_VAR_turn_secret: ${{ secrets.TURN_SECRET }}
+          TF_VAR_aws_access_key: ${{ secrets.AWS_ACCESS_KEY }}
+          TF_VAR_aws_secret_key: ${{ secrets.AWS_SECRET_KEY }}
+          TF_VAR_srt_passphrase: ${{ secrets.SRT_PASSPHRASE }}
+          TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+  # Deploy Kubernetes Resources
+  deploy-k8s:
+    name: Deploy Kubernetes Resources
+    needs: deploy
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        region: [us-east-1, eu-west-1, ap-southeast-1]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ matrix.region }}
+      
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig --name vcos-${{ matrix.region }} --region ${{ matrix.region }}
+      
+      - name: Deploy LiveKit Helm Chart
+        run: |
+          helm upgrade --install livekit oci://registry-1.docker.io/livekit/livekit \
+            --namespace livekit \
+            --create-namespace \
+            --set livekit.configFile=/etc/livekit/livekit.yaml \
+            --set livekit.recording.enabled=true \
+            --set livekit.ingress.enabled=true \
+            --set livekit.egress.enabled=true \
+            --wait --timeout 10m
+      
+      - name: Deploy Monitoring Stack
+        run: |
+          helm upgrade --install prometheus-stack prometheus-community/kube-prometheus-stack \
+            --namespace monitoring \
+            --create-namespace \
+            --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
+            --set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false \
+            --wait --timeout 10m
+      
+      - name: Deploy Cert Manager
+        run: |
+          helm upgrade --install cert-manager jetstack/cert-manager \
+            --namespace cert-manager \
+            --create-namespace \
+            --set installCRDs=true \
+            --wait --timeout 10m
+      
+      - name: Deploy External DNS
+        run: |
+          helm upgrade --install external-dns bitnami/external-dns \
+            --namespace kube-system \
+            --set provider=aws \
+            --set sources={service,ingress} \
+            --set domainFilters[0]=vcos.io \
+            --set policy=upsert-only \
+            --wait --timeout 10m
+      
+      - name: Deploy Cluster Autoscaler
+        run: |
+          helm upgrade --install cluster-autoscaler autoscaler/cluster-autoscaler \
+            --namespace kube-system \
+            --set autoDiscovery.clusterName=vcos-${{ matrix.region }} \
+            --set awsRegion=${{ matrix.region }} \
+            --set cloudProvider=aws \
+            --wait --timeout 10m
+
+  # Deploy Cloudflare Resources
+  deploy-cloudflare:
+    name: Deploy Cloudflare Resources
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.6.0'
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+      
+      - name: Configure Cloudflare Credentials
+        run: |
+          echo "CLOUDFLARE_API_TOKEN=${{ secrets.CLOUDFLARE_API_TOKEN }}" >> $GITHUB_ENV
+      
+      - name: Terraform Init
+        run: |
+          cd infra/multi-region/terraform
+          terraform init
+      
+      - name: Terraform Apply Cloudflare
+        run: |
+          cd infra/multi-region/terraform
+          terraform apply -auto-approve \
+            -target=cloudflare_record.root \
+            -target=cloudflare_record.api \
+            -target=cloudflare_record.app \
+            -target=cloudflare_record.ws \
+            -target=cloudflare_record.turn_us_east_1 \
+            -target=cloudflare_record.turn_eu_west_1 \
+            -target=cloudflare_record.turn_ap_southeast_1 \
+            -target=cloudflare_record.livekit_us_east_1 \
+            -target=cloudflare_record.livekit_eu_west_1 \
+            -target=cloudflare_record.livekit_ap_southeast_1 \
+            -target=cloudflare_record.livekit_global \
+            -target=cloudflare_record.api_us_east_1 \
+            -target=cloudflare_record.api_eu_west_1 \
+            -target=cloudflare_record.api_ap_southeast_1 \
+            -target=cloudflare_record.cdn \
+            -target=cloudflare_record.wildcard \
+            -target=cloudflare_load_balancer.global \
+            -target=cloudflare_load_balancer_pool.primary \
+            -target=cloudflare_load_balancer_pool.us_east_1 \
+            -target=cloudflare_load_balancer_pool.eu_west_1 \
+            -target=cloudflare_load_balancer_pool.ap_southeast_1 \
+            -target=cloudflare_load_balancer_monitor.http \
+            -target=cloudflare_page_rule.api_cache \
+            -target=cloudflare_page_rule.static_assets \
+            -target=cloudflare_page_rule.app_no_cache \
+            -target=cloudflare_page_rule.websocket_no_cache \
+            -target=cloudflare_worker_script.geo_routing \
+            -target=cloudflare_worker_route.geo_routing \
+            -target=cloudflare_filter.rate_limit \
+            -target=cloudflare_rate_limit.api_mutations \
+            -target=cloudflare_filter.login_protection \
+            -target=cloudflare_rate_limit.login \
+            -target=cloudflare_firewall_rule.block_bad_bots \
+            -target=cloudflare_firewall_rule.block_sql_injection \
+            -target=cloudflare_firewall_rule.block_xss \
+            -target=cloudflare_access_application.admin \
+            -target=cloudflare_access_application.api \
+            -target=cloudflare_workers_kv_namespace.sessions \
+            -target=cloudflare_workers_kv_namespace.cache
+        env:
+          TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+  # Post-deployment verification
+  verify:
+    name: Verify Deployment
+    needs: [deploy-k8s, deploy-cloudflare]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        region: [us-east-1, eu-west-1, ap-southeast-1]
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ matrix.region }}
+      
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig --name vcos-${{ matrix.region }} --region ${{ matrix.region }}
+      
+      - name: Verify EKS Cluster
+        run: |
+          kubectl get nodes -o wide
+          kubectl get pods -A
+      
+      - name: Verify LiveKit Deployment
+        run: |
+          kubectl get pods -n livekit
+          kubectl get svc -n livekit
+      
+      - name: Verify Monitoring Stack
+        run: |
+          kubectl get pods -n monitoring
+          kubectl get servicemonitors -A
+      
+      - name: Verify Cert Manager
+        run: |
+          kubectl get pods -n cert-manager
+          kubectl get certificates -A
+      
+      - name: Verify External DNS
+        run: |
+          kubectl get pods -n kube-system -l app=external-dns
+      
+      - name: Verify Cluster Autoscaler
+        run: |
+          kubectl get pods -n kube-system -l app=cluster-autoscaler
+      
+      - name: Verify Cloudflare DNS
+        run: |
+          curl -s https://api.cloudflare.com/client/v4/zones/${{ secrets.CLOUDFLARE_ZONE_ID }}/dns_records \
+            -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" | jq '.result[] | select(.name | contains("vcos.io")) | {name: .name, type: .type, content: .content, proxied: .proxied}'
+
+  # Notify on completion
+  notify:
+    name: Notify Deployment Status
+    needs: [verify]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Send Slack Notification
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          channel: '#deployments'
+          text: |
+            Multi-region infrastructure deployment ${{ job.status }}
+            Regions: us-east-1, eu-west-1, ap-southeast-1
+            Environment: production
+            Commit: ${{ github.sha }}
+            Run: ${{ github.run_url }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      
+      - name: Send PagerDuty Alert (on failure)
+        if: failure()
+        uses: pagerduty/action-trigger-incident@v1
+        with:
+          service_key: ${{ secrets.PAGERDUTY_SERVICE_KEY }}
+          summary: "Multi-region infrastructure deployment failed"
+          severity: critical
+          source: github-actions
+          component: multi-region-infrastructure
+          group: infrastructure
+          class: deployment_failure

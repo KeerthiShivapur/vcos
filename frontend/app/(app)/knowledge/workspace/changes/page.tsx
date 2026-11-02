@@ -53,7 +53,8 @@ export default function KnowledgeWorkspaceChangesPage() {
   const [changes, setChanges] = useState<KnowledgeChangesResponse | null>(null);
   const [changesBusy, setChangesBusy] = useState(false);
 
-  const [insights, setInsights] = useState<KnowledgeIntelInsightsResponse | null>(null);
+  const [insights, setInsights] =
+    useState<KnowledgeIntelInsightsResponse | null>(null);
   const [insightsBusy, setInsightsBusy] = useState(false);
   const [kindFilter, setKindFilter] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("");
@@ -61,7 +62,9 @@ export default function KnowledgeWorkspaceChangesPage() {
   const [gaps, setGaps] = useState<KnowledgeGapsResponse | null>(null);
   const [gapsBusy, setGapsBusy] = useState(false);
 
-  const [detail, setDetail] = useState<KnowledgeInsightDetailResponse | null>(null);
+  const [detail, setDetail] = useState<KnowledgeInsightDetailResponse | null>(
+    null,
+  );
   const [detailBusy, setDetailBusy] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
@@ -78,25 +81,22 @@ export default function KnowledgeWorkspaceChangesPage() {
     }
   }, []);
 
-  const loadInsights = useCallback(
-    async (kind?: string, status?: string) => {
-      setInsightsBusy(true);
-      try {
-        setInsights(
-          await brainKnowledgeInsights({
-            ...(kind ? { kind } : {}),
-            ...(status ? { status } : {}),
-            limit: 60,
-          })
-        );
-      } catch {
-        setInsights(null);
-      } finally {
-        setInsightsBusy(false);
-      }
-    },
-    []
-  );
+  const loadInsights = useCallback(async (kind?: string, status?: string) => {
+    setInsightsBusy(true);
+    try {
+      setInsights(
+        await brainKnowledgeInsights({
+          ...(kind ? { kind } : {}),
+          ...(status ? { status } : {}),
+          limit: 60,
+        }),
+      );
+    } catch {
+      setInsights(null);
+    } finally {
+      setInsightsBusy(false);
+    }
+  }, []);
 
   const loadGaps = useCallback(async () => {
     setGapsBusy(true);
@@ -115,21 +115,20 @@ export default function KnowledgeWorkspaceChangesPage() {
     if (section === "gaps") void loadGaps();
   }, [section, kindFilter, statusFilter, loadChanges, loadGaps, loadInsights]);
 
-  const openDetail = useCallback(
-    async (insightId: string) => {
-      setDetail(null);
-      setDetailError(null);
-      setDetailBusy(true);
-      try {
-        setDetail(await brainKnowledgeInsightGet(insightId));
-      } catch (err) {
-        setDetailError(err instanceof Error ? err.message : "Insight unavailable");
-      } finally {
-        setDetailBusy(false);
-      }
-    },
-    []
-  );
+  const openDetail = useCallback(async (insightId: string) => {
+    setDetail(null);
+    setDetailError(null);
+    setDetailBusy(true);
+    try {
+      setDetail(await brainKnowledgeInsightGet(insightId));
+    } catch (err) {
+      setDetailError(
+        err instanceof Error ? err.message : "Insight unavailable",
+      );
+    } finally {
+      setDetailBusy(false);
+    }
+  }, []);
 
   const act = useCallback(
     async (insightId: string, action: "acknowledge" | "resolve") => {
@@ -150,15 +149,24 @@ export default function KnowledgeWorkspaceChangesPage() {
         setActionBusy(null);
       }
     },
-    [actionBusy, canManage, kindFilter, loadInsights, statusFilter]
+    [actionBusy, canManage, kindFilter, loadInsights, statusFilter],
   );
 
   const grouped = useMemo(() => {
     if (!changes) return [];
     return changes.topic_changes.map((topicChange) => {
-      const understanding = topicChange.events.filter((e) => e.kind === "understanding");
-      const evidence = topicChange.events.filter((e) => e.kind === "new_evidence");
-      return { topic: topicChange.topic, families: topicChange.families, understanding, evidence };
+      const understanding = topicChange.events.filter(
+        (e) => e.kind === "understanding",
+      );
+      const evidence = topicChange.events.filter(
+        (e) => e.kind === "new_evidence",
+      );
+      return {
+        topic: topicChange.topic,
+        families: topicChange.families,
+        understanding,
+        evidence,
+      };
     });
   }, [changes]);
 
@@ -169,16 +177,20 @@ export default function KnowledgeWorkspaceChangesPage() {
       <KnowledgeWorkspaceNav />
 
       <div className="flex flex-wrap gap-1 border-b border-line">
-        {([
-          { id: "changes", label: "What changed" },
-          { id: "insights", label: "Insights" },
-          { id: "gaps", label: "Gaps" },
-        ] as const).map((tab) => (
+        {(
+          [
+            { id: "changes", label: "What changed" },
+            { id: "insights", label: "Insights" },
+            { id: "gaps", label: "Gaps" },
+          ] as const
+        ).map((tab) => (
           <button
             key={tab.id}
             onClick={() => setSection(tab.id)}
             className={`border-b-2 px-3.5 py-2 text-[13px] font-medium ${
-              section === tab.id ? "border-brand text-ink" : "border-transparent text-faint"
+              section === tab.id
+                ? "border-brand text-ink"
+                : "border-transparent text-faint"
             }`}
           >
             {tab.label}
@@ -226,10 +238,14 @@ export default function KnowledgeWorkspaceChangesPage() {
               {grouped.map((group) => (
                 <div key={group.topic.id} className="px-5 py-4">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-semibold text-ink">{group.topic.name}</span>
+                    <span className="text-sm font-semibold text-ink">
+                      {group.topic.name}
+                    </span>
                     <Badge tone="neutral">
                       {group.understanding.length + group.evidence.length} event
-                      {group.understanding.length + group.evidence.length === 1 ? "" : "s"}
+                      {group.understanding.length + group.evidence.length === 1
+                        ? ""
+                        : "s"}
                     </Badge>
                     {group.families.length > 0 && (
                       <span className="text-[11px] text-faint">
@@ -238,9 +254,13 @@ export default function KnowledgeWorkspaceChangesPage() {
                     )}
                   </div>
                   {group.understanding.map((event) => (
-                    <div key={event.claim_id} className="mt-3 space-y-1.5 border-l border-line pl-3">
+                    <div
+                      key={event.claim_id}
+                      className="mt-3 space-y-1.5 border-l border-line pl-3"
+                    >
                       <p className="text-[11px] text-faint">
-                        {new Date(event.at).toLocaleString()} · understanding superseded
+                        {new Date(event.at).toLocaleString()} · understanding
+                        superseded
                       </p>
                       {event.from && (
                         <p className="text-[13px] text-muted line-through decoration-danger/40">
@@ -256,12 +276,16 @@ export default function KnowledgeWorkspaceChangesPage() {
                     </div>
                   ))}
                   {group.evidence.slice(0, 3).map((event) => (
-                    <div key={event.claim_id} className="mt-2 flex items-start gap-2 text-[13px] text-muted">
+                    <div
+                      key={event.claim_id}
+                      className="mt-2 flex items-start gap-2 text-[13px] text-muted"
+                    >
                       <Activity className="mt-0.5 h-3 w-3 shrink-0 text-brand" />
                       <span>
                         New {event.family} evidence: {event.statement}
-                        {event.source_title ? ` (${event.source_title})` : ""} —{" "}
-                        {new Date(event.at).toLocaleString()}
+                        {event.source_title
+                          ? ` (${event.source_title})`
+                          : ""} — {new Date(event.at).toLocaleString()}
                       </span>
                     </div>
                   ))}
@@ -282,7 +306,9 @@ export default function KnowledgeWorkspaceChangesPage() {
             <button
               onClick={() => setKindFilter("")}
               className={`inline-flex cursor-pointer items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] transition ${
-                kindFilter === "" ? "border-brand bg-brand-soft text-ink" : "border-line bg-surface text-muted"
+                kindFilter === ""
+                  ? "border-brand bg-brand-soft text-ink"
+                  : "border-line bg-surface text-muted"
               }`}
             >
               All
@@ -292,24 +318,33 @@ export default function KnowledgeWorkspaceChangesPage() {
                 key={kind}
                 onClick={() => setKindFilter(kindFilter === kind ? "" : kind)}
                 className={`inline-flex cursor-pointer items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] transition ${
-                  kindFilter === kind ? "border-brand bg-brand-soft text-ink" : "border-line bg-surface text-muted"
+                  kindFilter === kind
+                    ? "border-brand bg-brand-soft text-ink"
+                    : "border-line bg-surface text-muted"
                 }`}
               >
-                {kindLabel(kind)} <span className="text-faint">{insightCounts[kind] ?? 0}</span>
+                {kindLabel(kind)}{" "}
+                <span className="text-faint">{insightCounts[kind] ?? 0}</span>
               </button>
             ))}
             <div className="ml-auto flex items-center gap-1.5">
-              {(["active", "acknowledged", "resolved"] as const).map((status) => (
-                <button
-                  key={status}
-                  onClick={() => setStatusFilter(statusFilter === status ? "" : status)}
-                  className={`inline-flex cursor-pointer items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] capitalize transition ${
-                    statusFilter === status ? "border-brand bg-brand-soft text-ink" : "border-line bg-surface text-muted"
-                  }`}
-                >
-                  {status}
-                </button>
-              ))}
+              {(["active", "acknowledged", "resolved"] as const).map(
+                (status) => (
+                  <button
+                    key={status}
+                    onClick={() =>
+                      setStatusFilter(statusFilter === status ? "" : status)
+                    }
+                    className={`inline-flex cursor-pointer items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] capitalize transition ${
+                      statusFilter === status
+                        ? "border-brand bg-brand-soft text-ink"
+                        : "border-line bg-surface text-muted"
+                    }`}
+                  >
+                    {status}
+                  </button>
+                ),
+              )}
             </div>
           </div>
 
@@ -376,14 +411,18 @@ export default function KnowledgeWorkspaceChangesPage() {
                   size="sm"
                   variant="secondary"
                   onClick={() => void act(detail.id, "acknowledge")}
-                  disabled={actionBusy === detail.id || detail.status !== "active"}
+                  disabled={
+                    actionBusy === detail.id || detail.status !== "active"
+                  }
                 >
                   <Eye className="h-3.5 w-3.5" /> Acknowledge
                 </Button>
                 <Button
                   size="sm"
                   onClick={() => void act(detail.id, "resolve")}
-                  disabled={actionBusy === detail.id || detail.status !== "active"}
+                  disabled={
+                    actionBusy === detail.id || detail.status !== "active"
+                  }
                 >
                   <CheckCircle2 className="h-3.5 w-3.5" /> Resolve
                 </Button>
@@ -392,19 +431,31 @@ export default function KnowledgeWorkspaceChangesPage() {
           }
           bodyClassName="p-0"
         >
-          {actionError && <p className="px-5 py-2 text-[13px] text-danger">{actionError}</p>}
+          {actionError && (
+            <p className="px-5 py-2 text-[13px] text-danger">{actionError}</p>
+          )}
           <div className="px-5 py-4">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge tone={severityTone(detail.severity)}>{kindLabel(detail.kind)}</Badge>
+              <Badge tone={severityTone(detail.severity)}>
+                {kindLabel(detail.kind)}
+              </Badge>
               <Badge tone={statusTone(detail.status)}>{detail.status}</Badge>
               <Badge tone={confidenceTone(detail.confidence)}>
                 {(detail.confidence * 100).toFixed(0)}% confidence
               </Badge>
-              {detail.topic_name && <Badge tone="neutral">{detail.topic_name}</Badge>}
-              {detail.urgency && <Badge tone="warning">urgency: {detail.urgency}</Badge>}
+              {detail.topic_name && (
+                <Badge tone="neutral">{detail.topic_name}</Badge>
+              )}
+              {detail.urgency && (
+                <Badge tone="warning">urgency: {detail.urgency}</Badge>
+              )}
             </div>
-            <p className="mt-3 text-sm leading-relaxed text-ink">{detail.summary}</p>
-            {detail.impact && <p className="mt-2 text-[13px] text-muted">{detail.impact}</p>}
+            <p className="mt-3 text-sm leading-relaxed text-ink">
+              {detail.summary}
+            </p>
+            {detail.impact && (
+              <p className="mt-2 text-[13px] text-muted">{detail.impact}</p>
+            )}
           </div>
           {detail.lineage.claims.length > 0 && (
             <div className="border-t border-line px-5 py-4">
@@ -414,9 +465,12 @@ export default function KnowledgeWorkspaceChangesPage() {
               <ul className="space-y-2">
                 {detail.lineage.claims.map((claim) => (
                   <li key={claim.id} className="text-[13px] text-muted">
-                    <span className="font-medium text-ink">{claim.statement}</span>
+                    <span className="font-medium text-ink">
+                      {claim.statement}
+                    </span>
                     <span className="ml-2 text-[11px] text-faint">
-                      {claim.source_type} · {authorityLabel(claim.authority_level)} ·{" "}
+                      {claim.source_type} ·{" "}
+                      {authorityLabel(claim.authority_level)} ·{" "}
                       {new Date(claim.valid_from).toLocaleDateString()}
                     </span>
                   </li>
@@ -431,7 +485,10 @@ export default function KnowledgeWorkspaceChangesPage() {
               </p>
               <ol className="space-y-1.5">
                 {detail.audit.map((event, index) => (
-                  <li key={index} className="flex items-start gap-2 text-[12px] text-muted">
+                  <li
+                    key={index}
+                    className="flex items-start gap-2 text-[12px] text-muted"
+                  >
                     <Badge tone="neutral" className="shrink-0">
                       {event.action}
                     </Badge>
@@ -477,9 +534,13 @@ function InsightRow({
         <p className="text-[13px] font-semibold text-ink">{insight.title}</p>
         <p className="mt-0.5 text-xs text-muted">{insight.summary}</p>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          <Badge tone={severityTone(insight.severity)}>{kindLabel(insight.kind)}</Badge>
+          <Badge tone={severityTone(insight.severity)}>
+            {kindLabel(insight.kind)}
+          </Badge>
           <Badge tone={statusTone(insight.status)}>{insight.status}</Badge>
-          {insight.topic_name && <Badge tone="neutral">{insight.topic_name}</Badge>}
+          {insight.topic_name && (
+            <Badge tone="neutral">{insight.topic_name}</Badge>
+          )}
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
@@ -487,7 +548,9 @@ function InsightRow({
           {(insight.confidence * 100).toFixed(0)}%
         </Badge>
         {insight.evidence_count > 0 && (
-          <span className="text-[11px] text-faint">{insight.evidence_count} ev</span>
+          <span className="text-[11px] text-faint">
+            {insight.evidence_count} ev
+          </span>
         )}
         {detailOpen && <ChevronRight className="h-4 w-4 text-brand" />}
       </div>
@@ -499,11 +562,17 @@ function GapRow({ gap }: { gap: KnowledgeGap }) {
   return (
     <div className="px-5 py-3.5">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge tone={severityTone(gap.severity)}>{gap.kind.replace(/_/g, " ")}</Badge>
-        <span className="text-[13px] font-semibold text-ink">{gap.topic.name}</span>
+        <Badge tone={severityTone(gap.severity)}>
+          {gap.kind.replace(/_/g, " ")}
+        </Badge>
+        <span className="text-[13px] font-semibold text-ink">
+          {gap.topic.name}
+        </span>
         <Badge tone="neutral">{gap.evidence} claims</Badge>
       </div>
-      <p className="mt-1.5 text-[13px] leading-relaxed text-muted">{gap.reason}</p>
+      <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
+        {gap.reason}
+      </p>
     </div>
   );
 }

@@ -1,0 +1,2117 @@
+"""Canonical Reality Integrity + Reconciliation Service.
+
+Implements production-grade integrity detection and governed reconciliation
+over the single canonical company reality.
+
+This service does NOT create another reality. It operates over the EXISTING
+canonical primitives to detect and safely resolve integrity violations.
+
+Key principles:
+- Reuse existing canonical primitives (governance, provenance, temporal, epistemic, attention, contradiction, verification)
+- Single integrity detection surface
+- Governed repair proposals (never silent mutations)
+- Historical truth preservation
+- Epistemic honesty: OBSERVED / DERIVED / UNKNOWN
+"""
+
+import hashlib
+import json
+import logging
+from dataclasses import dataclass, field
+from datetime import datetime, timezone, timedelta
+from typing import Any, Optional, List, Dict, Set
+from enum import Enum
+from collections import defaultdict
+
+from sqlalchemy import select, func, and_, or_, text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.timeutils import utcnow
+from app.models.organization import Organization
+from app.models.user import User
+from app.models.employee import Employee
+from app.models.decision_history import DecisionHistory as Decision
+from app.models.company_operating import (
+    CompanyDecision, CompanyHealthHistory, CompanyDecisionContradiction,
+    CompanyDecisionAlternative
+)
+from app.models.execution_strategy import (
+    CompanyCommitment, CompanyAuthorization, CompanyGoal, CompanyObjective,
+    CompanyInitiative, VerificationContext, ObjectiveContradiction
+)
+from app.models.company_actions import CompanyAction
+from app.models.canonical_business_intelligence import (
+    CanonicalMetric, MetricObservation
+)
+from app.models.organizational_learning import (
+    OrganizationalLearning, LearningEvidence
+)
+from app.models.continuous_twin import (
+    CompanyAttention, ModelTwinDrift, TwinStateSnapshot,
+    PredictionCalibration, OptimizationContext,
+    LearningSignal, InstitutionalMemoryEntry,
+    TwinScope, TwinContext, ContinuousStateProjection
+)
+from app.models.canonical_company_continuity import (
+    CompanyOperatingContinuity, CompanyContinuityEvent,
+    CompanyStateSnapshotGate30, UniversalCompanyContext,
+    CrossDomainConsistencyCheck, CompanyOperatingHealth,
+    UniversalCompanyTimeline, SelfCompoundingLoopState,
+    COMPANY_LOOP_PHASES,
+)
+from app.models.canonical_integration import (
+    ExternalConflict, ExternalIdentityMapping,
+    SourceAuthority, ConnectorInstance
+)
+from app.models.autonomy import AutonomyProposal, AutonomyEvent, AutonomyExecution
+
+logger = logging.getLogger("vcos.canonical_integrity")
+
+
+class IntegrityFindingType(str, Enum):
+    """Types of integrity findings."""
+    STRUCTURAL_ORPHAN = "structural_orphan"
+    STRUCTURAL_BROKEN_REFERENCE = "structural_broken_reference"
+    STRUCTURAL_INVALID_SCOPE = "structural_invalid_scope"
+    STRUCTURAL_DUPLICATE_IDENTITY = "structural_duplicate_identity"
+    STRUCTURAL_MISSING_REQUIRED = "structural_missing_required"
+    TENANT_CROSS_REFERENCE = "tenant_cross_reference"
+    TENANT_SCOPE_LEAKAGE = "tenant_scope_leakage"
+    TENANT_INVALID_MEMBERSHIP = "tenant_invalid_membership"
+    TEMPORAL_INVALID_INTERVAL = "temporal_invalid_interval"
+    TEMPORAL_OVERLAPPING_CURRENT = "temporal_overlapping_current"
+    TEMPORAL_INVALID_SUPERSESSION = "temporal_invalid_supersession"
+    TEMPORAL_FUTURE_AS_CURRENT = "temporal_future_as_current"
+    TEMPORAL_HISTORICAL_OVERWRITE = "temporal_historical_overwrite"
+    PROVENANCE_MISSING = "provenance_missing"
+    PROVENANCE_BROKEN_CHAIN = "provenance_broken_chain"
+    PROVENANCE_INVALID_FINGERPRINT = "provenance_invalid_fingerprint"
+    PROVENANCE_MISSING_ACTOR = "provenance_missing_actor"
+    PROVENANCE_CROSS_TENANT = "provenance_cross_tenant"
+    EPISTEMIC_INVALID_PROMOTION = "epistemic_invalid_promotion"
+    EPISTEMIC_PREDICTION_AS_OUTCOME = "epistemic_prediction_as_outcome"
+    EPISTEMIC_PROPOSAL_AS_DECISION = "epistemic_proposal_as_decision"
+    EPISTEMIC_SIMULATION_AS_OBSERVATION = "epistemic_simulation_as_observation"
+    EPISTEMIC_UNVERIFIED_AS_VERIFIED = "epistemic_unverified_as_verified"
+    OPERATING_DECISION_WITHOUT_AUTH = "operating_decision_without_auth"
+    OPERATING_AUTH_WITHOUT_COMMITMENT = "operating_auth_without_commitment"
+    OPERATING_COMMITMENT_WITHOUT_RESPONSIBILITY = "operating_commitment_without_responsibility"
+    OPERATING_EXECUTION_WITHOUT_AUTH = "operating_execution_without_auth"
+    OPERATING_OUTCOME_WITHOUT_EXECUTION = "operating_outcome_without_execution"
+    OPERATING_VERIFICATION_WITHOUT_EVIDENCE = "operating_verification_without_evidence"
+    INTEGRATION_DUPLICATE_EVENT = "integration_duplicate_event"
+    INTEGRATION_STALE_SYNC = "integration_stale_sync"
+    INTEGRATION_IDENTITY_CONFLICT = "integration_identity_conflict"
+    INTEGRATION_UNRESOLVED_CONFLICT = "integration_unresolved_conflict"
+    INTEGRATION_AUTHORITY_MISMATCH = "integration_authority_mismatch"
+    GATE30_BROKEN_PHASE = "gate30_broken_phase"
+    GATE30_MISSING_EVENT = "gate30_missing_event"
+    GATE30_INVALID_TRANSITION = "gate30_invalid_transition"
+    GATE30_BROKEN_CHAIN = "gate30_broken_chain"
+    GATE30_MISSING_CALIBRATION = "gate30_missing_calibration"
+    GATE29_DRIFT_UNADDRESSED = "gate29_drift_unaddressed"
+    GATE29_TWIN_OUT_OF_SYNC = "gate29_twin_out_of_sync"
+    GATE29_OPTIMIZATION_UNVERIFIED = "gate29_optimization_unverified"
+    GATE29_LEARNING_UNEVIDENCED = "gate29_learning_unevidenced"
+    GATE29_PREDICTION_UNCALIBRATED = "gate29_prediction_uncalibrated"
+
+
+class IntegritySeverity(str, Enum):
+    CRITICAL = "critical"
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+    INFO = "info"
+
+
+class FindingStatus(str, Enum):
+    OPEN = "open"
+    INVESTIGATING = "investigating"
+    ACKNOWLEDGED = "acknowledged"
+    REPAIR_PROPOSED = "repair_proposed"
+    REPAIR_AUTHORIZED = "repair_authorized"
+    REPAIR_EXECUTING = "repair_executing"
+    REPAIR_COMPLETED = "repair_completed"
+    REPAIR_VERIFIED = "repair_verified"
+    RESOLVED = "resolved"
+    DISMISSED = "dismissed"
+    SUPERSEDED = "superseded"
+
+
+class EpistemicClassification(str, Enum):
+    OBSERVED = "observed"
+    DERIVED = "derived"
+    UNKNOWN = "unknown"
+    SUPPORTED = "supported"
+    ASSOCIATED = "associated"
+    CONTESTED = "contested"
+
+
+@dataclass
+class IntegrityFinding:
+    """An integrity finding over canonical reality."""
+    id: str
+    organization_id: str
+    finding_type: IntegrityFindingType
+    severity: IntegritySeverity
+    entity_type: str
+    entity_id: str
+    scope_type: Optional[str] = None
+    scope_id: Optional[str] = None
+    title: str = ""
+    description: str = ""
+    observed_evidence: Dict = field(default_factory=dict)
+    derived_evidence: Dict = field(default_factory=dict)
+    epistemic_classification: EpistemicClassification = EpistemicClassification.UNKNOWN
+    provenance: Dict = field(default_factory=dict)
+    detected_at: datetime = field(default_factory=lambda: utcnow())
+    source_subsystem: str = "canonical_integrity"
+    status: FindingStatus = FindingStatus.OPEN
+    superseded_by: Optional[str] = None
+    supersedes: Optional[str] = None
+    correlation_id: Optional[str] = None
+    governance_scope_ids: List[str] = field(default_factory=list)
+    affected_count: int = 1
+
+
+@dataclass
+class RepairProposal:
+    """A governed repair proposal for an integrity finding."""
+    id: str
+    finding_id: str
+    organization_id: str
+    entity_type: str
+    entity_id: str
+    current_state: Dict
+    proposed_change: Dict
+    evidence: Dict
+    provenance: Dict
+    reason: str
+    temporal_basis: Dict
+    governance_scope_ids: List[str]
+    actor: str
+    proposed_mutation: Dict
+    reversibility: Dict = field(default_factory=dict)
+    status: str = "proposed"
+    created_at: datetime = field(default_factory=lambda: utcnow())
+    authorized_at: Optional[datetime] = None
+    authorized_by: Optional[str] = None
+    executed_at: Optional[datetime] = None
+    verified_at: Optional[datetime] = None
+
+
+class CanonicalRealityIntegrityService:
+    """Service for canonical reality integrity detection and reconciliation."""
+
+    def __init__(self):
+        self._worker_batch_size = 100
+        self._max_findings_per_scan = 1000
+
+    # =====================================================================
+    # PHASE 1: STRUCTURAL INTEGRITY CHECKS
+    # =====================================================================
+
+    async def check_structural_integrity(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        changed_since: Optional[datetime] = None,
+        limit: int = 100
+    ) -> List[IntegrityFinding]:
+        """Check structural integrity of canonical reality."""
+        findings = []
+
+        findings.extend(await self._check_orphaned_entities(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_broken_references(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_invalid_org_relationships(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_invalid_governance_scope(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_duplicate_identities(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_missing_required_relationships(db, organization_id, changed_since, limit))
+
+        return findings[:limit]
+
+    async def _check_orphaned_entities(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        # Check CompanyDecisionAlternative -> non-existent decision_id
+        from app.models.company_operating import CompanyDecisionAlternative
+        query = select(CompanyDecisionAlternative).where(
+            CompanyDecisionAlternative.organization_id == organization_id
+        )
+        if changed_since:
+            query = query.where(CompanyDecisionAlternative.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for alt in result.scalars().all():
+            decision = await db.get(CompanyDecision, alt.decision_id)
+            if not decision or decision.organization_id != organization_id:
+                findings.append(IntegrityFinding(
+                    id=self._gen_id(),
+                    organization_id=organization_id,
+                    finding_type=IntegrityFindingType.STRUCTURAL_ORPHAN,
+                    severity=IntegritySeverity.HIGH,
+                    entity_type="CompanyDecisionAlternative",
+                    entity_id=alt.id,
+                    title="Orphaned decision alternative",
+                    description=f"Alternative {alt.id} references non-existent or cross-tenant decision {alt.decision_id}",
+                    observed_evidence={"decision_id": alt.decision_id, "alternative_id": alt.id},
+                    provenance={"check": "orphaned_entity", "reference_field": "decision_id"},
+                    source_subsystem="structural_integrity",
+                ))
+
+        # Check CompanyObjective -> non-existent goal_id
+        query = select(CompanyObjective).where(
+            CompanyObjective.organization_id == organization_id
+        )
+        if changed_since:
+            query = query.where(CompanyObjective.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for obj in result.scalars().all():
+            goal = await db.get(CompanyGoal, obj.goal_id)
+            if not goal or goal.organization_id != organization_id:
+                findings.append(IntegrityFinding(
+                    id=self._gen_id(),
+                    organization_id=organization_id,
+                    finding_type=IntegrityFindingType.STRUCTURAL_ORPHAN,
+                    severity=IntegritySeverity.HIGH,
+                    entity_type="CompanyObjective",
+                    entity_id=obj.id,
+                    title="Orphaned objective",
+                    description=f"Objective {obj.id} references non-existent or cross-tenant goal {obj.goal_id}",
+                    observed_evidence={"goal_id": obj.goal_id, "objective_id": obj.id},
+                    provenance={"check": "orphaned_entity", "reference_field": "goal_id"},
+                    source_subsystem="structural_integrity",
+                ))
+
+        # Check CompanyAction -> non-existent commitment
+        query = select(CompanyAction).where(
+            CompanyAction.organization_id == organization_id
+        )
+        if changed_since:
+            query = query.where(CompanyAction.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for action in result.scalars().all():
+            if action.source_commitment_id:
+                comm = await db.get(CompanyCommitment, action.source_commitment_id)
+                if not comm or comm.organization_id != organization_id:
+                    findings.append(IntegrityFinding(
+                        id=self._gen_id(),
+                        organization_id=organization_id,
+                        finding_type=IntegrityFindingType.STRUCTURAL_ORPHAN,
+                        severity=IntegritySeverity.HIGH,
+                        entity_type="CompanyAction",
+                        entity_id=action.id,
+                        title="Orphaned action - missing commitment",
+                        description=f"Action {action.id} references non-existent commitment {action.source_commitment_id}",
+                        observed_evidence={"source_commitment_id": action.source_commitment_id},
+                        provenance={"check": "orphaned_entity", "reference_field": "source_commitment_id"},
+                        source_subsystem="structural_integrity",
+                    ))
+
+        return findings
+
+    async def _check_broken_references(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        # Check VerificationContext -> broken commitment references
+        query = select(VerificationContext).where(
+            VerificationContext.organization_id == organization_id
+        )
+        if changed_since:
+            query = query.where(VerificationContext.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for vc in result.scalars().all():
+            if vc.commitment_id:
+                comm = await db.get(CompanyCommitment, vc.commitment_id)
+                if not comm or comm.organization_id != organization_id:
+                    findings.append(IntegrityFinding(
+                        id=self._gen_id(),
+                        organization_id=organization_id,
+                        finding_type=IntegrityFindingType.STRUCTURAL_BROKEN_REFERENCE,
+                        severity=IntegritySeverity.HIGH,
+                        entity_type="VerificationContext",
+                        entity_id=vc.id,
+                        title="Broken verification - missing commitment",
+                        description=f"Verification {vc.id} references non-existent commitment {vc.commitment_id}",
+                        observed_evidence={"commitment_id": vc.commitment_id},
+                        provenance={"check": "broken_reference", "reference_field": "commitment_id"},
+                        source_subsystem="structural_integrity",
+                    ))
+
+        return findings
+
+    async def _check_invalid_org_relationships(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        # Check cross-tenant references in CompanyAuthorization
+        query = select(CompanyAuthorization).where(
+            CompanyAuthorization.organization_id == organization_id
+        )
+        if changed_since:
+            query = query.where(CompanyAuthorization.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for auth in result.scalars().all():
+            if auth.decision_id:
+                decision = await db.get(CompanyDecision, auth.decision_id)
+                if decision and decision.organization_id != organization_id:
+                    findings.append(IntegrityFinding(
+                        id=self._gen_id(),
+                        organization_id=organization_id,
+                        finding_type=IntegrityFindingType.TENANT_CROSS_REFERENCE,
+                        severity=IntegritySeverity.CRITICAL,
+                        entity_type="CompanyAuthorization",
+                        entity_id=auth.id,
+                        title="Cross-tenant authorization reference",
+                        description=f"Authorization {auth.id} references decision {auth.decision_id} from different tenant",
+                        observed_evidence={"decision_id": auth.decision_id, "decision_org": decision.organization_id if decision else None},
+                        provenance={"check": "tenant_isolation", "reference_field": "decision_id"},
+                        source_subsystem="structural_integrity",
+                    ))
+
+        return findings
+
+    async def _check_invalid_governance_scope(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        # Check CompanyAction scope vs source_commitment scope
+        query = select(CompanyAction).where(
+            CompanyAction.organization_id == organization_id
+        )
+        if changed_since:
+            query = query.where(CompanyAction.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for action in result.scalars().all():
+            if action.source_commitment_id and action.scope_type == "project" and action.scope_id:
+                comm = await db.get(CompanyCommitment, action.source_commitment_id)
+                if comm and comm.scope_type == "project" and comm.scope_id != action.scope_id:
+                    findings.append(IntegrityFinding(
+                        id=self._gen_id(),
+                        organization_id=organization_id,
+                        finding_type=IntegrityFindingType.STRUCTURAL_INVALID_SCOPE,
+                        severity=IntegritySeverity.HIGH,
+                        entity_type="CompanyAction",
+                        entity_id=action.id,
+                        title="Cross-scope action-commitment mismatch",
+                        description=f"Action {action.id} in project {action.scope_id} references commitment {action.source_commitment_id} in project {comm.scope_id}",
+                        observed_evidence={"action_scope": action.scope_id, "commitment_scope": comm.scope_id},
+                        provenance={"check": "scope_boundary", "reference_fields": ["source_commitment_id", "scope_id"]},
+                        source_subsystem="structural_integrity",
+                    ))
+
+        return findings
+
+    async def _check_duplicate_identities(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        # Check for duplicate decision_id within organization (uses decision_id + org unique constraint)
+        query = select(CompanyDecision).where(
+            CompanyDecision.organization_id == organization_id
+        )
+        if changed_since:
+            query = query.where(CompanyDecision.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        decisions = result.scalars().all()
+        seen_decisions = {}
+        for dec in decisions:
+            key = (dec.organization_id, dec.decision_id)
+            if key in seen_decisions:
+                findings.append(IntegrityFinding(
+                    id=self._gen_id(),
+                    organization_id=organization_id,
+                    finding_type=IntegrityFindingType.STRUCTURAL_DUPLICATE_IDENTITY,
+                    severity=IntegritySeverity.CRITICAL,
+                    entity_type="CompanyDecision",
+                    entity_id=dec.id,
+                    title="Duplicate decision identity",
+                    description=f"Duplicate decision_id {dec.decision_id} found for organization {organization_id}",
+                    observed_evidence={"decision_id": dec.decision_id, "existing_id": seen_decisions[key].id, "new_id": dec.id},
+                    provenance={"check": "duplicate_identity", "field": "decision_id"},
+                    source_subsystem="structural_integrity",
+                ))
+            else:
+                seen_decisions[key] = dec
+
+        # Check for duplicate commitment fingerprints (commitments use fingerprint for exact-once)
+        query = select(CompanyCommitment).where(
+            CompanyCommitment.organization_id == organization_id
+        )
+        if changed_since:
+            query = query.where(CompanyCommitment.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        commitments = result.scalars().all()
+        seen_fps = {}
+        for comm in commitments:
+            if comm.fingerprint in seen_fps:
+                findings.append(IntegrityFinding(
+                    id=self._gen_id(),
+                    organization_id=organization_id,
+                    finding_type=IntegrityFindingType.STRUCTURAL_DUPLICATE_IDENTITY,
+                    severity=IntegritySeverity.CRITICAL,
+                    entity_type="CompanyCommitment",
+                    entity_id=comm.id,
+                    title="Duplicate commitment fingerprint",
+                    description=f"Duplicate fingerprint {comm.fingerprint} found for organization {organization_id}",
+                    observed_evidence={"fingerprint": comm.fingerprint, "existing_id": seen_fps[comm.fingerprint].id, "new_id": comm.id},
+                    provenance={"check": "duplicate_identity", "field": "fingerprint"},
+                    source_subsystem="structural_integrity",
+                ))
+            else:
+                seen_fps[comm.fingerprint] = comm
+
+        return findings
+
+    async def _check_missing_required_relationships(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        # CompanyCommitment requires authorization_id
+        query = select(CompanyCommitment).where(
+            CompanyCommitment.organization_id == organization_id,
+            CompanyCommitment.authorization_id.is_(None)
+        )
+        if changed_since:
+            query = query.where(CompanyCommitment.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for comm in result.scalars().all():
+            findings.append(IntegrityFinding(
+                id=self._gen_id(),
+                organization_id=organization_id,
+                finding_type=IntegrityFindingType.STRUCTURAL_MISSING_REQUIRED,
+                severity=IntegritySeverity.HIGH,
+                entity_type="CompanyCommitment",
+                entity_id=comm.id,
+                title="Commitment missing required authorization",
+                description=f"Commitment {comm.id} has no authorization_id (required for governance chain)",
+                observed_evidence={"commitment_id": comm.id, "missing_field": "authorization_id"},
+                provenance={"check": "missing_required_relationship", "required_field": "authorization_id"},
+                source_subsystem="structural_integrity",
+            ))
+
+        # CompanyAuthorization requires decision_id
+        query = select(CompanyAuthorization).where(
+            CompanyAuthorization.organization_id == organization_id,
+            CompanyAuthorization.decision_id.is_(None)
+        )
+        if changed_since:
+            query = query.where(CompanyAuthorization.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for auth in result.scalars().all():
+            findings.append(IntegrityFinding(
+                id=self._gen_id(),
+                organization_id=organization_id,
+                finding_type=IntegrityFindingType.STRUCTURAL_MISSING_REQUIRED,
+                severity=IntegritySeverity.HIGH,
+                entity_type="CompanyAuthorization",
+                entity_id=auth.id,
+                title="Authorization missing required decision",
+                description=f"Authorization {auth.id} has no decision_id (required for governance chain)",
+                observed_evidence={"authorization_id": auth.id, "missing_field": "decision_id"},
+                provenance={"check": "missing_required_relationship", "required_field": "decision_id"},
+                source_subsystem="structural_integrity",
+            ))
+
+        return findings
+
+    # =====================================================================
+    # PHASE 2: TENANT INTEGRITY CHECKS
+    # =====================================================================
+
+    async def check_tenant_integrity(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        changed_since: Optional[datetime] = None,
+        limit: int = 100
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        findings.extend(await self._check_cross_tenant_references(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_scope_leakage(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_invalid_membership(db, organization_id, changed_since, limit))
+
+        return findings[:limit]
+
+    async def _check_cross_tenant_references(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        entity_types = [
+            (CompanyCommitment, "authorization_id", CompanyAuthorization),
+            (CompanyCommitment, "decision_id", CompanyDecision),
+            (CompanyAuthorization, "decision_id", CompanyDecision),
+            (CompanyAuthorization, "policy_id", "ApprovalPolicy"),
+            (CompanyAction, "source_commitment_id", CompanyCommitment),
+            (CompanyAction, "source_company_decision_id", CompanyDecision),
+        ]
+
+        for entity_type, ref_field, ref_model in entity_types:
+            if isinstance(ref_model, str):
+                continue
+
+            query = select(entity_type).where(
+                entity_type.organization_id == organization_id,
+                getattr(entity_type, ref_field).is_not(None)
+            )
+            if changed_since:
+                query = query.where(entity_type.updated_at >= changed_since)
+
+            result = await db.execute(query.limit(limit))
+            for entity in result.scalars().all():
+                ref_id = getattr(entity, ref_field)
+                if ref_id:
+                    ref_entity = await db.get(ref_model, ref_id)
+                    if ref_entity and ref_entity.organization_id != organization_id:
+                        findings.append(IntegrityFinding(
+                            id=self._gen_id(),
+                            organization_id=organization_id,
+                            finding_type=IntegrityFindingType.TENANT_CROSS_REFERENCE,
+                            severity=IntegritySeverity.CRITICAL,
+                            entity_type=entity_type.__name__,
+                            entity_id=entity.id,
+                            title=f"Cross-tenant reference in {entity_type.__name__}",
+                            description=f"{entity_type.__name__} {entity.id} references {ref_model.__name__} {ref_id} from different tenant",
+                            observed_evidence={ref_field: ref_id, "ref_org": ref_entity.organization_id},
+                            provenance={"check": "tenant_isolation", "reference_field": ref_field},
+                            source_subsystem="tenant_integrity",
+                        ))
+
+        return findings
+
+    async def _check_scope_leakage(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        # Check CompanyAuthorization scope boundaries
+        query = select(CompanyAuthorization).where(
+            CompanyAuthorization.organization_id == organization_id,
+            CompanyAuthorization.scope_type != "company"
+        )
+        if changed_since:
+            query = query.where(CompanyAuthorization.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for auth in result.scalars().all():
+            pass  # Scope validation could be added here
+
+        return findings
+
+    async def _check_invalid_membership(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        # Employee without user in same organization
+        query = select(Employee).where(
+            Employee.organization_id == organization_id,
+            Employee.user_id.is_not(None)
+        )
+        if changed_since:
+            query = query.where(Employee.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for emp in result.scalars().all():
+            user = await db.get(User, emp.user_id)
+            if user and user.organization_id != organization_id:
+                findings.append(IntegrityFinding(
+                    id=self._gen_id(),
+                    organization_id=organization_id,
+                    finding_type=IntegrityFindingType.TENANT_INVALID_MEMBERSHIP,
+                    severity=IntegritySeverity.HIGH,
+                    entity_type="Employee",
+                    entity_id=emp.id,
+                    title="Employee-user tenant mismatch",
+                    description=f"Employee {emp.id} has user {emp.user_id} from different organization",
+                    observed_evidence={"user_id": emp.user_id, "user_org": user.organization_id},
+                    provenance={"check": "membership_validation", "reference_field": "user_id"},
+                    source_subsystem="tenant_integrity",
+                ))
+
+        return findings
+
+    # =====================================================================
+    # PHASE 3: TEMPORAL INTEGRITY CHECKS
+    # =====================================================================
+
+    async def check_temporal_integrity(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        changed_since: Optional[datetime] = None,
+        limit: int = 100
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        findings.extend(await self._check_invalid_intervals(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_overlapping_current(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_invalid_supersession(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_future_as_current(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_historical_overwrite(db, organization_id, changed_since, limit))
+
+        return findings[:limit]
+
+    async def _check_invalid_intervals(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        query = select(CompanyAuthorization).where(
+            CompanyAuthorization.organization_id == organization_id,
+            CompanyAuthorization.valid_from.is_not(None),
+            CompanyAuthorization.valid_until.is_not(None)
+        )
+        if changed_since:
+            query = query.where(CompanyAuthorization.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for auth in result.scalars().all():
+            if auth.valid_from and auth.valid_until and auth.valid_from >= auth.valid_until:
+                findings.append(IntegrityFinding(
+                    id=self._gen_id(),
+                    organization_id=organization_id,
+                    finding_type=IntegrityFindingType.TEMPORAL_INVALID_INTERVAL,
+                    severity=IntegritySeverity.HIGH,
+                    entity_type="CompanyAuthorization",
+                    entity_id=auth.id,
+                    title="Invalid temporal interval",
+                    description=f"Authorization {auth.id} has valid_from ({auth.valid_from}) >= valid_until ({auth.valid_until})",
+                    observed_evidence={"valid_from": str(auth.valid_from), "valid_until": str(auth.valid_until)},
+                    provenance={"check": "temporal_interval", "fields": ["valid_from", "valid_until"]},
+                    source_subsystem="temporal_integrity",
+                ))
+
+        return findings
+
+    async def _check_overlapping_current(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        # CompanyAuthorization: only one approved/conditional per org
+        query = select(CompanyAuthorization).where(
+            CompanyAuthorization.organization_id == organization_id,
+            CompanyAuthorization.state.in_(["approved", "conditional"])
+        )
+        if changed_since:
+            query = query.where(CompanyAuthorization.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        auths = result.scalars().all()
+        if len(auths) > 1:
+            for auth in auths[1:]:
+                findings.append(IntegrityFinding(
+                    id=self._gen_id(),
+                    organization_id=organization_id,
+                    finding_type=IntegrityFindingType.TEMPORAL_OVERLAPPING_CURRENT,
+                    severity=IntegritySeverity.HIGH,
+                    entity_type="CompanyAuthorization",
+                    entity_id=auth.id,
+                    title="Multiple current authorizations",
+                    description=f"Multiple approved/conditional authorizations exist for org {organization_id}. Only one current allowed.",
+                    observed_evidence={"authorization_ids": [a.id for a in auths], "states": [a.state for a in auths]},
+                    provenance={"check": "current_state_uniqueness", "entity_type": "CompanyAuthorization"},
+                    source_subsystem="temporal_integrity",
+                ))
+
+        return findings
+
+    async def _check_invalid_supersession(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        # Only CompanyCommitment has supersedes_id/superseded_by_id fields
+        model = CompanyCommitment
+        entity_type = "CompanyCommitment"
+        query = select(model).where(
+            model.organization_id == organization_id,
+            model.supersedes_id.is_not(None)
+        )
+        if changed_since:
+            query = query.where(model.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for entity in result.scalars().all():
+            superseded = await db.get(model, entity.supersedes_id)
+            if superseded:
+                # Superseded entity must be in superseded/terminal state
+                if superseded.state not in ["superseded", "expired", "rejected", "cancelled", "fulfilled"]:
+                    findings.append(IntegrityFinding(
+                        id=self._gen_id(),
+                        organization_id=organization_id,
+                        finding_type=IntegrityFindingType.TEMPORAL_INVALID_SUPERSESSION,
+                        severity=IntegritySeverity.HIGH,
+                        entity_type=entity_type,
+                        entity_id=entity.id,
+                        title="Invalid supersession chain",
+                        description=f"{entity_type} {entity.id} supersedes {superseded.id} which is in state '{superseded.state}', expected terminal state",
+                        observed_evidence={"supersedes_id": entity.supersedes_id, "superseded_state": superseded.state},
+                        provenance={"check": "supersession_chain", "reference_field": "supersedes_id"},
+                        source_subsystem="temporal_integrity",
+                    ))
+                # Superseded entity must point back
+                if superseded.superseded_by_id != entity.id:
+                    findings.append(IntegrityFinding(
+                        id=self._gen_id(),
+                        organization_id=organization_id,
+                        finding_type=IntegrityFindingType.TEMPORAL_INVALID_SUPERSESSION,
+                        severity=IntegritySeverity.HIGH,
+                        entity_type=entity_type,
+                        entity_id=entity.id,
+                        title="Broken supersession chain - missing back-reference",
+                        description=f"{entity_type} {entity.id} supersedes {superseded.id} but superseded entity does not point back",
+                        observed_evidence={"superseded_id": superseded.id, "superseded.superseded_by_id": superseded.superseded_by_id},
+                        provenance={"check": "supersession_chain", "reference_field": "superseded_by_id"},
+                        source_subsystem="temporal_integrity",
+                    ))
+
+        return findings
+
+    async def _check_future_as_current(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        now = utcnow()
+        query = select(CompanyAuthorization).where(
+            CompanyAuthorization.organization_id == organization_id,
+            CompanyAuthorization.valid_from.is_not(None),
+            CompanyAuthorization.valid_from > now,
+            CompanyAuthorization.state.in_(["approved", "conditional"])
+        )
+        if changed_since:
+            query = query.where(CompanyAuthorization.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for auth in result.scalars().all():
+            findings.append(IntegrityFinding(
+                id=self._gen_id(),
+                organization_id=organization_id,
+                finding_type=IntegrityFindingType.TEMPORAL_FUTURE_AS_CURRENT,
+                severity=IntegritySeverity.HIGH,
+                entity_type="CompanyAuthorization",
+                entity_id=auth.id,
+                title="Future-dated authorization in current state",
+                description=f"Authorization {auth.id} has valid_from ({auth.valid_from}) in future but state is '{auth.state}'",
+                observed_evidence={"valid_from": str(auth.valid_from), "state": auth.state, "now": str(now)},
+                provenance={"check": "future_as_current", "fields": ["valid_from", "state"]},
+                source_subsystem="temporal_integrity",
+            ))
+
+        return findings
+
+    async def _check_historical_overwrite(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        # Only CompanyCommitment has superseded_by_id
+        model = CompanyCommitment
+        entity_type = "CompanyCommitment"
+        query = select(model).where(
+            model.organization_id == organization_id,
+            model.superseded_by_id.is_not(None)
+        )
+        if changed_since:
+            query = query.where(model.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for entity in result.scalars().all():
+            if entity.updated_at and entity.superseded_by_id:
+                superseding = await db.get(model, entity.superseded_by_id)
+                if superseding and superseding.created_at and entity.updated_at > superseding.created_at + timedelta(seconds=60):
+                    findings.append(IntegrityFinding(
+                        id=self._gen_id(),
+                        organization_id=organization_id,
+                        finding_type=IntegrityFindingType.TEMPORAL_HISTORICAL_OVERWRITE,
+                        severity=IntegritySeverity.CRITICAL,
+                        entity_type=entity_type,
+                        entity_id=entity.id,
+                        title="Historical entity modified after supersession",
+                        description=f"{entity_type} {entity.id} was updated after being superseded by {superseding.id}",
+                        observed_evidence={"updated_at": str(entity.updated_at), "superseded_at": str(superseding.created_at), "superseding_id": superseding.id},
+                        provenance={"check": "historical_immutability", "fields": ["updated_at", "superseded_by_id"]},
+                        source_subsystem="temporal_integrity",
+                    ))
+
+        return findings
+
+    # =====================================================================
+    # PHASE 4: PROVENANCE INTEGRITY CHECKS
+    # =====================================================================
+
+    async def check_provenance_integrity(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        changed_since: Optional[datetime] = None,
+        limit: int = 100
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        findings.extend(await self._check_missing_provenance(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_broken_provenance_chain(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_invalid_fingerprint(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_missing_actor(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_cross_tenant_provenance(db, organization_id, changed_since, limit))
+
+        return findings[:limit]
+
+    async def _check_missing_provenance(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        # VerificationContext requires evidence_fingerprints
+        query = select(VerificationContext).where(
+            VerificationContext.organization_id == organization_id,
+            VerificationContext.state == "completed",
+            or_(
+                VerificationContext.evidence_fingerprints.is_(None),
+                VerificationContext.evidence_fingerprints == []
+            )
+        )
+        if changed_since:
+            query = query.where(VerificationContext.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for vc in result.scalars().all():
+            findings.append(IntegrityFinding(
+                id=self._gen_id(),
+                organization_id=organization_id,
+                finding_type=IntegrityFindingType.PROVENANCE_MISSING,
+                severity=IntegritySeverity.HIGH,
+                entity_type="VerificationContext",
+                entity_id=vc.id,
+                title="Verification missing evidence",
+                description=f"Completed verification {vc.id} has no evidence_fingerprints",
+                observed_evidence={"verification_id": vc.id, "missing_field": "evidence_fingerprints"},
+                provenance={"check": "missing_provenance", "required_field": "evidence_fingerprints"},
+                source_subsystem="provenance_integrity",
+            ))
+
+        return findings
+
+    async def _check_broken_provenance_chain(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        # Check CompanyAction -> source_commitment_id -> authorization chain
+        query = select(CompanyAction).where(
+            CompanyAction.organization_id == organization_id,
+            CompanyAction.source_commitment_id.is_not(None)
+        )
+        if changed_since:
+            query = query.where(CompanyAction.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for action in result.scalars().all():
+            comm = await db.get(CompanyCommitment, action.source_commitment_id)
+            if comm and not comm.authorization_id:
+                findings.append(IntegrityFinding(
+                    id=self._gen_id(),
+                    organization_id=organization_id,
+                    finding_type=IntegrityFindingType.PROVENANCE_BROKEN_CHAIN,
+                    severity=IntegritySeverity.HIGH,
+                    entity_type="CompanyAction",
+                    entity_id=action.id,
+                    title="Broken provenance chain: action -> commitment without authorization",
+                    description=f"Action {action.id} references commitment {comm.id} which has no authorization_id",
+                    observed_evidence={"action_id": action.id, "commitment_id": comm.id, "missing": "authorization_id"},
+                    provenance={"check": "provenance_chain", "chain": ["action", "commitment", "authorization"]},
+                    source_subsystem="provenance_integrity",
+                ))
+
+        return findings
+
+    async def _check_invalid_fingerprint(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        # Check entities with missing fingerprints
+        for entity_type, model in [
+            ("CompanyCommitment", CompanyCommitment),
+            ("CompanyObjective", CompanyObjective),
+            ("VerificationContext", VerificationContext),
+            ("OrganizationalLearning", OrganizationalLearning),
+        ]:
+            query = select(model).where(
+                model.organization_id == organization_id,
+                or_(model.fingerprint.is_(None), model.fingerprint == "")
+            )
+            if changed_since:
+                query = query.where(model.updated_at >= changed_since)
+
+            result = await db.execute(query.limit(limit))
+            for entity in result.scalars().all():
+                findings.append(IntegrityFinding(
+                    id=self._gen_id(),
+                    organization_id=organization_id,
+                    finding_type=IntegrityFindingType.PROVENANCE_INVALID_FINGERPRINT,
+                    severity=IntegritySeverity.HIGH,
+                    entity_type=entity_type,
+                    entity_id=entity.id,
+                    title="Missing or empty fingerprint",
+                    description=f"{entity_type} {entity.id} has no fingerprint (required for exact-once)",
+                    observed_evidence={"entity_id": entity.id, "missing_field": "fingerprint"},
+                    provenance={"check": "fingerprint_validation", "required_field": "fingerprint"},
+                    source_subsystem="provenance_integrity",
+                ))
+
+        return findings
+
+    async def _check_missing_actor(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        # VerificationContext completed without approved_by
+        query = select(VerificationContext).where(
+            VerificationContext.organization_id == organization_id,
+            VerificationContext.state == "completed",
+            VerificationContext.approved_by.is_(None)
+        )
+        if changed_since:
+            query = query.where(VerificationContext.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for vc in result.scalars().all():
+            findings.append(IntegrityFinding(
+                id=self._gen_id(),
+                organization_id=organization_id,
+                finding_type=IntegrityFindingType.PROVENANCE_MISSING_ACTOR,
+                severity=IntegritySeverity.MEDIUM,
+                entity_type="VerificationContext",
+                entity_id=vc.id,
+                title="Verification missing approver",
+                description=f"Completed verification {vc.id} has no approved_by",
+                observed_evidence={"verification_id": vc.id, "missing_field": "approved_by"},
+                provenance={"check": "missing_actor", "required_field": "approved_by"},
+                source_subsystem="provenance_integrity",
+            ))
+
+        return findings
+
+    async def _check_cross_tenant_provenance(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        # Check CompanyDecisionContradiction cross-tenant
+        query = select(CompanyDecisionContradiction).where(
+            CompanyDecisionContradiction.organization_id == organization_id
+        )
+        if changed_since:
+            query = query.where(CompanyDecisionContradiction.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for cd in result.scalars().all():
+            if cd.decision_id:
+                decision = await db.get(CompanyDecision, cd.decision_id)
+                if decision and decision.organization_id != organization_id:
+                    findings.append(IntegrityFinding(
+                        id=self._gen_id(),
+                        organization_id=organization_id,
+                        finding_type=IntegrityFindingType.PROVENANCE_CROSS_TENANT,
+                        severity=IntegritySeverity.CRITICAL,
+                        entity_type="CompanyDecisionContradiction",
+                        entity_id=cd.id,
+                        title="Cross-tenant contradiction reference",
+                        description=f"Contradiction {cd.id} references decision {cd.decision_id} from different tenant",
+                        observed_evidence={"decision_id": cd.decision_id, "decision_org": decision.organization_id},
+                        provenance={"check": "cross_tenant_provenance", "reference_field": "decision_id"},
+                        source_subsystem="provenance_integrity",
+                    ))
+
+        return findings
+
+    # =====================================================================
+    # PHASE 5: EPISTEMIC INTEGRITY CHECKS
+    # =====================================================================
+
+    async def check_epistemic_integrity(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        changed_since: Optional[datetime] = None,
+        limit: int = 100
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        findings.extend(await self._check_invalid_promotions(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_prediction_as_outcome(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_proposal_as_decision(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_simulation_as_observation(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_unverified_as_verified(db, organization_id, changed_since, limit))
+
+        return findings[:limit]
+
+    async def _check_invalid_promotions(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        # Check OrganizationalLearning promoted without evidence
+        query = select(OrganizationalLearning).where(
+            OrganizationalLearning.organization_id == organization_id,
+            OrganizationalLearning.lifecycle.in_(["confirmed", "authoritative", "supported"]),
+            or_(
+                OrganizationalLearning.evidence_json.is_(None),
+                OrganizationalLearning.evidence_json == "",
+                OrganizationalLearning.evidence_json == "{}"
+            )
+        )
+        if changed_since:
+            query = query.where(OrganizationalLearning.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for learning in result.scalars().all():
+            findings.append(IntegrityFinding(
+                id=self._gen_id(),
+                organization_id=organization_id,
+                finding_type=IntegrityFindingType.EPISTEMIC_INVALID_PROMOTION,
+                severity=IntegritySeverity.HIGH,
+                entity_type="OrganizationalLearning",
+                entity_id=learning.id,
+                title="Learning promoted without evidence",
+                description=f"Learning {learning.id} has lifecycle '{learning.lifecycle}' but no evidence_json",
+                observed_evidence={"learning_id": learning.id, "lifecycle": learning.lifecycle, "missing": "evidence_json"},
+                provenance={"check": "epistemic_promotion", "lifecycle": learning.lifecycle},
+                source_subsystem="epistemic_integrity",
+                epistemic_classification=EpistemicClassification.DERIVED,
+            ))
+
+        return findings
+
+    async def _check_prediction_as_outcome(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        query = select(VerificationContext).where(
+            VerificationContext.organization_id == organization_id,
+            VerificationContext.state == "completed",
+            VerificationContext.verification_type == "plan_vs_reality"
+        )
+        if changed_since:
+            query = query.where(VerificationContext.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for vc in result.scalars().all():
+            if vc.expected_outcome and isinstance(vc.expected_outcome, dict):
+                if vc.expected_outcome.get("source") == "prediction" or vc.expected_outcome.get("epistemic_status") == "predicted":
+                    findings.append(IntegrityFinding(
+                        id=self._gen_id(),
+                        organization_id=organization_id,
+                        finding_type=IntegrityFindingType.EPISTEMIC_PREDICTION_AS_OUTCOME,
+                        severity=IntegritySeverity.HIGH,
+                        entity_type="VerificationContext",
+                        entity_id=vc.id,
+                        title="Prediction used as expected outcome",
+                        description=f"Verification {vc.id} uses prediction as expected outcome in plan_vs_reality",
+                        observed_evidence={"verification_id": vc.id, "expected_outcome": vc.expected_outcome},
+                        provenance={"check": "epistemic_boundary", "violation": "prediction_as_outcome"},
+                        source_subsystem="epistemic_integrity",
+                        epistemic_classification=EpistemicClassification.CONTESTED,
+                    ))
+
+        return findings
+
+    async def _check_proposal_as_decision(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        query = select(AutonomyProposal).where(
+            AutonomyProposal.organization_id == organization_id,
+            AutonomyProposal.state == "executed"
+        )
+        if changed_since:
+            query = query.where(AutonomyProposal.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for prop in result.scalars().all():
+            if not prop.authorized_by or not prop.authorized_at:
+                findings.append(IntegrityFinding(
+                    id=self._gen_id(),
+                    organization_id=organization_id,
+                    finding_type=IntegrityFindingType.EPISTEMIC_PROPOSAL_AS_DECISION,
+                    severity=IntegritySeverity.HIGH,
+                    entity_type="AutonomyProposal",
+                    entity_id=prop.id,
+                    title="Proposal executed without authorization",
+                    description=f"AutonomyProposal {prop.id} executed but has no authorized_by/authorized_at",
+                    observed_evidence={"proposal_id": prop.id, "state": prop.state, "missing": ["authorized_by", "authorized_at"]},
+                    provenance={"check": "epistemic_boundary", "violation": "proposal_as_execution"},
+                    source_subsystem="epistemic_integrity",
+                    epistemic_classification=EpistemicClassification.CONTESTED,
+                ))
+
+        return findings
+
+    async def _check_simulation_as_observation(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        query = select(TwinStateSnapshot).where(
+            TwinStateSnapshot.organization_id == organization_id
+        )
+        if changed_since:
+            query = query.where(TwinStateSnapshot.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for twin in result.scalars().all():
+            if twin.twin_json and isinstance(twin.twin_json, dict):
+                source = twin.twin_json.get("source", "")
+                if "simulation" in source.lower() or "scenario" in source.lower():
+                    findings.append(IntegrityFinding(
+                        id=self._gen_id(),
+                        organization_id=organization_id,
+                        finding_type=IntegrityFindingType.EPISTEMIC_SIMULATION_AS_OBSERVATION,
+                        severity=IntegritySeverity.HIGH,
+                        entity_type="TwinStateSnapshot",
+                        entity_id=twin.id,
+                        title="Simulation data in twin marked as observed",
+                        description=f"Twin snapshot {twin.id} has simulation source but may be treated as observed",
+                        observed_evidence={"twin_id": twin.id, "source": source},
+                        provenance={"check": "epistemic_boundary", "violation": "simulation_as_observation"},
+                        source_subsystem="epistemic_integrity",
+                        epistemic_classification=EpistemicClassification.CONTESTED,
+                    ))
+
+        return findings
+
+    async def _check_unverified_as_verified(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        query = select(VerificationContext).where(
+            VerificationContext.organization_id == organization_id,
+            VerificationContext.state == "completed",
+            VerificationContext.assessment_confidence < 0.5
+        )
+        if changed_since:
+            query = query.where(VerificationContext.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for vc in result.scalars().all():
+            findings.append(IntegrityFinding(
+                id=self._gen_id(),
+                organization_id=organization_id,
+                finding_type=IntegrityFindingType.EPISTEMIC_UNVERIFIED_AS_VERIFIED,
+                severity=IntegritySeverity.HIGH,
+                entity_type="VerificationContext",
+                entity_id=vc.id,
+                title="Verification completed with low confidence",
+                description=f"Verification {vc.id} completed with assessment_confidence {vc.assessment_confidence}",
+                observed_evidence={"verification_id": vc.id, "assessment_confidence": vc.assessment_confidence},
+                provenance={"check": "epistemic_boundary", "violation": "unverified_as_verified"},
+                source_subsystem="epistemic_integrity",
+                epistemic_classification=EpistemicClassification.CONTESTED,
+            ))
+
+        return findings
+
+    # =====================================================================
+    # PHASE 6: OPERATING-CHAIN INTEGRITY CHECKS
+    # =====================================================================
+
+    async def check_operating_chain_integrity(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        changed_since: Optional[datetime] = None,
+        limit: int = 100
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        findings.extend(await self._check_decision_without_auth(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_auth_without_commitment(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_commitment_without_responsibility(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_execution_without_auth(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_outcome_without_execution(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_verification_without_evidence(db, organization_id, changed_since, limit))
+
+        return findings[:limit]
+
+    async def _check_decision_without_auth(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        query = select(CompanyDecision).where(
+            CompanyDecision.organization_id == organization_id,
+            CompanyDecision.state.in_(["approved", "executed", "outcome_recorded", "assessed"])
+        )
+        if changed_since:
+            query = query.where(CompanyDecision.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for dec in result.scalars().all():
+            auth_query = select(CompanyAuthorization).where(
+                CompanyAuthorization.organization_id == organization_id,
+                CompanyAuthorization.decision_id == dec.decision_id
+            )
+            auth_result = await db.execute(auth_query)
+            auth = auth_result.scalars().first()
+
+            if not auth:
+                findings.append(IntegrityFinding(
+                    id=self._gen_id(),
+                    organization_id=organization_id,
+                    finding_type=IntegrityFindingType.OPERATING_DECISION_WITHOUT_AUTH,
+                    severity=IntegritySeverity.HIGH,
+                    entity_type="CompanyDecision",
+                    entity_id=dec.id,
+                    title="Decision without authorization",
+                    description=f"Decision {dec.decision_id} is in state '{dec.state}' but has no linked authorization",
+                    observed_evidence={"decision_id": dec.decision_id, "decision_state": dec.state},
+                    provenance={"check": "operating_chain", "missing_link": "authorization"},
+                    source_subsystem="operating_chain_integrity",
+                ))
+
+        return findings
+
+    async def _check_auth_without_commitment(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        query = select(CompanyAuthorization).where(
+            CompanyAuthorization.organization_id == organization_id,
+            CompanyAuthorization.state.in_(["approved", "conditional"])
+        )
+        if changed_since:
+            query = query.where(CompanyAuthorization.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for auth in result.scalars().all():
+            comm_query = select(CompanyCommitment).where(
+                CompanyCommitment.organization_id == organization_id,
+                CompanyCommitment.authorization_id == auth.id
+            )
+            comm_result = await db.execute(comm_query)
+            comm = comm_result.scalars().first()
+
+            if not comm:
+                findings.append(IntegrityFinding(
+                    id=self._gen_id(),
+                    organization_id=organization_id,
+                    finding_type=IntegrityFindingType.OPERATING_AUTH_WITHOUT_COMMITMENT,
+                    severity=IntegritySeverity.MEDIUM,
+                    entity_type="CompanyAuthorization",
+                    entity_id=auth.id,
+                    title="Authorization without commitment",
+                    description=f"Authorization {auth.id} in state '{auth.state}' has no linked commitment",
+                    observed_evidence={"authorization_id": auth.id, "state": auth.state},
+                    provenance={"check": "operating_chain", "missing_link": "commitment"},
+                    source_subsystem="operating_chain_integrity",
+                ))
+
+        return findings
+
+    async def _check_commitment_without_responsibility(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        query = select(CompanyCommitment).where(
+            CompanyCommitment.organization_id == organization_id,
+            CompanyCommitment.state.in_(["authorized", "active"])
+        )
+        if changed_since:
+            query = query.where(CompanyCommitment.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for comm in result.scalars().all():
+            findings.append(IntegrityFinding(
+                id=self._gen_id(),
+                organization_id=organization_id,
+                finding_type=IntegrityFindingType.OPERATING_COMMITMENT_WITHOUT_RESPONSIBILITY,
+                severity=IntegritySeverity.MEDIUM,
+                entity_type="CompanyCommitment",
+                entity_id=comm.id,
+                title="Commitment without explicit responsibility",
+                description=f"Commitment {comm.id} in state '{comm.state}' has no explicit responsibility assignment tracked",
+                observed_evidence={"commitment_id": comm.id, "state": comm.state},
+                provenance={"check": "operating_chain", "missing_link": "responsibility"},
+                source_subsystem="operating_chain_integrity",
+            ))
+
+        return findings
+
+    async def _check_execution_without_auth(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        query = select(CompanyAction).where(
+            CompanyAction.organization_id == organization_id,
+            CompanyAction.state.in_(["in_progress", "completed", "verified"])
+        )
+        if changed_since:
+            query = query.where(CompanyAction.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for action in result.scalars().all():
+            if action.state in ["in_progress", "completed"] and not action.source_company_decision_id:
+                findings.append(IntegrityFinding(
+                    id=self._gen_id(),
+                    organization_id=organization_id,
+                    finding_type=IntegrityFindingType.OPERATING_EXECUTION_WITHOUT_AUTH,
+                    severity=IntegritySeverity.HIGH,
+                    entity_type="CompanyAction",
+                    entity_id=action.id,
+                    title="Execution without decision trace",
+                    description=f"Action {action.id} in state '{action.state}' has no source_company_decision_id",
+                    observed_evidence={"action_id": action.id, "state": action.state, "missing": "source_company_decision_id"},
+                    provenance={"check": "operating_chain", "missing_link": "decision"},
+                    source_subsystem="operating_chain_integrity",
+                ))
+
+        return findings
+
+    async def _check_outcome_without_execution(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        query = select(VerificationContext).where(
+            VerificationContext.organization_id == organization_id,
+            VerificationContext.actual_outcome.is_not(None)
+        )
+        if changed_since:
+            query = query.where(VerificationContext.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for vc in result.scalars().all():
+            if not vc.commitment_id and not vc.objective_id:
+                findings.append(IntegrityFinding(
+                    id=self._gen_id(),
+                    organization_id=organization_id,
+                    finding_type=IntegrityFindingType.OPERATING_OUTCOME_WITHOUT_EXECUTION,
+                    severity=IntegritySeverity.MEDIUM,
+                    entity_type="VerificationContext",
+                    entity_id=vc.id,
+                    title="Outcome verification without execution trace",
+                    description=f"Verification {vc.id} has actual_outcome but no linked commitment/objective for execution trace",
+                    observed_evidence={"verification_id": vc.id, "has_actual": True, "missing": ["commitment_id", "objective_id"]},
+                    provenance={"check": "operating_chain", "missing_link": "execution_trace"},
+                    source_subsystem="operating_chain_integrity",
+                ))
+
+        return findings
+
+    async def _check_verification_without_evidence(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        query = select(VerificationContext).where(
+            VerificationContext.organization_id == organization_id,
+            VerificationContext.state == "completed",
+            or_(
+                VerificationContext.evidence_fingerprints.is_(None),
+                VerificationContext.evidence_fingerprints == []
+            )
+        )
+        if changed_since:
+            query = query.where(VerificationContext.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for vc in result.scalars().all():
+            findings.append(IntegrityFinding(
+                id=self._gen_id(),
+                organization_id=organization_id,
+                finding_type=IntegrityFindingType.OPERATING_VERIFICATION_WITHOUT_EVIDENCE,
+                severity=IntegritySeverity.HIGH,
+                entity_type="VerificationContext",
+                entity_id=vc.id,
+                title="Verification without evidence",
+                description=f"Completed verification {vc.id} has no evidence_fingerprints",
+                observed_evidence={"verification_id": vc.id, "missing": "evidence_fingerprints"},
+                provenance={"check": "epistemic_verification", "missing_field": "evidence_fingerprints"},
+                source_subsystem="epistemic_integrity",
+                epistemic_classification=EpistemicClassification.UNKNOWN,
+            ))
+
+        return findings
+
+    # =====================================================================
+    # PHASE 7: INTEGRATION INTEGRITY CHECKS
+    # =====================================================================
+
+    async def check_integration_integrity(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        changed_since: Optional[datetime] = None,
+        limit: int = 100
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        findings.extend(await self._check_duplicate_events(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_stale_sync(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_identity_conflicts(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_unresolved_conflicts(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_authority_mismatch(db, organization_id, changed_since, limit))
+
+        return findings[:limit]
+
+    async def _check_duplicate_events(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        query = select(ExternalConflict).where(
+            ExternalConflict.organization_id == organization_id
+        )
+        if changed_since:
+            query = query.where(ExternalConflict.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        conflicts = result.scalars().all()
+
+        seen_events = {}
+        for conflict in conflicts:
+            for field in ["source_a_event_id", "source_b_event_id"]:
+                event_id = getattr(conflict, field)
+                if event_id:
+                    key = (conflict.source_a_instance_id, event_id)
+                    if key in seen_events:
+                        findings.append(IntegrityFinding(
+                            id=self._gen_id(),
+                            organization_id=organization_id,
+                            finding_type=IntegrityFindingType.INTEGRATION_DUPLICATE_EVENT,
+                            severity=IntegritySeverity.MEDIUM,
+                            entity_type="ExternalConflict",
+                            entity_id=conflict.id,
+                            title="Duplicate external event in conflict",
+                            description=f"External conflict {conflict.id} references duplicate event {event_id} from instance {conflict.source_a_instance_id}",
+                            observed_evidence={"event_id": event_id, "instance_id": conflict.source_a_instance_id, "existing_conflict_id": seen_events[key].id},
+                            provenance={"check": "duplicate_event", "field": field},
+                            source_subsystem="integration_integrity",
+                        ))
+                    else:
+                        seen_events[key] = conflict
+
+        return findings
+
+    async def _check_stale_sync(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        stale_threshold = utcnow() - timedelta(days=7)
+
+        query = select(ExternalIdentityMapping).where(
+            ExternalIdentityMapping.organization_id == organization_id,
+            ExternalIdentityMapping.updated_at < stale_threshold
+        )
+        if changed_since:
+            query = query.where(ExternalIdentityMapping.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for mapping in result.scalars().all():
+            findings.append(IntegrityFinding(
+                id=self._gen_id(),
+                organization_id=organization_id,
+                finding_type=IntegrityFindingType.INTEGRATION_STALE_SYNC,
+                severity=IntegritySeverity.MEDIUM,
+                entity_type="ExternalIdentityMapping",
+                entity_id=mapping.id,
+                title="Stale external identity sync",
+                description=f"External mapping {mapping.id} not synced since {mapping.updated_at}",
+                observed_evidence={"mapping_id": mapping.id, "last_synced": str(mapping.updated_at), "threshold": str(stale_threshold)},
+                provenance={"check": "stale_sync", "threshold_days": 7},
+                source_subsystem="integration_integrity",
+            ))
+
+        return findings
+
+    async def _check_identity_conflicts(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        query = select(ExternalConflict).where(
+            ExternalConflict.organization_id == organization_id,
+            ExternalConflict.resolution_state == "open"
+        )
+        if changed_since:
+            query = query.where(ExternalConflict.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for conflict in result.scalars().all():
+            findings.append(IntegrityFinding(
+                id=self._gen_id(),
+                organization_id=organization_id,
+                finding_type=IntegrityFindingType.INTEGRATION_IDENTITY_CONFLICT,
+                severity=IntegritySeverity.HIGH,
+                entity_type="ExternalConflict",
+                entity_id=conflict.id,
+                title="Unresolved identity conflict",
+                description=f"External conflict {conflict.id} for {conflict.entity_type}:{conflict.entity_id} remains open",
+                observed_evidence={"conflict_id": conflict.id, "entity_type": conflict.entity_type, "entity_id": conflict.entity_id, "sources": [conflict.source_a_instance_id, conflict.source_b_instance_id]},
+                provenance={"check": "identity_conflict", "resolution_state": conflict.resolution_state},
+                source_subsystem="integration_integrity",
+            ))
+
+        return findings
+
+    async def _check_unresolved_conflicts(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        return []
+
+    async def _check_authority_mismatch(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        query = select(ExternalConflict).where(
+            ExternalConflict.organization_id == organization_id
+        )
+        if changed_since:
+            query = query.where(ExternalConflict.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for conflict in result.scalars().all():
+            if conflict.source_a_authority < conflict.source_b_authority:
+                if conflict.resolution_state == "open":
+                    findings.append(IntegrityFinding(
+                        id=self._gen_id(),
+                        organization_id=organization_id,
+                        finding_type=IntegrityFindingType.INTEGRATION_AUTHORITY_MISMATCH,
+                        severity=IntegritySeverity.MEDIUM,
+                        entity_type="ExternalConflict",
+                        entity_id=conflict.id,
+                        title="Authority mismatch in external conflict",
+                        description=f"Conflict {conflict.id}: lower authority source A ({conflict.source_a_authority}) conflicts with higher authority source B ({conflict.source_b_authority})",
+                        observed_evidence={"source_a_auth": conflict.source_a_authority, "source_b_auth": conflict.source_b_authority},
+                        provenance={"check": "authority_mismatch", "source_a": conflict.source_a_instance_id, "source_b": conflict.source_b_instance_id},
+                        source_subsystem="integration_integrity",
+                    ))
+
+        return findings
+
+    # =====================================================================
+    # PHASE 8: GATE 29 INTEGRITY CHECKS
+    # =====================================================================
+
+    async def check_gate29_integrity(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        changed_since: Optional[datetime] = None,
+        limit: int = 100
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        findings.extend(await self._check_drift_unaddressed(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_twin_out_of_sync(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_optimization_unverified(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_learning_unevidenced(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_prediction_uncalibrated(db, organization_id, changed_since, limit))
+
+        return findings[:limit]
+
+    async def _check_drift_unaddressed(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        query = select(ModelTwinDrift).where(
+            ModelTwinDrift.organization_id == organization_id,
+            ModelTwinDrift.status.in_(["detected", "acknowledged"])
+        )
+        if changed_since:
+            query = query.where(ModelTwinDrift.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for drift in result.scalars().all():
+            findings.append(IntegrityFinding(
+                id=self._gen_id(),
+                organization_id=organization_id,
+                finding_type=IntegrityFindingType.GATE29_DRIFT_UNADDRESSED,
+                severity=IntegritySeverity.HIGH,
+                entity_type="ModelTwinDrift",
+                entity_id=drift.id,
+                title="Unaddressed model/twin drift",
+                description=f"Drift {drift.id} of type {drift.drift_type} with severity {drift.severity} remains {drift.status}",
+                observed_evidence={"drift_id": drift.id, "drift_type": drift.drift_type, "severity": drift.severity, "status": drift.status},
+                provenance={"check": "gate29_drift", "status": drift.status},
+                source_subsystem="gate29_integrity",
+            ))
+
+        return findings
+
+    async def _check_twin_out_of_sync(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        stale_threshold = utcnow() - timedelta(hours=24)
+
+        query = select(TwinStateSnapshot).where(
+            TwinStateSnapshot.organization_id == organization_id,
+            TwinStateSnapshot.captured_at < stale_threshold
+        )
+        if changed_since:
+            query = query.where(TwinStateSnapshot.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for twin in result.scalars().all():
+            findings.append(IntegrityFinding(
+                id=self._gen_id(),
+                organization_id=organization_id,
+                finding_type=IntegrityFindingType.GATE29_TWIN_OUT_OF_SYNC,
+                severity=IntegritySeverity.MEDIUM,
+                entity_type="TwinStateSnapshot",
+                entity_id=twin.id,
+                title="Twin state out of sync",
+                description=f"Twin snapshot {twin.id} not synced since {twin.captured_at}",
+                observed_evidence={"twin_id": twin.id, "last_synced": str(twin.captured_at), "threshold": str(stale_threshold)},
+                provenance={"check": "gate29_twin_sync", "threshold_hours": 24},
+                source_subsystem="gate29_integrity",
+            ))
+
+        return findings
+
+    async def _check_optimization_unverified(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        query = select(OptimizationContext).where(
+            OptimizationContext.organization_id == organization_id,
+            OptimizationContext.status.in_(["completed", "evaluated"])
+        )
+        if changed_since:
+            query = query.where(OptimizationContext.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for opt in result.scalars().all():
+            if not opt.selected_alternative_id:
+                findings.append(IntegrityFinding(
+                    id=self._gen_id(),
+                    organization_id=organization_id,
+                    finding_type=IntegrityFindingType.GATE29_OPTIMIZATION_UNVERIFIED,
+                    severity=IntegritySeverity.MEDIUM,
+                    entity_type="OptimizationContext",
+                    entity_id=opt.id,
+                    title="Optimization without selected alternative",
+                    description=f"Optimization {opt.id} in status '{opt.status}' has no selected_alternative_id",
+                    observed_evidence={"optimization_id": opt.id, "status": opt.status},
+                    provenance={"check": "gate29_optimization", "missing_field": "selected_alternative_id"},
+                    source_subsystem="gate29_integrity",
+                ))
+
+        return findings
+
+    async def _check_learning_unevidenced(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        query = select(ContinuousStateProjection).where(
+            ContinuousStateProjection.organization_id == organization_id
+        )
+        if changed_since:
+            query = query.where(ContinuousStateProjection.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for proj in result.scalars().all():
+            if proj.health_score < 50:
+                findings.append(IntegrityFinding(
+                    id=self._gen_id(),
+                    organization_id=organization_id,
+                    finding_type=IntegrityFindingType.GATE29_LEARNING_UNEVIDENCED,
+                    severity=IntegritySeverity.MEDIUM,
+                    entity_type="ContinuousStateProjection",
+                    entity_id=proj.id,
+                    title="Projection with low health",
+                    description=f"Projection {proj.id} has health_score {proj.health_score}",
+                    observed_evidence={"projection_id": proj.id, "health_score": proj.health_score},
+                    provenance={"check": "gate29_projection_health", "threshold": 50},
+                    source_subsystem="gate29_integrity",
+                ))
+
+        return findings
+
+async def _check_prediction_uncalibrated(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        query = select(PredictionCalibration).where(
+            PredictionCalibration.organization_id == organization_id,
+            PredictionCalibration.status != "calibrated"
+        )
+        if changed_since:
+            query = query.where(PredictionCalibration.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for cal in result.scalars().all():
+            findings.append(IntegrityFinding(
+                id=self._gen_id(),
+                organization_id=organization_id,
+                finding_type=IntegrityFindingType.GATE29_PREDICTION_UNCALIBRATED,
+                severity=IntegritySeverity.MEDIUM,
+                entity_type="PredictionCalibration",
+                entity_id=cal.id,
+                title="Uncalibrated prediction",
+                description=f"Prediction calibration {cal.id} for {cal.prediction_type} is in status '{cal.status}'",
+                observed_evidence={"calibration_id": cal.id, "prediction_type": cal.prediction_type, "status": cal.status},
+                provenance={"check": "gate29_calibration", "status": cal.status},
+                source_subsystem="gate29_integrity",
+            ))
+
+        return findings
+
+    # =====================================================================
+    # PHASE 9: GATE 30 INTEGRITY CHECKS
+    # =====================================================================
+
+    async def check_gate30_integrity(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        changed_since: Optional[datetime] = None,
+        limit: int = 100
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        findings.extend(await self._check_broken_phase(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_missing_event(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_invalid_phase_transition(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_broken_continuity_chain(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_missing_calibration_linkage(db, organization_id, changed_since, limit))
+        findings.extend(await self._check_broken_future_context_linkage(db, organization_id, changed_since, limit))
+
+        return findings[:limit]
+
+    async def _check_broken_phase(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        query = select(CompanyOperatingContinuity).where(
+            CompanyOperatingContinuity.organization_id == organization_id
+        )
+        if changed_since:
+            query = query.where(CompanyOperatingContinuity.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for continuity in result.scalars().all():
+            if continuity.current_phase not in COMPANY_LOOP_PHASES:
+                findings.append(IntegrityFinding(
+                    id=self._gen_id(),
+                    organization_id=organization_id,
+                    finding_type=IntegrityFindingType.GATE30_BROKEN_PHASE,
+                    severity=IntegritySeverity.HIGH,
+                    entity_type="CompanyOperatingContinuity",
+                    entity_id=continuity.id,
+                    title="Invalid continuity phase",
+                    description=f"Continuity {continuity.id} has invalid current_phase '{continuity.current_phase}'",
+                    observed_evidence={"continuity_id": continuity.id, "phase": continuity.current_phase, "valid_phases": COMPANY_LOOP_PHASES},
+                    provenance={"check": "gate30_phase_validity", "valid_values": COMPANY_LOOP_PHASES},
+                    source_subsystem="gate30_integrity",
+                ))
+
+        return findings
+
+    async def _check_missing_event(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        query = select(CompanyOperatingContinuity).where(
+            CompanyOperatingContinuity.organization_id == organization_id
+        )
+        if changed_since:
+            query = query.where(CompanyOperatingContinuity.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for continuity in result.scalars().all():
+            event_query = select(func.count(CompanyContinuityEvent.id)).where(
+                CompanyContinuityEvent.continuity_cycle_id == continuity.id
+            )
+            event_result = await db.execute(event_query)
+            event_count = event_result.scalar()
+
+            if event_count == 0 and continuity.cycle_completed_at:
+                findings.append(IntegrityFinding(
+                    id=self._gen_id(),
+                    organization_id=organization_id,
+                    finding_type=IntegrityFindingType.GATE30_MISSING_EVENT,
+                    severity=IntegritySeverity.MEDIUM,
+                    entity_type="CompanyOperatingContinuity",
+                    entity_id=continuity.id,
+                    title="Completed continuity cycle without events",
+                    description=f"Continuity cycle {continuity.cycle_number} completed but has no recorded events",
+                    observed_evidence={"continuity_id": continuity.id, "cycle_number": continuity.cycle_number, "event_count": 0},
+                    provenance={"check": "gate30_missing_events", "completed": True},
+                    source_subsystem="gate30_integrity",
+                ))
+
+        return findings
+
+    async def _check_invalid_phase_transition(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        query = select(CompanyContinuityEvent).where(
+            CompanyContinuityEvent.organization_id == organization_id
+        )
+        if changed_since:
+            query = query.where(CompanyContinuityEvent.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        events = result.scalars().all()
+
+        cycle_events = defaultdict(list)
+        for event in events:
+            cycle_events[event.continuity_cycle_id].append(event)
+
+        for cycle_id, cycle_events_list in cycle_events.items():
+            sorted_events = sorted(cycle_events_list, key=lambda e: (e.loop_phase, e.sequence_in_phase))
+
+            prev_phase = None
+            for event in sorted_events:
+                if prev_phase and event.loop_phase != prev_phase:
+                    phase_idx = COMPANY_LOOP_PHASES.index(event.loop_phase) if event.loop_phase in COMPANY_LOOP_PHASES else -1
+                    prev_idx = COMPANY_LOOP_PHASES.index(prev_phase) if prev_phase in COMPANY_LOOP_PHASES else -1
+                    if phase_idx != -1 and prev_idx != -1 and phase_idx <= prev_idx:
+                        findings.append(IntegrityFinding(
+                            id=self._gen_id(),
+                            organization_id=organization_id,
+                            finding_type=IntegrityFindingType.GATE30_INVALID_TRANSITION,
+                            severity=IntegritySeverity.MEDIUM,
+                            entity_type="CompanyContinuityEvent",
+                            entity_id=event.id,
+                            title="Invalid phase transition in continuity",
+                            description=f"Event {event.id} transitions from {prev_phase} to {event.loop_phase} which is not a forward phase progression",
+                            observed_evidence={"event_id": event.id, "prev_phase": prev_phase, "new_phase": event.loop_phase},
+                            provenance={"check": "gate30_phase_transition", "valid_phases": COMPANY_LOOP_PHASES},
+                            source_subsystem="gate30_integrity",
+                        ))
+                prev_phase = event.loop_phase
+
+        return findings
+
+    async def _check_broken_continuity_chain(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        query = select(CompanyOperatingContinuity).where(
+            CompanyOperatingContinuity.organization_id == organization_id
+        ).order_by(CompanyOperatingContinuity.cycle_number)
+
+        if changed_since:
+            query = query.where(CompanyOperatingContinuity.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        cycles = result.scalars().all()
+
+        prev_number = 0
+        for cycle in cycles:
+            if prev_number > 0 and cycle.cycle_number != prev_number + 1:
+                findings.append(IntegrityFinding(
+                    id=self._gen_id(),
+                    organization_id=organization_id,
+                    finding_type=IntegrityFindingType.GATE30_BROKEN_CHAIN,
+                    severity=IntegritySeverity.MEDIUM,
+                    entity_type="CompanyOperatingContinuity",
+                    entity_id=cycle.id,
+                    title="Gap in continuity cycle numbers",
+                    description=f"Gap in cycle numbers: expected {prev_number + 1}, got {cycle.cycle_number}",
+                    observed_evidence={"expected": prev_number + 1, "actual": cycle.cycle_number, "previous_cycle_id": cycle.id},
+                    provenance={"check": "gate30_cycle_sequence", "gap_detected": True},
+                    source_subsystem="gate30_integrity",
+                ))
+            prev_number = cycle.cycle_number
+
+        return findings
+
+    async def _check_missing_calibration_linkage(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        query = select(CompanyOperatingContinuity).where(
+            CompanyOperatingContinuity.organization_id == organization_id,
+            CompanyOperatingContinuity.calibration_improvements > 0
+        )
+        if changed_since:
+            query = query.where(CompanyOperatingContinuity.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for continuity in result.scalars().all():
+            findings.append(IntegrityFinding(
+                id=self._gen_id(),
+                organization_id=organization_id,
+                finding_type=IntegrityFindingType.GATE30_MISSING_CALIBRATION,
+                severity=IntegritySeverity.LOW,
+                entity_type="CompanyOperatingContinuity",
+                entity_id=continuity.id,
+                title="Calibration improvements without calibration linkage",
+                description=f"Continuity {continuity.id} reports {continuity.calibration_improvements} calibration improvements but no explicit linkage to calibrations",
+                observed_evidence={"continuity_id": continuity.id, "calibration_improvements": continuity.calibration_improvements},
+                provenance={"check": "gate30_calibration_linkage", "missing_link": "PredictionCalibration"},
+                source_subsystem="gate30_integrity",
+            ))
+
+        return findings
+
+    async def _check_broken_future_context_linkage(
+        self, db: AsyncSession, organization_id: str, changed_since: Optional[datetime], limit: int
+    ) -> List[IntegrityFinding]:
+        findings = []
+
+        query = select(UniversalCompanyContext).where(
+            UniversalCompanyContext.organization_id == organization_id
+        )
+        if changed_since:
+            query = query.where(UniversalCompanyContext.updated_at >= changed_since)
+
+        result = await db.execute(query.limit(limit))
+        for context in result.scalars().all():
+            if not context.predictions_json and not context.counterfactuals_json:
+                findings.append(IntegrityFinding(
+                    id=self._gen_id(),
+                    organization_id=organization_id,
+                    finding_type=IntegrityFindingType.GATE30_BROKEN_CHAIN,
+                    severity=IntegritySeverity.LOW,
+                    entity_type="UniversalCompanyContext",
+                    entity_id=context.id,
+                    title="Universal context without future projections",
+                    description=f"Context {context.id} has no predictions_json or counterfactuals_json",
+                    observed_evidence={"context_id": context.id},
+                    provenance={"check": "gate30_future_context", "missing": ["predictions_json", "counterfactuals_json"]},
+                    source_subsystem="gate30_integrity",
+                ))
+
+        return findings
+
+    # =====================================================================
+    # REPAIR PROPOSAL GENERATION
+    # =====================================================================
+
+    async def generate_repair_proposal(
+        self,
+        db: AsyncSession,
+        finding: IntegrityFinding,
+        actor: str,
+        proposed_change: Dict,
+        reason: str
+    ) -> RepairProposal:
+        """Generate a governed repair proposal for an integrity finding."""
+        proposal = RepairProposal(
+            id=self._gen_id(),
+            finding_id=finding.id,
+            organization_id=finding.organization_id,
+            entity_type=finding.entity_type,
+            entity_id=finding.entity_id,
+            current_state=finding.observed_evidence,
+            proposed_change=proposed_change,
+            evidence=finding.observed_evidence,
+            provenance=finding.provenance,
+            reason=reason,
+            temporal_basis={"detected_at": finding.detected_at.isoformat()},
+            governance_scope_ids=finding.governance_scope_ids or [finding.organization_id],
+            actor=actor,
+            proposed_mutation=proposed_change,
+            reversibility={"reversible": True, "method": "supersession"},
+        )
+        return proposal
+
+    # =====================================================================
+    # MAIN SCAN ORCHESTRATION
+    # =====================================================================
+
+    async def run_integrity_scan(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        checks: Optional[List[str]] = None,
+        changed_since: Optional[datetime] = None,
+        limit: int = 1000
+    ) -> List[IntegrityFinding]:
+        """Run comprehensive integrity scan for an organization."""
+        all_findings = []
+
+        check_methods = {
+            "structural": self.check_structural_integrity,
+            "tenant": self.check_tenant_integrity,
+            "temporal": self.check_temporal_integrity,
+            "provenance": self.check_provenance_integrity,
+            "epistemic": self.check_epistemic_integrity,
+            "operating_chain": self.check_operating_chain_integrity,
+            "integration": self.check_integration_integrity,
+            "gate29": self.check_gate29_integrity,
+            "gate30": self.check_gate30_integrity,
+        }
+
+        if checks is None:
+            checks = list(check_methods.keys())
+
+        for check_name in checks:
+            if check_name in check_methods:
+                try:
+                    findings = await check_methods[check_name](db, organization_id, changed_since, limit)
+                    all_findings.extend(findings)
+                    logger.info(f"Integrity check '{check_name}' found {len(findings)} findings")
+                except Exception as e:
+                    logger.error(f"Integrity check '{check_name}' failed: {e}")
+
+        severity_order = {
+            IntegritySeverity.CRITICAL: 0,
+            IntegritySeverity.HIGH: 1,
+            IntegritySeverity.MEDIUM: 2,
+            IntegritySeverity.LOW: 3,
+            IntegritySeverity.INFO: 4,
+        }
+        all_findings.sort(key=lambda f: severity_order.get(f.severity, 99))
+
+        return all_findings[:limit]
+
+    # =====================================================================
+    # HELPER METHODS
+    # =====================================================================
+
+    def _gen_id(self) -> str:
+        """Generate a UUID-like ID."""
+        import uuid
+        return uuid.uuid4().hex[:32]
+
+
+# Singleton instance
+canonical_reality_integrity_service = CanonicalRealityIntegrityService()

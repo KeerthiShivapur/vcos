@@ -42,12 +42,16 @@ export function Avatar({
         "relative inline-flex shrink-0 select-none items-center justify-center overflow-hidden rounded-full font-semibold text-white",
         sizes[size],
         !src && color,
-        className
+        className,
       )}
     >
       {src ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt={name ?? ""} className="h-full w-full object-cover" />
+        <img
+          src={src}
+          alt={name ?? ""}
+          className="h-full w-full object-cover"
+        />
       ) : (
         initials(name)
       )}

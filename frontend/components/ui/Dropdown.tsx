@@ -11,7 +11,13 @@ interface DropdownProps {
   className?: string;
 }
 
-export function Dropdown({ trigger, children, align = "right", width = "w-64", className }: DropdownProps) {
+export function Dropdown({
+  trigger,
+  children,
+  align = "right",
+  width = "w-64",
+  className,
+}: DropdownProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -43,7 +49,7 @@ export function Dropdown({ trigger, children, align = "right", width = "w-64", c
           className={classNames(
             "absolute z-50 mt-2 animate-pop overflow-hidden rounded-xl border border-line bg-elevated shadow-popover",
             align === "right" ? "right-0" : "left-0",
-            width
+            width,
           )}
         >
           {children(close)}
@@ -71,13 +77,17 @@ export function MenuItem({
       onClick={onClick}
       className={classNames(
         "flex w-full items-center gap-3 px-3.5 py-2.5 text-left text-sm transition-colors hover:bg-canvas",
-        danger ? "text-danger" : "text-ink"
+        danger ? "text-danger" : "text-ink",
       )}
     >
       {Icon && <Icon className="h-4 w-4 shrink-0 text-faint" />}
       <span className="min-w-0">
         <span className="block truncate font-medium">{label}</span>
-        {description && <span className="block truncate text-xs text-faint">{description}</span>}
+        {description && (
+          <span className="block truncate text-xs text-faint">
+            {description}
+          </span>
+        )}
       </span>
     </button>
   );

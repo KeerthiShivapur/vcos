@@ -45,7 +45,7 @@ function DocumentsContent() {
           category: category || undefined,
           search: search || undefined,
           limit: 200,
-        })
+        }),
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load documents");
@@ -67,7 +67,9 @@ function DocumentsContent() {
         actions={
           canManage ? (
             <Link href="/documents/new">
-              <Button size="sm"><Plus className="h-4 w-4" /> New document</Button>
+              <Button size="sm">
+                <Plus className="h-4 w-4" /> New document
+              </Button>
             </Link>
           ) : undefined
         }
@@ -115,18 +117,32 @@ function DocumentsContent() {
       {error ? (
         <ErrorState title="Could not load documents" message={error} />
       ) : loading ? (
-        <div className="flex justify-center py-24"><Spinner label="Loading documents" /></div>
+        <div className="flex justify-center py-24">
+          <Spinner label="Loading documents" />
+        </div>
       ) : documents.length === 0 ? (
         <EmptyState
           icon={FileText}
           title="No documents yet"
           description="Create your first document to start building the org's memory."
-          action={canManage ? <Link href="/documents/new"><Button size="sm"><Plus className="h-4 w-4" /> New document</Button></Link> : undefined}
+          action={
+            canManage ? (
+              <Link href="/documents/new">
+                <Button size="sm">
+                  <Plus className="h-4 w-4" /> New document
+                </Button>
+              </Link>
+            ) : undefined
+          }
         />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {documents.map((doc) => (
-            <KnowledgeCard key={doc.id} item={doc} href={`/documents/${doc.id}`} />
+            <KnowledgeCard
+              key={doc.id}
+              item={doc}
+              href={`/documents/${doc.id}`}
+            />
           ))}
         </div>
       )}

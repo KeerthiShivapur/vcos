@@ -1,0 +1,31 @@
+async def _validate_tenant_isolation(self, db: AsyncSession, organization_id: str) -> ValidationResult:
+        """Validate tenant isolation after restore using adversarial tests."""
+        self.detector.db = db
+        result = ValidationResult(domain="tenant_isolation")
+        
+        # Run standard adversarial tests
+        try:
+            from tests.acceptance.test_tenant_isolation_adversarial import (
+                TenantIsolationAdversarialTests,
+            )
+            
+            # Create test callers
+            caller_a = await self._create_test_caller(db, organization_id, "test-a")
+            caller_b = await self._create_test_caller(db, organization_id, "test-b")
+            
+            tester = TenantIsolationAdversarialTests(db, caller_a, caller_b)
+            test_result = await tester.run_all_tests()
+            
+            if test_result["failed"] == 0:
+                result.add_check(ValidationCheck(
+                    name="adversarial_tests",
+                    status=ValidationStatus.VERIFIED,
+                    message=f"All {test_result['passed']}/{test_result['total_tests']} adversarial tests passed",
+                    details=test_result,
+                ))
+            else:
+                result.add_check(ValidationCheck(
+                    name="adversarial_tests",
+                    status=ValidationStatus.FAILED,
+                    message=f"{test_result['failed']}/{test_result['total_tests']} adversarial tests failed",
+     

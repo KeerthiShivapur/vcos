@@ -96,7 +96,10 @@ function DetailContent() {
       setSelectedMember("");
       await load();
     } catch (err) {
-      toastError("Failed to add member", err instanceof Error ? err.message : undefined);
+      toastError(
+        "Failed to add member",
+        err instanceof Error ? err.message : undefined,
+      );
     } finally {
       setSaving(false);
     }
@@ -109,7 +112,10 @@ function DetailContent() {
       toastSuccess("Member removed");
       await load();
     } catch (err) {
-      toastError("Failed to remove member", err instanceof Error ? err.message : undefined);
+      toastError(
+        "Failed to remove member",
+        err instanceof Error ? err.message : undefined,
+      );
     }
   }
 
@@ -125,7 +131,10 @@ function DetailContent() {
       const goalList = await listTeamGoals(id);
       setGoals(goalList);
     } catch (err) {
-      toastError("Failed to add goal", err instanceof Error ? err.message : undefined);
+      toastError(
+        "Failed to add goal",
+        err instanceof Error ? err.message : undefined,
+      );
     } finally {
       setSaving(false);
     }
@@ -144,13 +153,17 @@ function DetailContent() {
     return (
       <div className="space-y-6">
         <PageHeader title="Team" breadcrumb="Teams" />
-        <div className="flex justify-center py-24"><Spinner label="Loading team" /></div>
+        <div className="flex justify-center py-24">
+          <Spinner label="Loading team" />
+        </div>
       </div>
     );
   }
 
   const memberIds = new Set(team.members.map((m) => m.employee_id));
-  const available = employees.filter((e) => !memberIds.has(e.id) && e.status !== "inactive");
+  const available = employees.filter(
+    (e) => !memberIds.has(e.id) && e.status !== "inactive",
+  );
 
   return (
     <div className="space-y-6">
@@ -162,7 +175,11 @@ function DetailContent() {
 
       <div className="grid gap-4 sm:grid-cols-3">
         <StatCard label="Members" value={team.members_count} icon={Users} />
-        <StatCard label="Department" value={team.department_name ?? "—"} icon={UserSquare2} />
+        <StatCard
+          label="Department"
+          value={team.department_name ?? "—"}
+          icon={UserSquare2}
+        />
         <StatCard label="Goals" value={goals.length} icon={UserSquare2} />
       </div>
 
@@ -172,32 +189,61 @@ function DetailContent() {
           subtitle={`${team.members.length} people`}
           actions={
             canManage ? (
-              <Button size="sm" variant="secondary" onClick={() => { setShowAddMember(true); setSelectedMember(""); }}>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  setShowAddMember(true);
+                  setSelectedMember("");
+                }}
+              >
                 <Plus className="h-4 w-4" /> Add member
               </Button>
             ) : undefined
           }
         >
           {team.members.length === 0 ? (
-            <EmptyState icon={Users} title="No members yet" description="Add people to bring the team to life." />
+            <EmptyState
+              icon={Users}
+              title="No members yet"
+              description="Add people to bring the team to life."
+            />
           ) : (
             <ul className="space-y-2">
               {team.members.map((member) => (
-                <li key={member.id} className="flex items-center gap-3 rounded-xl border border-line px-3 py-2.5">
-                  <Avatar name={member.employee_name} src={member.avatar_url} size="sm" />
+                <li
+                  key={member.id}
+                  className="flex items-center gap-3 rounded-xl border border-line px-3 py-2.5"
+                >
+                  <Avatar
+                    name={member.employee_name}
+                    src={member.avatar_url}
+                    size="sm"
+                  />
                   <div className="min-w-0 flex-1">
-                    <Link href={`/people/${member.employee_id}`} className="truncate text-[13px] font-medium text-ink hover:text-brand">
+                    <Link
+                      href={`/people/${member.employee_id}`}
+                      className="truncate text-[13px] font-medium text-ink hover:text-brand"
+                    >
                       {member.employee_name}
                     </Link>
                     <p className="truncate text-[11px] text-faint">
                       {member.designation || "Employee"}
                       {member.role ? ` · ${member.role}` : ""}
-                      {member.joined_at ? ` · joined ${formatDate(member.joined_at)}` : ""}
+                      {member.joined_at
+                        ? ` · joined ${formatDate(member.joined_at)}`
+                        : ""}
                     </p>
                   </div>
-                  {member.employee_id === team.lead_id && <Badge tone="brand">Lead</Badge>}
+                  {member.employee_id === team.lead_id && (
+                    <Badge tone="brand">Lead</Badge>
+                  )}
                   {canManage && member.employee_id !== team.lead_id && (
-                    <button className="icon-btn hover:!text-danger" onClick={() => handleRemoveMember(member)} aria-label="Remove member">
+                    <button
+                      className="icon-btn hover:!text-danger"
+                      onClick={() => handleRemoveMember(member)}
+                      aria-label="Remove member"
+                    >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   )}
@@ -212,23 +258,46 @@ function DetailContent() {
           subtitle="Team objectives"
           actions={
             canManage ? (
-              <Button size="sm" variant="secondary" onClick={() => setShowGoalModal(true)}>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setShowGoalModal(true)}
+              >
                 <Plus className="h-4 w-4" /> Add goal
               </Button>
             ) : undefined
           }
         >
           {goals.length === 0 ? (
-            <EmptyState icon={UserSquare2} title="No goals yet" description="Track what this team is working toward." />
+            <EmptyState
+              icon={UserSquare2}
+              title="No goals yet"
+              description="Track what this team is working toward."
+            />
           ) : (
             <ul className="space-y-2">
               {goals.map((goal) => (
-                <li key={goal.id} className="flex items-center justify-between gap-3 rounded-xl border border-line px-3 py-2.5">
+                <li
+                  key={goal.id}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-line px-3 py-2.5"
+                >
                   <div className="min-w-0">
-                    <p className="truncate text-[13px] font-medium text-ink">{goal.title}</p>
-                    <p className="text-[11px] text-faint">{formatDate(goal.created_at)}</p>
+                    <p className="truncate text-[13px] font-medium text-ink">
+                      {goal.title}
+                    </p>
+                    <p className="text-[11px] text-faint">
+                      {formatDate(goal.created_at)}
+                    </p>
                   </div>
-                  <Badge tone={goal.status === "completed" ? "success" : goal.status === "in_progress" ? "brand" : "neutral"}>
+                  <Badge
+                    tone={
+                      goal.status === "completed"
+                        ? "success"
+                        : goal.status === "in_progress"
+                          ? "brand"
+                          : "neutral"
+                    }
+                  >
                     {goal.status}
                   </Badge>
                 </li>
@@ -238,7 +307,11 @@ function DetailContent() {
         </Card>
       </div>
 
-      <Modal open={showAddMember} onClose={() => setShowAddMember(false)} title="Add team member">
+      <Modal
+        open={showAddMember}
+        onClose={() => setShowAddMember(false)}
+        title="Add team member"
+      >
         <div className="space-y-4">
           <label className="block text-[13px] font-medium text-muted">
             Employee
@@ -256,18 +329,44 @@ function DetailContent() {
             </select>
           </label>
           <div className="flex justify-end gap-2 pt-2">
-            <Button variant="ghost" onClick={() => setShowAddMember(false)}>Cancel</Button>
-            <Button loading={saving} onClick={handleAddMember} disabled={!selectedMember}>Add member</Button>
+            <Button variant="ghost" onClick={() => setShowAddMember(false)}>
+              Cancel
+            </Button>
+            <Button
+              loading={saving}
+              onClick={handleAddMember}
+              disabled={!selectedMember}
+            >
+              Add member
+            </Button>
           </div>
         </div>
       </Modal>
 
-      <Modal open={showGoalModal} onClose={() => setShowGoalModal(false)} title="Add team goal">
+      <Modal
+        open={showGoalModal}
+        onClose={() => setShowGoalModal(false)}
+        title="Add team goal"
+      >
         <form onSubmit={handleAddGoal} className="space-y-4">
-          <Input label="Goal" required placeholder="Ship the Q3 platform release" value={goalTitle} onChange={(e) => setGoalTitle(e.target.value)} />
+          <Input
+            label="Goal"
+            required
+            placeholder="Ship the Q3 platform release"
+            value={goalTitle}
+            onChange={(e) => setGoalTitle(e.target.value)}
+          />
           <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="ghost" onClick={() => setShowGoalModal(false)}>Cancel</Button>
-            <Button type="submit" loading={saving}>Add goal</Button>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setShowGoalModal(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" loading={saving}>
+              Add goal
+            </Button>
           </div>
         </form>
       </Modal>

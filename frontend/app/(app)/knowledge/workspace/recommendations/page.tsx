@@ -52,7 +52,9 @@ export default function KnowledgeWorkspaceRecommendationsPage() {
   const { user } = useAuth();
   const canManage = roleCan(user?.role, PERMISSIONS.BRAIN_MANAGE);
 
-  const [data, setData] = useState<KnowledgeRecommendationsResponse | null>(null);
+  const [data, setData] = useState<KnowledgeRecommendationsResponse | null>(
+    null,
+  );
   const [busy, setBusy] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [actions, setActions] = useState<ActionState>({
@@ -88,7 +90,12 @@ export default function KnowledgeWorkspaceRecommendationsPage() {
   const run = useCallback(
     async (recommendation: KnowledgeIntelRecommendation, action: string) => {
       if (!canManage || actions.busy) return;
-      setActions((current) => ({ ...current, busy: recommendation.id, error: null, notice: null }));
+      setActions((current) => ({
+        ...current,
+        busy: recommendation.id,
+        error: null,
+        notice: null,
+      }));
       try {
         const payload: {
           action: string;
@@ -113,7 +120,10 @@ export default function KnowledgeWorkspaceRecommendationsPage() {
             payload.project_id = actions.projectId;
           }
         }
-        const result = await brainKnowledgeRecommendationLifecycle(recommendation.id, payload);
+        const result = await brainKnowledgeRecommendationLifecycle(
+          recommendation.id,
+          payload,
+        );
         setActions((current) => ({
           ...current,
           busy: null,
@@ -130,7 +140,14 @@ export default function KnowledgeWorkspaceRecommendationsPage() {
         }));
       }
     },
-    [actions.busy, actions.note, actions.projectId, actions.target, canManage, load]
+    [
+      actions.busy,
+      actions.note,
+      actions.projectId,
+      actions.target,
+      canManage,
+      load,
+    ],
   );
 
   const sorted = useMemo(
@@ -147,7 +164,7 @@ export default function KnowledgeWorkspaceRecommendationsPage() {
         };
         return (order[a.lifecycle] ?? 9) - (order[b.lifecycle] ?? 9);
       }),
-    [data]
+    [data],
   );
 
   return (
@@ -156,19 +173,22 @@ export default function KnowledgeWorkspaceRecommendationsPage() {
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted">
-          The knowledge layer recommends; humans execute. Every transition is explicit and audited —
-          a recommendation is never converted, executed or resolved silently.
+          The knowledge layer recommends; humans execute. Every transition is
+          explicit and audited — a recommendation is never converted, executed
+          or resolved silently.
         </p>
         <Button size="sm" onClick={() => void load()} disabled={busy}>
-          <RefreshCw className={`h-3.5 w-3.5 ${busy ? "animate-spin" : ""}`} /> Refresh
+          <RefreshCw className={`h-3.5 w-3.5 ${busy ? "animate-spin" : ""}`} />{" "}
+          Refresh
         </Button>
       </div>
 
       {!canManage && (
         <Card>
           <p className="text-[13px] text-muted">
-            You can view recommendations. Manage access (<span className="font-mono">brain:manage</span>) is
-            required to review, accept, convert, execute or verify them.
+            You can view recommendations. Manage access (
+            <span className="font-mono">brain:manage</span>) is required to
+            review, accept, convert, execute or verify them.
           </p>
         </Card>
       )}
@@ -209,20 +229,31 @@ export default function KnowledgeWorkspaceRecommendationsPage() {
                     <Badge tone={lifecycleTone(recommendation.lifecycle)}>
                       {lifecycleLabel(recommendation.lifecycle)}
                     </Badge>
-                    <Badge tone={recommendation.risk === "high" ? "danger" : recommendation.risk === "medium" ? "warning" : "success"}>
+                    <Badge
+                      tone={
+                        recommendation.risk === "high"
+                          ? "danger"
+                          : recommendation.risk === "medium"
+                            ? "warning"
+                            : "success"
+                      }
+                    >
                       {recommendation.risk} risk
                     </Badge>
                     <Badge tone={confidenceTone(recommendation.confidence)}>
                       {(recommendation.confidence * 100).toFixed(0)}%
                     </Badge>
                   </div>
-                  <p className="mt-2 text-[13px] leading-relaxed text-ink">{recommendation.reason}</p>
+                  <p className="mt-2 text-[13px] leading-relaxed text-ink">
+                    {recommendation.reason}
+                  </p>
                   <p className="mt-1.5 text-[11px] text-faint">
                     {recommendation.entities.length > 0
                       ? recommendation.entities
                           .map((entity) => entity.name ?? entity.id)
                           .join(", ")
-                      : "no entity"} · {recommendation.evidence.length} claims cited · updated{" "}
+                      : "no entity"}{" "}
+                    · {recommendation.evidence.length} claims cited · updated{" "}
                     {new Date(recommendation.updated_at).toLocaleString()}
                   </p>
                 </div>
@@ -233,7 +264,9 @@ export default function KnowledgeWorkspaceRecommendationsPage() {
                   <ActionButton
                     label="Review"
                     icon={<Eye className="h-3.5 w-3.5" />}
-                    shown={["detected", "candidate"].includes(recommendation.lifecycle)}
+                    shown={["detected", "candidate"].includes(
+                      recommendation.lifecycle,
+                    )}
                     onClick={() => void run(recommendation, "review")}
                     disabled={actions.busy !== null}
                     primary={false}
@@ -249,7 +282,9 @@ export default function KnowledgeWorkspaceRecommendationsPage() {
                   <ActionButton
                     label="Reject"
                     icon={<ThumbsDown className="h-3.5 w-3.5" />}
-                    shown={["detected", "candidate", "reviewed"].includes(recommendation.lifecycle)}
+                    shown={["detected", "candidate", "reviewed"].includes(
+                      recommendation.lifecycle,
+                    )}
                     onClick={() => void run(recommendation, "reject")}
                     disabled={actions.busy !== null}
                     primary={false}
@@ -272,7 +307,10 @@ export default function KnowledgeWorkspaceRecommendationsPage() {
                       <select
                         value={actions.projectId}
                         onChange={(e) =>
-                          setActions((current) => ({ ...current, projectId: e.target.value }))
+                          setActions((current) => ({
+                            ...current,
+                            projectId: e.target.value,
+                          }))
                         }
                         className="max-w-[180px] rounded-lg border border-line bg-surface px-2 py-1.5 text-sm text-ink outline-none focus:border-brand"
                       >
@@ -288,7 +326,9 @@ export default function KnowledgeWorkspaceRecommendationsPage() {
                   <ActionButton
                     label="Convert"
                     icon={<Workflow className="h-3.5 w-3.5" />}
-                    shown={["accepted", "reviewed"].includes(recommendation.lifecycle)}
+                    shown={["accepted", "reviewed"].includes(
+                      recommendation.lifecycle,
+                    )}
                     onClick={() => void run(recommendation, "convert")}
                     disabled={actions.busy !== null}
                     primary={false}
@@ -296,17 +336,24 @@ export default function KnowledgeWorkspaceRecommendationsPage() {
                   <ActionButton
                     label="Execute"
                     icon={<Undo2 className="h-3.5 w-3.5 rotate-180" />}
-                    shown={["converted", "accepted"].includes(recommendation.lifecycle)}
+                    shown={["converted", "accepted"].includes(
+                      recommendation.lifecycle,
+                    )}
                     onClick={() => void run(recommendation, "execute")}
                     disabled={actions.busy !== null}
                     primary={false}
                   />
-                  {["converted", "executed"].includes(recommendation.lifecycle) && (
+                  {["converted", "executed"].includes(
+                    recommendation.lifecycle,
+                  ) && (
                     <span className="flex items-center gap-1.5">
                       <input
                         value={actions.note}
                         onChange={(e) =>
-                          setActions((current) => ({ ...current, note: e.target.value }))
+                          setActions((current) => ({
+                            ...current,
+                            note: e.target.value,
+                          }))
                         }
                         placeholder="Verification note (required)"
                         className="w-56 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-sm text-ink outline-none focus:border-brand"
@@ -334,7 +381,10 @@ export default function KnowledgeWorkspaceRecommendationsPage() {
                   </p>
                   <ol className="space-y-1">
                     {actions.audit[recommendation.id].map((event, index) => (
-                      <li key={index} className="flex items-start gap-2 text-[11px] text-muted">
+                      <li
+                        key={index}
+                        className="flex items-start gap-2 text-[11px] text-muted"
+                      >
                         <Badge tone="neutral" className="shrink-0">
                           {event.action}
                         </Badge>
@@ -355,7 +405,8 @@ export default function KnowledgeWorkspaceRecommendationsPage() {
       {data && (
         <p className="flex items-center gap-1.5 text-[11px] text-faint">
           <ChevronRight className="h-3 w-3" />
-          {data.total} active · kinds: {data.active_kinds.join(", ")} · {data.scope === "org" ? "org-wide view" : "scoped view"}
+          {data.total} active · kinds: {data.active_kinds.join(", ")} ·{" "}
+          {data.scope === "org" ? "org-wide view" : "scoped view"}
         </p>
       )}
     </div>
@@ -379,7 +430,12 @@ function ActionButton({
 }) {
   if (!shown) return null;
   return (
-    <Button size="sm" variant={primary ? "primary" : "secondary"} onClick={onClick} disabled={disabled}>
+    <Button
+      size="sm"
+      variant={primary ? "primary" : "secondary"}
+      onClick={onClick}
+      disabled={disabled}
+    >
       {icon} {label}
     </Button>
   );

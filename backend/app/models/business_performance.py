@@ -1,473 +1,340 @@
-"""Slice 4G.6 — Commercial & Business Performance Intelligence models.
+"""Business Performance models."""
 
-The canonical business-performance ledger of the organization: which business
-metrics matter, the observations that ground them, the targets the company
-commits to, the forecasts that bound expectations, the drivers that move
-things, and the multidimensional performance snapshots that tie it all to
-strategy (4G.3), capacity/demand (4G.4), customer intelligence (4G.5),
-projects, decisions and people.
+from datetime import datetime, date
+from typing import Optional, List
+from sqlalchemy import Date, DateTime, ForeignKey, String, Text, JSON, Boolean, Index, UniqueConstraint, Float, Integer
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-Every connection is stated in deterministic language — linked to / strongly
-associated with / evidence indicates / likely contributor — never invented
-certainty, and every number is a deterministic function of the SAME canonical
-ledger the platform already maintains. Every write is an exact-once,
-change-driven reaction to a durable business event, so replays converge.
-
-The engine is advisory-only and universal: one canonical model for every
-company size (5 to 50,000+ people), with org-wide / business-unit / project
-scopes — never a separate model per company size.
-"""
-
-from datetime import date, datetime
-from typing import Any, Optional
-
-from sqlalchemy import (
-    JSON,
-    Date,
-    DateTime,
-    Float,
-    ForeignKey,
-    Index,
-    Integer,
-    String,
-    Text,
-    UniqueConstraint,
-)
-from sqlalchemy.orm import Mapped, mapped_column
-
-from app.db.database import Base
-from app.models.organization import TimestampMixin, gen_uuid
-
-# --- canonical vocabularies ------------------------------------------------
-
-# Metric domains. A small canonical set so aggregation across orgs and
-# business units stays meaningful at any company size.
-METRIC_KINDS: tuple[str, ...] = (
-    "revenue", "growth", "retention", "churn", "expansion",
-    "efficiency", "quality", "satisfaction", "utilization",
-    "delivery", "adoption", "engagement", "cost", "health",
-    "security", "other",
-)
-# Which direction is good for the business — the basis of every trend call.
-METRIC_DIRECTIONS = ("up_is_good", "down_is_good")
-METRIC_STATUSES = ("active", "retired")
-METRIC_VISIBILITIES = ("public", "internal", "restricted")
-# Natural reporting cadence of a metric.
-METRIC_GRANULARITIES = ("daily", "weekly", "monthly", "quarterly", "yearly")
-# Quantitative nature of an observation: actuals vs expectations.
-OBSERVATION_LABELS = ("actual", "forecast", "plan", "target", "estimated", "other")
-# Provider-neutral observation origins.
-OBSERVATION_SOURCES = (
-    "manual", "survey", "export", "crm", "system",
-    "measurement", "financial", "customer", "operator", "other",
-)
-# Driver taxonomy: what moves a business metric.
-DRIVER_TYPES = (
-    "customer", "market", "operational", "economic",
-    "competitive", "opportunity", "risk",
-)
-# How much evidence grounds the driver.
-DRIVER_STRENGTHS = ("strong", "moderate", "evidence_limited")
-DRIVER_DIRECTIONS = ("toward", "away")
-# The shape of a driver's measurable impact.
-IMPACT_SHAPES = ("attribute", "aggregation", "portfolio")
-# Target lifecycle. delivered/missed close a target; the others are live.
-TARGET_STATUSES = ("pending", "on_track", "at_risk", "slipped", "delivered", "missed")
-# Belief of attainment — the target's own honesty control.
-TARGET_BELIEFS = ("certain", "likely", "plausible", "uncertain")
-FORECAST_TYPES = ("conservative", "base", "optimistic")
-# Where a snapshot looks (org-wide, one business unit, one project).
-SNAPSHOT_SCOPES = ("org_wide", "business_unit", "project")
-# How the snapshot's numbers were produced — projection bases must be labeled.
-COMPUTE_MODES = ("observed", "derived", "projected", "scenario")
-# Multidimensional health state vocabulary (same as customer health 4G.5).
-HEALTH_STATES = ("healthy", "concerned", "at_risk")
-# The deterministic link language. Machine keys; the engine maps them to the
-# canonical phrases ("linked to", "strongly associated with",
-# "evidence indicates", "likely contributor") when served.
-LINK_KINDS = (
-    "linked_to",
-    "strongly_associated_with",
-    "evidence_indicates",
-    "likely_contributor",
-)
-# Canonical business-health dimensions evaluated per snapshot.
-HEALTH_DIMENSIONS: tuple[str, ...] = (
-    "growth", "customers", "execution", "strategy", "capacity",
-    "operations", "innovation", "financial",
-)
-
-
-class BusinessMetric(Base, TimestampMixin):
-    """One canonical business metric — the unit of business measurement.
-
-    Universally defined: kind, direction, unit and visibility are canonical
-    so the same metric key aggregates across any company size. The metric is
-    the anchor for observations, targets, forecasts, drivers and links.
-    """
-
-    __tablename__ = "business_metrics"
-    __table_args__ = (
-        # one live metric per key; updates mutate the live row, and replays
-        # of created/updated events converge through the engine's existence
-        # check (exact-once is enforced there and on observation rows)
-        UniqueConstraint("organization_id", "key", name="uq_bm_metric_key"),
-        Index("ix_bm_org", "organization_id"),
-        Index("ix_bm_org_kind", "organization_id", "kind"),
-    )
-
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
-    organization_id: Mapped[str] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
-    )
-    # canonical metric key, e.g. "recurring_revenue" / "customer_churn"
-    key: Mapped[str] = mapped_column(String(120), nullable=False)
-    label: Mapped[str] = mapped_column(String(200), nullable=False, default="")
-    description: Mapped[Optional[str]] = mapped_column(Text)
-    # revenue | growth | retention | churn | expansion | efficiency | quality |
-    # satisfaction | utilization | delivery | adoption | engagement | cost | health | security | other
-    kind: Mapped[str] = mapped_column(String(40), nullable=False, default="other")
-    # up_is_good | down_is_good
-    direction: Mapped[str] = mapped_column(String(16), nullable=False, default="up_is_good")
-    unit: Mapped[str] = mapped_column(String(40), nullable=False, default="")
-    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
-    # public | internal | restricted
-    visibility: Mapped[str] = mapped_column(String(16), nullable=False, default="internal")
-    # daily | weekly | monthly | quarterly | yearly
-    period_granularity: Mapped[str] = mapped_column(String(16), nullable=False, default="monthly")
-    # org_wide | business_unit | project
-    scope: Mapped[str] = mapped_column(String(16), nullable=False, default="org_wide")
-    # business-unit or project id when the metric is scoped
-    scope_entity_id: Mapped[Optional[str]] = mapped_column(String(32))
-    last_value: Mapped[Optional[float]] = mapped_column(Float)
-    last_observed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    source_event_id: Mapped[str] = mapped_column(String(32), nullable=False)
-
-
-class BusinessMetricObservation(Base, TimestampMixin):
-    """One observed value of a business metric.
-
-    The grounding unit of performance intelligence: an actual/plan/forecast
-    number with its source and provenance (e.g. the customer outcome event
-    that produced it). Exact-once on (org, metric, observed_at, source event)
-    so replays never double-count history.
-    """
-
-    __tablename__ = "business_metric_observations"
-    __table_args__ = (
-        UniqueConstraint(
-            "organization_id", "metric_id", "observed_at", "source_event_id",
-            name="uq_bmo_exact_once",
-        ),
-        Index("ix_bmo_org_metric_time", "organization_id", "metric_id", "observed_at"),
-        Index("ix_bmo_org_time", "organization_id", "observed_at"),
-    )
-
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
-    organization_id: Mapped[str] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
-    )
-    metric_id: Mapped[str] = mapped_column(
-        ForeignKey("business_metrics.id", ondelete="CASCADE"), nullable=False
-    )
-    value: Mapped[float] = mapped_column(Float, nullable=False)
-    observed_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
-    unit: Mapped[str] = mapped_column(String(40), nullable=False, default="")
-    # actual | forecast | plan | target | estimated | other
-    label: Mapped[str] = mapped_column(String(16), nullable=False, default="actual")
-    # manual | survey | export | crm | system | measurement | financial |
-    # customer | operator | other
-    source: Mapped[str] = mapped_column(String(24), nullable=False, default="manual")
-    # where the number came from, e.g. "customer.outcome.recorded:abc123"
-    provenance: Mapped[str] = mapped_column(String(200), nullable=False, default="")
-    note: Mapped[Optional[str]] = mapped_column(Text)
-    source_event_id: Mapped[str] = mapped_column(String(32), nullable=False)
+from app.models.base import Base, TimestampMixin, gen_uuid
 
 
 class BusinessDriver(Base, TimestampMixin):
-    """One driver of business performance — why a metric moves.
-
-    A driver carries its evidence honestly: strength (strong / moderate /
-    evidence_limited), direction, the metric keys it is observed against, and
-    a bounded monetized estimate when evidence allows. Never presented as
-    causation — always as a deterministic, evidence-backed association.
-    """
-
     __tablename__ = "business_drivers"
-    __table_args__ = (
-        # one live driver per key; updates mutate the live row and replays
-        # converge through the engine's existence check
-        UniqueConstraint("organization_id", "key", name="uq_bd_driver_key"),
-        Index("ix_bd_org", "organization_id"),
-        Index("ix_bd_org_type", "organization_id", "driver_type"),
-    )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
     organization_id: Mapped[str] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    key: Mapped[str] = mapped_column(String(120), nullable=False)
-    title: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text)
-    # customer | market | operational | economic | competitive | opportunity | risk
-    driver_type: Mapped[str] = mapped_column(String(24), nullable=False, default="market")
-    # strong | moderate | evidence_limited
-    strength: Mapped[str] = mapped_column(String(20), nullable=False, default="moderate")
-    # toward (improves) | away (hurts)
-    direction: Mapped[str] = mapped_column(String(12), nullable=False, default="toward")
-    # attribute | aggregation | portfolio
-    impact_shape: Mapped[str] = mapped_column(String(16), nullable=False, default="attribute")
-    # canonical metric keys this driver is observed against
-    metric_keys_json: Mapped[Optional[list[Any]]] = mapped_column(JSON, default=list)
-    # bounded monetized estimate per period when evidence allows (never a guess)
-    monetized_impact: Mapped[Optional[float]] = mapped_column(Float)
-    # e.g. "strongly_associated_with recurring_revenue"
-    relation_summary: Mapped[str] = mapped_column(String(300), nullable=False, default="")
-    # linked entities: [{"entity_type": "customer", "entity_id": "..."}]
-    linked_entities_json: Mapped[Optional[list[Any]]] = mapped_column(JSON, default=list)
-    source_event_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    driver_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    category: Mapped[Optional[str]] = mapped_column(String(60), index=True)
+    unit: Mapped[Optional[str]] = mapped_column(String(50))
+    target_direction: Mapped[str] = mapped_column(String(20), default="increase", nullable=False)
+    weight: Mapped[float] = mapped_column(default=1.0, nullable=False)
+    formula: Mapped[Optional[str]] = mapped_column(Text)
+    data_source: Mapped[Optional[str]] = mapped_column(String(200))
+    update_frequency: Mapped[str] = mapped_column(String(24), default="monthly", nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    businessdriver_metadata: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
 
-
-class BusinessTarget(Base, TimestampMixin):
-    """One committed business target on a metric.
-
-    The target connects strategy to measurement: the metric, the numeric
-    commitment, its timeline and periods, the belief of attainment (honest),
-    the owner, and the supporting initiatives / dependencies / open decisions
-    that strategy (4G.3) and coordination (4G.2) surfaced. Status transitions
-    are governed writes (pending -> on_track / at_risk / slipped -> delivered
-    / missed) that publish business.target.updated.
-    """
-
-    __tablename__ = "business_targets"
     __table_args__ = (
-        # one live target per (metric, period); replays converge through the
-        # engine's existence check
-        UniqueConstraint(
-            "organization_id", "metric_id", "period_label",
-            name="uq_bt_live",
-        ),
-        Index("ix_bt_org_metric", "organization_id", "metric_id"),
-        Index("ix_bt_org_status", "organization_id", "status"),
+        UniqueConstraint("organization_id", "name", name="uq_business_drivers_org_name"),
+        Index("ix_business_drivers_org_category", "organization_id", "category"),
     )
-
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
-    organization_id: Mapped[str] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
-    )
-    metric_id: Mapped[str] = mapped_column(
-        ForeignKey("business_metrics.id", ondelete="CASCADE"), nullable=False
-    )
-    metric_label: Mapped[str] = mapped_column(String(200), nullable=False, default="")
-    target_value: Mapped[float] = mapped_column(Float, nullable=False)
-    unit: Mapped[str] = mapped_column(String(40), nullable=False, default="")
-    start_at: Mapped[Optional[date]] = mapped_column(Date)
-    end_at: Mapped[date] = mapped_column(Date, nullable=False)
-    period_label: Mapped[str] = mapped_column(String(80), nullable=False, default="")
-    # pending | on_track | at_risk | slipped | delivered | missed
-    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
-    # certain | likely | plausible | uncertain
-    belief: Mapped[str] = mapped_column(String(16), nullable=False, default="plausible")
-    rationale: Mapped[Optional[str]] = mapped_column(Text)
-    owner_label: Mapped[str] = mapped_column(String(200), nullable=False, default="")
-    # supporting initiatives (labels) from 4G.3 strategy
-    initiative_labels_json: Mapped[Optional[list[Any]]] = mapped_column(JSON, default=list)
-    # supporting dependency labels from 4G.2 coordination
-    dependency_labels_json: Mapped[Optional[list[Any]]] = mapped_column(JSON, default=list)
-    # open decisions that gate attainment
-    open_decisions_json: Mapped[Optional[list[Any]]] = mapped_column(JSON, default=list)
-    # linked strategy node label when declared
-    strategy_label: Mapped[str] = mapped_column(String(300), nullable=False, default="")
-    # linked project labels when declared
-    project_labels_json: Mapped[Optional[list[Any]]] = mapped_column(JSON, default=list)
-    # period-by-period expected values: [{"period": "...", "expected": 100}]
-    periods_json: Mapped[Optional[list[Any]]] = mapped_column(JSON, default=list)
-    # review trail: [{"at": "...", "note": "..."}]
-    reviews_json: Mapped[Optional[list[Any]]] = mapped_column(JSON, default=list)
-    source_event_id: Mapped[str] = mapped_column(String(32), nullable=False)
 
 
 class BusinessForecast(Base, TimestampMixin):
-    """One bounded forecast of a business metric.
-
-    Conservative / base / optimistic arcs over a horizon, each with its basis
-    (the evidence it was derived from), required conditions and risk factors.
-    A forecast is projected knowledge — always labeled as such, never
-    presented as observed fact.
-    """
-
     __tablename__ = "business_forecasts"
-    __table_args__ = (
-        # one live forecast per (metric, horizon, type); replays converge
-        # through the engine's existence check
-        UniqueConstraint(
-            "organization_id", "metric_id", "horizon_label", "forecast_type",
-            name="uq_bf_live",
-        ),
-        Index("ix_bf_org_metric", "organization_id", "metric_id"),
-    )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
     organization_id: Mapped[str] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    forecast_type: Mapped[str] = mapped_column(String(40), default="revenue", nullable=False)
+    metric_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    period_start: Mapped[date] = mapped_column(Date, nullable=False)
+    period_end: Mapped[date] = mapped_column(Date, nullable=False)
+    predicted_value: Mapped[float] = mapped_column(default=0.0, nullable=False)
+    lower_bound: Mapped[Optional[float]] = mapped_column(default=None)
+    upper_bound: Mapped[Optional[float]] = mapped_column(default=None)
+    confidence_level: Mapped[float] = mapped_column(default=0.95, nullable=False)
+    model_name: Mapped[str] = mapped_column(String(100), default="auto", nullable=False)
+    model_version: Mapped[str] = mapped_column(String(50), default="1.0", nullable=False)
+    features_used: Mapped[List[str]] = mapped_column(JSON, default=list)
+    actual_value: Mapped[Optional[float]] = mapped_column(default=None)
+    actual_recorded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    accuracy: Mapped[Optional[float]] = mapped_column(default=None)
+    businessdriver_metadata: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+
+    __table_args__ = (
+        Index("ix_business_forecasts_org_type", "organization_id", "forecast_type"),
+        Index("ix_business_forecasts_org_period", "organization_id", "period_start", "period_end"),
+    )
+
+
+class BusinessMetric(Base, TimestampMixin):
+    __tablename__ = "business_metrics"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    metric_type: Mapped[str] = mapped_column(String(40), default="kpi", nullable=False)
+    category: Mapped[Optional[str]] = mapped_column(String(60), index=True)
+    unit: Mapped[Optional[str]] = mapped_column(String(50))
+    target_direction: Mapped[str] = mapped_column(String(20), default="increase", nullable=False)
+    current_value: Mapped[float] = mapped_column(default=0.0, nullable=False)
+    target_value: Mapped[Optional[float]] = mapped_column(default=None)
+    previous_value: Mapped[Optional[float]] = mapped_column(default=None)
+    unit: Mapped[Optional[str]] = mapped_column(String(50))
+    frequency: Mapped[str] = mapped_column(String(24), default="monthly", nullable=False)
+    data_source: Mapped[Optional[str]] = mapped_column(String(200))
+    formula: Mapped[Optional[str]] = mapped_column(Text)
+    owner_id: Mapped[Optional[str]] = mapped_column(ForeignKey("employees.id", ondelete="SET NULL"), index=True)
+    department_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    businessdriver_metadata: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+
+    __table_args__ = (
+        UniqueConstraint("organization_id", "name", name="uq_business_metrics_org_name"),
+        Index("ix_business_metrics_org_category", "organization_id", "category"),
+    )
+
+
+class BusinessMetricObservation(Base, TimestampMixin):
+    __tablename__ = "business_metric_observations"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
     metric_id: Mapped[str] = mapped_column(
-        ForeignKey("business_metrics.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("business_metrics.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    metric_label: Mapped[str] = mapped_column(String(200), nullable=False, default="")
-    # conservative | base | optimistic
-    forecast_type: Mapped[str] = mapped_column(String(16), nullable=False, default="base")
-    horizon_label: Mapped[str] = mapped_column(String(80), nullable=False, default="")
-    # the evidence the forecast is derived from
-    basis: Mapped[str] = mapped_column(String(300), nullable=False, default="")
-    # [{"period": "...", "low": ..., "mid": ..., "high": ...}]
-    path_json: Mapped[Optional[list[Any]]] = mapped_column(JSON, default=list)
-    low_value: Mapped[Optional[float]] = mapped_column(Float)
-    midpoint_value: Mapped[Optional[float]] = mapped_column(Float)
-    high_value: Mapped[Optional[float]] = mapped_column(Float)
-    # 0..1 confidence with its basis
-    confidence: Mapped[float] = mapped_column(Float, default=0.5)
-    confidence_basis: Mapped[str] = mapped_column(String(300), nullable=False, default="")
-    required_conditions_json: Mapped[Optional[list[Any]]] = mapped_column(JSON, default=list)
-    risk_factors_json: Mapped[Optional[list[Any]]] = mapped_column(JSON, default=list)
-    last_observed_value: Mapped[Optional[float]] = mapped_column(Float)
-    # implied per-period growth rate that produced the arc
-    growth_rate: Mapped[Optional[float]] = mapped_column(Float)
-    source_event_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    value: Mapped[float] = mapped_column(default=0.0, nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+    period_start: Mapped[Optional[date]] = mapped_column(Date)
+    period_end: Mapped[Optional[date]] = mapped_column(Date)
+    source: Mapped[str] = mapped_column(String(60), default="manual", nullable=False)
+    dimensions: Mapped[dict] = mapped_column(JSON, default=dict)
+    businessdriver_metadata: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
 
-
-class BusinessPerformanceSnapshot(Base, TimestampMixin):
-    """The CURRENT evidence-backed performance assessment of a scope.
-
-    Multidimensional health (one explainable state per dimension — the why is
-    always carried), metric trajectories with direction-aware trends, driver
-    associations, monetized gains/losses and a summary narrative. The compute
-    mode labels how the numbers were produced (observed / derived / projected
-    / scenario). The temporal trail lives in BusinessPerformanceHistory.
-    """
-
-    __tablename__ = "business_performance_snapshots"
     __table_args__ = (
-        UniqueConstraint(
-            "organization_id", "scope", "scope_entity_id", "period_label",
-            "compute_mode", "source_event_id",
-            name="uq_bps_exact_once",
-        ),
-        Index(
-            "ix_bps_org_scope_time",
-            "organization_id", "scope", "scope_entity_id", "period_label",
-        ),
+        Index("ix_business_metric_obs_metric_time", "metric_id", "recorded_at"),
+        Index("ix_business_metric_obs_org_time", "organization_id", "recorded_at"),
     )
-
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
-    organization_id: Mapped[str] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
-    )
-    # org_wide | business_unit | project
-    scope: Mapped[str] = mapped_column(String(16), nullable=False, default="org_wide")
-    # business-unit or project id when scoped
-    scope_entity_id: Mapped[str] = mapped_column(String(32), nullable=False, default="")
-    # observed | derived | projected | scenario
-    compute_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="observed")
-    period_label: Mapped[str] = mapped_column(String(80), nullable=False, default="")
-    health_score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    # healthy | concerned | at_risk
-    health_state: Mapped[str] = mapped_column(String(12), nullable=False, default="concerned")
-    # [{"key","label","score","state","reasons","positives","top_metrics","evidence_count","updated_at"}]
-    health_dimensions_json: Mapped[Optional[list[Any]]] = mapped_column(JSON, default=list)
-    # [{"metric_key","label","trend","delta","unit","direction"}]
-    metric_trajectories_json: Mapped[Optional[list[Any]]] = mapped_column(JSON, default=list)
-    # driver associations: [{"driver_key","title","strength","direction","kind"}]
-    driver_links_json: Mapped[Optional[list[Any]]] = mapped_column(JSON, default=list)
-    # monetized gains/losses: [{"label","delta","unit","monetized","direction","confidence"}]
-    gains_losses_json: Mapped[Optional[list[Any]]] = mapped_column(JSON, default=list)
-    # cross-slice links: business/strategy/projects/customer/people/capacity
-    links_json: Mapped[Optional[list[Any]]] = mapped_column(JSON, default=list)
-    summary_narrative: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    event_name: Mapped[str] = mapped_column(String(60), nullable=False, default="")
-    source_event_id: Mapped[str] = mapped_column(String(32), nullable=False)
 
 
 class BusinessPerformanceHistory(Base, TimestampMixin):
-    """Append-only temporal trail of performance assessments.
-
-    One row per snapshot-computing event (exact-once on the source event),
-    so "how did the organisation's performance change" stays answerable over
-    any period — the org-wide performance audit trail.
-    """
-
     __tablename__ = "business_performance_history"
-    __table_args__ = (
-        UniqueConstraint(
-            "organization_id", "scope", "scope_entity_id", "period_label",
-            "compute_mode", "source_event_id",
-            name="uq_bph_exact_once",
-        ),
-        Index(
-            "ix_bph_org_scope_time",
-            "organization_id", "scope", "scope_entity_id", "occurred_at",
-        ),
-    )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
     organization_id: Mapped[str] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    scope: Mapped[str] = mapped_column(String(16), nullable=False, default="org_wide")
-    scope_entity_id: Mapped[str] = mapped_column(String(32), nullable=False, default="")
-    compute_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="observed")
-    period_label: Mapped[str] = mapped_column(String(80), nullable=False, default="")
-    health_score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    health_state: Mapped[str] = mapped_column(String(12), nullable=False, default="concerned")
-    payload_json: Mapped[dict] = mapped_column(JSON, default=dict)
-    event_name: Mapped[str] = mapped_column(String(60), nullable=False, default="")
-    source_event_id: Mapped[str] = mapped_column(String(32), nullable=False)
-    occurred_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
+    period_start: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    period_end: Mapped[date] = mapped_column(Date, nullable=False)
+    period_type: Mapped[str] = mapped_column(String(24), default="monthly", nullable=False)
+    metrics: Mapped[dict] = mapped_column(JSON, default=dict)
+    top_drivers: Mapped[List[dict]] = mapped_column(JSON, default=list)
+    anomalies: Mapped[List[dict]] = mapped_column(JSON, default=list)
+    insights: Mapped[List[str]] = mapped_column(JSON, default=list)
+
+    __table_args__ = (
+        UniqueConstraint("organization_id", "period_start", "period_end", name="uq_biz_perf_hist_org_period"),
+        Index("ix_biz_perf_hist_org_period", "organization_id", "period_start"),
     )
 
 
 class BusinessPerformanceLink(Base, TimestampMixin):
-    """One evidence-weighted connection from business performance to reality.
-
-    Links a performance entity (metric / driver / target / snapshot) to a
-    strategy node, project, customer, person, capacity surface or decision —
-    with a deterministic linkage kind (linked to / strongly associated with /
-    evidence indicates / likely contributor), weight, and the reasoning that
-    produced the connection.
-    """
-
     __tablename__ = "business_performance_links"
-    __table_args__ = (
-        UniqueConstraint(
-            "organization_id", "entity_type", "entity_id",
-            "target_type", "target_id", "kind", "source_event_id",
-            name="uq_bpl_exact_once",
-        ),
-        Index("ix_bpl_org_entity", "organization_id", "entity_type", "entity_id"),
-        Index("ix_bpl_org_target", "organization_id", "target_type", "target_id"),
-    )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
     organization_id: Mapped[str] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    # business_metric | business_driver | business_target | business_performance_snapshot
-    entity_type: Mapped[str] = mapped_column(String(32), nullable=False)
-    entity_id: Mapped[str] = mapped_column(String(32), nullable=False)
-    # strategy_goal | company_objective | company_initiative | project |
-    # customer | person | capacity | decision | business_metric | ...
-    target_type: Mapped[str] = mapped_column(String(32), nullable=False)
-    target_id: Mapped[str] = mapped_column(String(32), nullable=False)
-    # linked_to | strongly_associated_with | evidence_indicates | likely_contributor
-    kind: Mapped[str] = mapped_column(String(32), nullable=False)
-    # 0..1 evidence weight
-    weight: Mapped[float] = mapped_column(Float, default=0.5)
-    evidence_count: Mapped[int] = mapped_column(Integer, default=0)
-    reasoning: Mapped[str] = mapped_column(String(400), nullable=False, default="")
-    source: Mapped[str] = mapped_column(String(24), nullable=False, default="engine")
-    source_event_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    driver_id: Mapped[str] = mapped_column(
+        ForeignKey("business_drivers.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    metric_id: Mapped[str] = mapped_column(
+        ForeignKey("business_metrics.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    relationship_type: Mapped[str] = mapped_column(String(40), default="influences", nullable=False)
+    strength: Mapped[float] = mapped_column(default=1.0, nullable=False)
+    lag_periods: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    confidence: Mapped[float] = mapped_column(default=0.0, nullable=False)
+    evidence: Mapped[List[str]] = mapped_column(JSON, default=list)
+
+    __table_args__ = (
+        UniqueConstraint("driver_id", "metric_id", name="uq_biz_perf_links_driver_metric"),
+        Index("ix_biz_perf_links_org_driver", "organization_id", "driver_id"),
+    )
+
+
+class BusinessPerformanceSnapshot(Base, TimestampMixin):
+    __tablename__ = "business_performance_snapshots"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    snapshot_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    snapshot_type: Mapped[str] = mapped_column(String(24), default="monthly", nullable=False)
+    overall_score: Mapped[float] = mapped_column(default=0.0, nullable=False)
+    metrics: Mapped[dict] = mapped_column(JSON, default=dict)
+    drivers: Mapped[dict] = mapped_column(JSON, default=dict)
+    trends: Mapped[dict] = mapped_column(JSON, default=dict)
+    alerts: Mapped[List[str]] = mapped_column(JSON, default=list)
+    businessdriver_metadata: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+
+    __table_args__ = (
+        UniqueConstraint("organization_id", "snapshot_date", name="uq_biz_perf_snapshots_org_date"),
+        Index("ix_biz_perf_snapshots_org_date", "organization_id", "snapshot_date"),
+    )
+
+
+class BusinessTarget(Base, TimestampMixin):
+    __tablename__ = "business_targets"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    metric_id: Mapped[str] = mapped_column(
+        ForeignKey("business_metrics.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    target_name: Mapped[str] = mapped_column(String(300), nullable=False)
+    target_value: Mapped[float] = mapped_column(default=0.0, nullable=False)
+    start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[date] = mapped_column(Date, nullable=False)
+    target_type: Mapped[str] = mapped_column(String(24), default="absolute", nullable=False)
+    baseline_value: Mapped[Optional[float]] = mapped_column(default=None)
+    owner_id: Mapped[Optional[str]] = mapped_column(ForeignKey("employees.id", ondelete="SET NULL"))
+    status: Mapped[str] = mapped_column(String(24), default="active", nullable=False)
+    achieved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    businessdriver_metadata: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+
+    __table_args__ = (
+        Index("ix_business_targets_org_metric", "organization_id", "metric_id"),
+        Index("ix_business_targets_org_status", "organization_id", "status"),
+    )
+
+
+# Constants
+DRIVER_TYPES = (
+    "revenue",
+    "cost",
+    "efficiency",
+    "quality",
+    "customer_satisfaction",
+    "employee_engagement",
+    "innovation",
+    "compliance",
+    "risk",
+    "growth",
+)
+
+DRIVER_DIRECTIONS = ("increase", "decrease", "maintain")
+
+DRIVER_STRENGTHS = ("weak", "moderate", "strong", "critical")
+
+COMPUTE_MODES = ("average", "weighted", "median", "latest", "trend")
+
+FORECAST_TYPES = ("linear", "exponential", "seasonal", "prophet", "arima")
+
+HEALTH_STATES = ("healthy", "concerned", "at_risk", "critical")
+
+LINK_KINDS = (
+    "driver_to_metric",
+    "metric_to_forecast",
+    "forecast_to_target",
+    "driver_to_target",
+    "causal",
+    "correlation",
+)
+
+METRIC_CATEGORIES = (
+    "financial",
+    "operational",
+    "customer",
+    "employee",
+    "product",
+    "market",
+    "strategic",
+)
+
+METRIC_DIRECTIONS = ("higher_better", "lower_better", "target_range")
+
+METRIC_STATUSES = ("on_track", "at_risk", "off_track", "exceeding")
+
+OBSERVATION_LABELS = ("actual", "projected", "target", "baseline")
+
+OBSERVATION_SOURCES = ("system", "manual", "integration", "calculation")
+
+EPISTEMIC_STATUSES = ("observed", "inferred", "predicted", "proposed", "contested")
+
+LINEAGE_RELATIONS = ("derived_from", "depends_on", "influences", "validates", "contradicts")
+
+VARIANCE_DIRECTIONS = ("positive", "negative", "neutral")
+
+CAUSE_CANDIDATE_STATUS = ("identified", "investigating", "confirmed", "ruled_out")
+
+HEALTH_DIMENSIONS = (
+    "financial",
+    "operational",
+    "customer",
+    "employee",
+    "strategic",
+    "compliance",
+)
+
+DECISION_CONTEXT_SECTIONS = (
+    "rationale",
+    "evidence",
+    "alternatives",
+    "impact_assessment",
+    "risk_assessment",
+    "constraints",
+)
+
+DECISION_STATES = ("proposed", "under_review", "approved", "implemented", "cancelled")
+
+IMPACT_SHAPES = ("linear", "exponential", "step", "s_curve", "custom")
+
+METRIC_GRANULARITIES = ("daily", "weekly", "monthly", "quarterly", "yearly")
+
+METRIC_KINDS = (
+    "revenue",
+    "cost",
+    "profit",
+    "margin",
+    "growth",
+    "efficiency",
+    "quality",
+    "satisfaction",
+    "engagement",
+    "retention",
+    "acquisition",
+    "conversion",
+    "churn",
+    "ltv",
+    "cac",
+    "nps",
+    "csat",
+    "employee_count",
+    "headcount",
+    "turnover",
+    "productivity",
+    "utilization",
+    "capacity",
+    "velocity",
+    "throughput",
+    "cycle_time",
+    "lead_time",
+    "defect_rate",
+    "availability",
+    "latency",
+    "throughput",
+    "error_rate",
+)
+
+METRIC_VISIBILITIES = ("public", "internal", "private", "restricted")
+
+SNAPSHOT_SCOPES = ("organization", "department", "team", "project", "individual")
+
+TARGET_BELIEFS = ("must_hit", "should_hit", "stretch", "aspirational")
+
+TARGET_STATUSES = ("active", "achieved", "missed", "abandoned", "at_risk", "on_track")

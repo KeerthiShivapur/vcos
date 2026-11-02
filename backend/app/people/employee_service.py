@@ -168,13 +168,12 @@ class EmployeeService:
         employee = Employee(
             organization_id=organization_id,
             user_id=user_id,
-            employee_number=await self.next_employee_number(db, organization_id),
+            employee_id=await self.next_employee_number(db, organization_id),
             first_name=first,
             last_name=last,
             display_name=full_name,
             email=email.lower(),
-            designation=designation,
-            timezone="UTC",
+            job_title=designation,
         )
         db.add(employee)
         await db.flush()
@@ -430,11 +429,11 @@ class EmployeeService:
         entry = EmployeeTimeline(
             organization_id=employee.organization_id,
             employee_id=employee.id,
-            kind=kind,
-            title=title,
+            event_type=kind,
+            event_title=title,
             description=description,
-            meta=meta,
-            occurred_at=utcnow(),
+            event_date=utcnow().date(),
+            employmenttype_metadata=meta or {},
         )
         db.add(entry)
         return entry

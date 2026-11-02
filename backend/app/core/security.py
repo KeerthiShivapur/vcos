@@ -48,7 +48,7 @@ def _create_jwt(token_type: str, sub: str, org_id: str, expires_delta: timedelta
     }
     if extra:
         payload.update(extra)
-    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
 def create_access_token(user_id: str, org_id: str) -> str:
@@ -102,7 +102,7 @@ def create_portal_token(portal_user_id: str, org_id: str) -> str:
 
 def decode_token(token: str, expected_type: Optional[str] = None) -> dict[str, Any]:
     settings = get_settings()
-    payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+    payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
     if expected_type and payload.get("type") != expected_type:
         raise jwt.InvalidTokenError(f"Expected token type {expected_type}")
     return payload

@@ -1,0 +1,172 @@
+with open('tests/acceptance/test_release_candidate_slice_2d.py', 'r') as f:
+    content = f.read()
+
+old = '''    @pytest.mark.asyncio
+    async def test_phase_transitions(
+        self,
+        pg_db_session: AsyncSession,
+        test_org: Organization,
+    ):
+        """Test release phase transitions via recovery service."""
+        from app.services.release_failure_recovery import release_failure_recovery_service
+        
+        orchestrator = ReleaseDeploymentOrchestrator()
+        execution = await orchestrator.create_deployment_plan(
+            db=pg_db_session,
+            version="1.0.0",
+            organization_id=test_org.id,
+            initiated_by="test-user",
+        )
+        
+        # Test phase progression via recovery service
+        phases = [
+            "preflight_validation",
+            "fingerprint_capture",
+            "backup_creation",
+            "migration_execution",
+            "application_deployment",
+            "post_deployment_validation",
+            "canonical_verification",
+            "active",
+        ]
+        
+        for phase in phases:
+            execution = await release_failure_recovery_service.advance_phase(
+                db=pg_db_session,
+                release_id=execution.deployment_id,
+                new_phase=phase,
+                actor_id="test-user",
+            )'''
+
+new = '''    @pytest.mark.asyncio
+    async def test_phase_transitions(
+        self,
+        pg_db_session: AsyncSession,
+        test_org: Organization,
+    ):
+        """Test release phase transitions via recovery service."""
+        from app.services.release_failure_recovery import release_failure_recovery_service
+        from app.models.release import ReleaseRecord
+        
+        # Create a ReleaseRecord for phase transition testing
+        release_record = ReleaseRecord(
+            id=f"rel-{uuid.uuid4().hex[:12]}",
+            organization_id=test_org.id,
+            version="1.0.0",
+            status="pending",
+            phase=ReleasePhase.PLANNED.value,
+            initiated_by="test-user",
+        )
+        pg_db_session.add(release_record)
+        await pg_db_session.flush()
+        await pg_db_session.commit()
+        
+        # Test phase progression via recovery service
+        phases = [
+            "preflight_validation",
+            "fingerprint_capture",
+            "backup_creation",
+            "migration_execution",
+            "application_deployment",
+            "post_deployment_validation",
+            "canonical_verification",
+            "active",
+        ]
+        
+        release_id = release_record.id
+        
+        for phase in phases:
+            release_record = await release_failure_recovery_service.advance_phase(
+                db=pg_db_session,
+                release_id=release_id,
+                new_phase=phase,
+                actor_id="test-user",
+            )
+            assert release_record.phase == phase'''
+
+content = content.replace(
+    '''    @pytest.mark.asyncio
+    async def test_phase_transitions(
+        self,
+        pg_db_session: AsyncSession,
+        test_org: Organization,
+    ):
+        """Test release phase transitions via recovery service."""
+        from app.services.release_failure_recovery import release_failure_recovery_service
+        
+        orchestrator = ReleaseDeploymentOrchestrator()
+        execution = await orchestrator.create_deployment_plan(
+            db=pg_db_session,
+            version="1.0.0",
+            organization_id=test_org.id,
+            initiated_by="test-user",
+        )
+        
+        # Test phase progression via recovery service
+        phases = [
+            "preflight_validation",
+            "fingerprint_capture",
+            "backup_creation",
+            "migration_execution",
+            "application_deployment",
+            "post_deployment_validation",
+            "canonical_verification",
+            "active",
+        ]
+        
+        for phase in phases:
+            execution = await release_failure_recovery_service.advance_phase(
+                db=pg_db_session,
+                release_id=execution.deployment_id,
+                new_phase=phase,
+                actor_id="test-user",
+            )''',
+    '''    @pytest.mark.asyncio
+    async def test_phase_transitions(
+        self,
+        pg_db_session: AsyncSession,
+        test_org: Organization,
+    ):
+        """Test release phase transitions via recovery service."""
+        from app.services.release_failure_recovery import release_failure_recovery_service
+        from app.models.release import ReleaseRecord
+        
+        # Create a ReleaseRecord for phase transition testing
+        release_record = ReleaseRecord(
+            id=f"rel-{uuid.uuid4().hex[:12]}",
+            organization_id=test_org.id,
+            version="1.0.0",
+            status="pending",
+            phase=ReleasePhase.PLANNED.value,
+            initiated_by="test-user",
+        )
+        pg_db_session.add(release_record)
+        await pg_db_session.flush()
+        await pg_db_session.commit()
+        
+        # Test phase progression via recovery service
+        phases = [
+            "preflight_validation",
+            "fingerprint_capture",
+            "backup_creation",
+            "migration_execution",
+            "application_deployment",
+            "post_deployment_validation",
+            "canonical_verification",
+            "active",
+        ]
+        
+        release_id = release_record.id
+        
+        for phase in phases:
+            release_record = await release_failure_recovery_service.advance_phase(
+                db=pg_db_session,
+                release_id=release_id,
+                new_phase=phase,
+                actor_id="test-user",
+            )
+            assert release_record.phase == phase''')
+
+with open('tests/acceptance/test_release_candidate_slice_2d.py', 'w') as f:
+    f.write(content)
+print('Done')

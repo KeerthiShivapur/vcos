@@ -1,0 +1,1 @@
+Get-ChildItem 'C:\Program Files\PostgreSQL\18\data' | Where-Object {$_.Name -like '*shared*' -or $_.Name -like '*shmem*' -or $_.Name -like '*postmaster*'} | Select-Object Name

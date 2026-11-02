@@ -1,0 +1,67 @@
+_test_manipulated_backup_manifest(self, result: ValidationResult, db: AsyncSession, organization_id: str) -> None:
+        """Test restore with manipulated backup manifest."""
+        try:
+            from app.models.backup_manifest import BackupManifest, BackupStatus, BackupKind
+            import uuid
+            
+            # Create a backup with manipulated metadata
+            bad_backup = BackupManifest(
+                id=f"bkp-bad-{uuid.uuid4().hex[:8]}",
+                organization_id=organization_id,
+                backup_kind=BackupKind.FULL,
+                status=BackupStatus.VERIFIED,
+                started_at=utcnow() - timedelta(hours=1),
+                completed_at=utcnow(),
+                backup_size_bytes=1024 * 1024 * 100,
+                checksum_sha256="invalid_checksum",  # Intentionally invalid
+                retention_days=30,
+            )
+            db.add(bad_backup)
+            await db.flush()
+            
+            # Attempt restore - should fail due to checksum validation
+            restore_result = await self.restore_from_backup(
+                db=db,
+                backup_id=bad_backup.id,
+                organization_id=organization_id,
+                initiated_by="adversarial_test",
+                skip_recording=True,
+            )
+            
+            if restore_result.get("success", False):
+                result.add_check(ValidationCheck(
+                    name="manipulated_manifest_rejection",
+                    status=ValidationStatus.FAILED,
+                    message="Restore with invalid checksum unexpectedly succeeded",
+                    details={},
+                ))
+            else:
+                result.add_check(ValidationCheck(
+                    name="manipulated_manifest_rejection",
+                    status=ValidationStatus.VERIFIED,
+                    message="Restore with invalid checksum correctly rejected",
+                    details={"error": restore_result.get("error")},
+                ))
+            
+            await db.delete(bad_backup)
+            await db.flush()
+            
+        except Exception as e:
+            logger.warning(f"Manipulated manifest test failed: {e}")
+
+    async def _test_cross_tenant_backup_access(self, result: ValidationResult, db: AsyncSession, organization_id: str) -> None:
+        """Test that backup access is properly tenant-isolated."""
+        try:
+            from app.models.backup_manifest import BackupManifest, BackupStatus, BackupKind
+            import uuid
+            
+            # Create another organization
+            other_org_id = f"other-{uuid.uuid4().hex[:8]}"
+            
+            # Create a backup for the other org
+            other_backup = BackupManifest(
+                id=f"bkp-access-{uuid.uuid4().hex[:8]}",
+                organization_id=other_org_id,
+                backup_kind=BackupKind.FULL,
+                status=BackupStatus.VERIFIED,
+                started_at=utcnow() - timedelta(hours=1

@@ -1,60 +1,56 @@
-"""Slice 4D.7 — Brain conversation turns (follow-up continuity artifact).
-
-A conversation is a bounded, tenant- and owner-scoped session record so a
-follow-up question ("Has this happened before?", "Who owns it?") can inherit
-the anchor entity from the previous utterance — without the user repeating
-the entity and without the frontend re-sending the anchor.
-
-Observation-only artifact: turns are appended when a question is answered;
-no operating entity is ever mutated through this table.
-"""
+"""Brain Conversation models."""
 
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
+from sqlalchemy import DateTime, ForeignKey, String, Text, JSON, Boolean, Index, UniqueConstraint, Integer
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from app.models.base import Base, TimestampMixin, gen_uuid
 
-from app.core.timeutils import utcnow
-from app.db.database import Base
-from app.models.organization import TimestampMixin, gen_uuid
+
+class BrainConversationStatus(str):
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+    DELETED = "deleted"
 
 
 class BrainConversation(Base, TimestampMixin):
     __tablename__ = "brain_conversations"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("employees.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    title: Mapped[Optional[str]] = mapped_column(String(300))
+    model: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default=BrainConversationStatus.ACTIVE, nullable=False)
+    message_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    tokens_used: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    cost_usd: Mapped[float] = mapped_column(default=0.0, nullable=False)
+    brainconversationstatus_metadata: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+
     __table_args__ = (
         Index("ix_brain_conversations_org_user", "organization_id", "user_id"),
+        Index("ix_brain_conversations_org_status", "organization_id", "status"),
     )
 
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
-    organization_id: Mapped[str] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
-    )
-    user_id: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-    )
-    turn_count: Mapped[int] = mapped_column(default=0, nullable=False)
-    last_anchor_type: Mapped[Optional[str]] = mapped_column(String(40))
-    last_anchor_id: Mapped[Optional[str]] = mapped_column(String(32))
-    last_anchor_title: Mapped[Optional[str]] = mapped_column(String(300))
 
-
-class BrainConversationTurn(Base):
+class BrainConversationTurn(Base, TimestampMixin):
     __tablename__ = "brain_conversation_turns"
-    __table_args__ = (
-        Index("ix_brain_turns_conversation", "conversation_id"),
-    )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
-    organization_id: Mapped[str] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
-    )
     conversation_id: Mapped[str] = mapped_column(
-        ForeignKey("brain_conversations.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("brain_conversations.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    question: Mapped[str] = mapped_column(Text, nullable=False)
-    summary: Mapped[Optional[str]] = mapped_column(Text)
-    anchor_type: Mapped[Optional[str]] = mapped_column(String(40))
-    anchor_id: Mapped[Optional[str]] = mapped_column(String(32))
-    anchor_title: Mapped[Optional[str]] = mapped_column(String(300))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    role: Mapped[str] = mapped_column(String(20), nullable=False)  # user, assistant, system
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    model: Mapped[Optional[str]] = mapped_column(String(100))
+    brainconversationstatus_metadata: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+
+    __table_args__ = (
+        Index("ix_brain_conversation_turns_conv", "conversation_id"),
+    )

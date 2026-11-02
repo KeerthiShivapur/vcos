@@ -32,7 +32,7 @@ export function Button({
       className={classNames(
         variantClasses[variant],
         size === "sm" && "btn-sm",
-        className
+        className,
       )}
       disabled={disabled || loading}
       {...props}

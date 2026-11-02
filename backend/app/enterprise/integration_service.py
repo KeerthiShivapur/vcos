@@ -14,8 +14,37 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.timeutils import utcnow
 from app.events.publisher import publish_event
 from app.models.enterprise import IntegrationConnection
+from app.services.provider_adapters import (
+    GoogleWorkspaceAdapter, SlackAdapter, GitHubAdapter, JiraAdapter,
+    Microsoft365Adapter,
+)
 
 VALID_KINDS = ("webhook", "api", "app", "datasource")
+
+# Provider adapter map
+PROVIDER_ADAPTERS = {
+    "google": GoogleWorkspaceAdapter,
+    "slack": SlackAdapter,
+    "github": GitHubAdapter,
+    "jira": JiraAdapter,
+    "microsoft": Microsoft365Adapter,
+}
+
+
+class MockAdapterInstance:
+    """Mock instance for provider adapters using IntegrationConnection data."""
+    def __init__(self, connection: 'IntegrationConnection'):
+        self.config = connection.config or {}
+        self.credentials = {
+            "access_token": connection.access_token,
+            "refresh_token": connection.refresh_token,
+            "client_id": (connection.config or {}).get("client_id"),
+            "client_secret": (connection.config or {}).get("client_secret"),
+            "personal_access_token": (connection.config or {}).get("personal_access_token"),
+        }
+        self.id = connection.id
+        self.provider = connection.provider
+        self.name = connection.name
 
 
 class IntegrationService:
@@ -109,6 +138,34 @@ class IntegrationService:
         connection = await self.get(db, organization_id, connection_id)
         if connection is None:
             return None
+        
+        provider = connection.provider.lower()
+        adapter_class = PROVIDER_ADAPTERS.get(provider)
+        
+        if adapter_class and connection.access_token:
+            # Use provider-specific adapter for testing
+            mock_instance = MockAdapterInstance(connection)
+            adapter = adapter_class(mock_instance)
+            try:
+                result = await adapter.test_connection(mock_instance)
+                connection.status = "active" if result.get("success") else "error"
+                if not result.get("success"):
+                    connection.error = result.get("error", "Connection test failed")
+                else:
+                    connection.error = None
+                await publish_event(
+                    db,
+                    name="integration.tested",
+                    organization_id=organization_id,
+                    payload={"integration_id": connection.id, "provider": connection.provider, "result": result},
+                )
+                return {"integration_id": connection.id, "status": connection.status, "detail": result.get("detail", result.get("error", "Test completed"))}
+            except Exception as e:
+                connection.status = "error"
+                connection.error = f"Test failed: {str(e)}"
+                return {"integration_id": connection.id, "status": "error", "detail": f"Test failed: {str(e)}"}
+        
+        # Fallback to basic config validation
         config = connection.config or {}
         ok, reason = True, "handshake ok"
         if connection.kind == "webhook":
@@ -134,6 +191,75 @@ class IntegrationService:
             return None
         if connection.status != "active":
             raise ValueError("integration is not active")
+        
+        provider = connection.provider.lower()
+        adapter_class = PROVIDER_ADAPTERS.get(provider)
+        
+        if adapter_class and connection.access_token:
+            # Use provider-specific adapter for synchronization
+            mock_instance = MockAdapterInstance(connection)
+            adapter = adapter_class(mock_instance)
+            try:
+                # Get supported entity types for this provider
+                entity_types = adapter._get_supported_entity_types() if hasattr(adapter, '_get_supported_entity_types') else []
+                
+                sync_results = {}
+                total_entities = 0
+                
+                for entity_type in entity_types:
+                    try:
+                        result = await adapter.fetch_page(mock_instance, entity_type, page_size=100)
+                        entities = result.get("entities", [])
+                        sync_results[entity_type] = {
+                            "count": len(entities),
+                            "next_cursor": result.get("next_cursor"),
+                            "has_more": result.get("has_more", False),
+                        }
+                        total_entities += len(entities)
+                    except Exception as e:
+                        sync_results[entity_type] = {"error": str(e), "count": 0}
+                
+                connection.last_sync_at = utcnow()
+                connection.error = None
+                
+                await publish_event(
+                    db,
+                    name="integration.synced",
+                    organization_id=organization_id,
+                    actor_id=actor_id,
+                    payload={
+                        "integration_id": connection.id,
+                        "name": connection.name,
+                        "provider": connection.provider,
+                        "entities_synced": total_entities,
+                        "sync_results": sync_results,
+                    },
+                )
+                
+                return {
+                    "integration_id": connection.id,
+                    "status": connection.status,
+                    "last_sync_at": connection.last_sync_at,
+                    "entities_synced": total_entities,
+                    "sync_results": sync_results,
+                }
+            except Exception as e:
+                connection.error = f"Sync failed: {str(e)}"
+                await publish_event(
+                    db,
+                    name="integration.sync_failed",
+                    organization_id=organization_id,
+                    actor_id=actor_id,
+                    payload={"integration_id": connection.id, "provider": connection.provider, "error": str(e)},
+                )
+                return {
+                    "integration_id": connection.id,
+                    "status": "error",
+                    "last_sync_at": connection.last_sync_at,
+                    "error": str(e),
+                }
+        
+        # Fallback: just update timestamp for basic integrations
         connection.last_sync_at = utcnow()
         await publish_event(
             db,

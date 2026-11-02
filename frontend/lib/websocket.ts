@@ -60,7 +60,8 @@ export const notificationChannel = new NotificationChannel();
 
 function messagingWsUrl(token: string): string {
   const base = API_URL.replace(/^http/, "ws");
-  const apiPath = base.indexOf("/api/") >= 0 ? base.slice(0, base.indexOf("/api/")) : base;
+  const apiPath =
+    base.indexOf("/api/") >= 0 ? base.slice(0, base.indexOf("/api/")) : base;
   return `${apiPath}/ws/messaging?token=${encodeURIComponent(token)}`;
 }
 
@@ -106,7 +107,10 @@ class MessagingChannel {
     this.ws = ws;
     ws.onopen = () => {
       this.attempts = 0;
-      this.heartbeat = setInterval(() => this.send("heartbeat"), HEARTBEAT_INTERVAL_MS);
+      this.heartbeat = setInterval(
+        () => this.send("heartbeat"),
+        HEARTBEAT_INTERVAL_MS,
+      );
     };
     ws.onmessage = (event) => {
       let envelope: { type?: string; data?: Record<string, unknown> };
@@ -144,7 +148,8 @@ class MessagingChannel {
   }
 
   private scheduleReconnect(delay?: number) {
-    if (this.disposed || this.reconnectTimer || this.listeners.size === 0) return;
+    if (this.disposed || this.reconnectTimer || this.listeners.size === 0)
+      return;
     const backoff = Math.min(3_000 * 2 ** this.attempts, MAX_RECONNECT_MS);
     this.attempts += 1;
     this.reconnectTimer = setTimeout(() => {

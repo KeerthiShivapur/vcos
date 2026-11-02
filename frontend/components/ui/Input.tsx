@@ -8,7 +8,14 @@ interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   hint?: string;
 }
 
-export function Input({ label, error, hint, className, id, ...props }: InputProps) {
+export function Input({
+  label,
+  error,
+  hint,
+  className,
+  id,
+  ...props
+}: InputProps) {
   const inputId = id ?? props.name;
   return (
     <div className="w-full">
@@ -19,7 +26,11 @@ export function Input({ label, error, hint, className, id, ...props }: InputProp
       )}
       <input
         id={inputId}
-        className={classNames("input", error && "border-danger focus:border-danger focus:ring-danger/20", className)}
+        className={classNames(
+          "input",
+          error && "border-danger focus:border-danger focus:ring-danger/20",
+          className,
+        )}
         aria-invalid={Boolean(error)}
         {...props}
       />

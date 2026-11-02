@@ -5,7 +5,13 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { CheckSquare2, Columns3, GripVertical, Search } from "lucide-react";
 
-import { listEmployees, listProjects, listSprints, listTasks, transitionTask } from "@/lib/api";
+import {
+  listEmployees,
+  listProjects,
+  listSprints,
+  listTasks,
+  transitionTask,
+} from "@/lib/api";
 import { roleCan, PERMISSIONS } from "@/lib/permissions";
 import type { EmployeeSummary, Project, Sprint, Task } from "@/types";
 import { useAuth } from "@/hooks/useAuth";
@@ -21,7 +27,14 @@ import { Avatar } from "@/components/ui/Avatar";
 import { formatDate, titleCase } from "@/lib/utils";
 import { toastError, toastSuccess } from "@/components/ui/Toaster";
 
-const STATUSES = ["backlog", "todo", "in_progress", "review", "blocked", "completed"];
+const STATUSES = [
+  "backlog",
+  "todo",
+  "in_progress",
+  "review",
+  "blocked",
+  "completed",
+];
 
 export default function BoardPage() {
   return (
@@ -54,11 +67,20 @@ function BoardContent() {
 
   const allTags = useMemo(() => {
     const seen: string[] = [];
-    tasks.forEach((t) => (t.tags ?? []).forEach((tg) => { if (!seen.includes(tg)) seen.push(tg); }));
+    tasks.forEach((t) =>
+      (t.tags ?? []).forEach((tg) => {
+        if (!seen.includes(tg)) seen.push(tg);
+      }),
+    );
     return seen.sort();
   }, [tasks]);
 
-  const overdue = tasks.filter((t) => t.due_date && t.status !== "completed" && new Date(t.due_date) < new Date()).length;
+  const overdue = tasks.filter(
+    (t) =>
+      t.due_date &&
+      t.status !== "completed" &&
+      new Date(t.due_date) < new Date(),
+  ).length;
 
   async function load() {
     setLoading(true);
@@ -99,7 +121,9 @@ function BoardContent() {
       .catch(() => [] as Sprint[])
       .then((list) => {
         setSprints(list);
-        setSprintId((current) => (list.some((s) => s.id === current) ? current : ""));
+        setSprintId((current) =>
+          list.some((s) => s.id === current) ? current : "",
+        );
       });
   }, [projectId]);
 
@@ -146,7 +170,11 @@ function BoardContent() {
         description="Drag tasks across the board — transitions respect dependencies and roll progress up."
         actions={
           canManage ? (
-            <Button size="sm" variant="secondary" onClick={() => window.location.assign("/tasks")}>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => window.location.assign("/tasks")}
+            >
               <Columns3 className="h-4 w-4" /> Open tasks
             </Button>
           ) : undefined
@@ -154,17 +182,41 @@ function BoardContent() {
       />
 
       <div className="flex flex-wrap items-center gap-3">
-        <Select className="h-9 w-44" aria-label="Project" options={projects.map((p) => ({ value: p.id, label: p.name }))}
-          value={projectId} onChange={(e) => setProjectId(e.target.value)} placeholder="All projects" />
+        <Select
+          className="h-9 w-44"
+          aria-label="Project"
+          options={projects.map((p) => ({ value: p.id, label: p.name }))}
+          value={projectId}
+          onChange={(e) => setProjectId(e.target.value)}
+          placeholder="All projects"
+        />
         {projectId && (
-          <Select className="h-9 w-44" aria-label="Sprint" options={sprints.map((s) => ({ value: s.id, label: s.name }))}
-            value={sprintId} onChange={(e) => setSprintId(e.target.value)} placeholder="All sprints" />
+          <Select
+            className="h-9 w-44"
+            aria-label="Sprint"
+            options={sprints.map((s) => ({ value: s.id, label: s.name }))}
+            value={sprintId}
+            onChange={(e) => setSprintId(e.target.value)}
+            placeholder="All sprints"
+          />
         )}
-        <Select className="h-9 w-44" aria-label="Assignee" options={employees.map((e) => ({ value: e.id, label: e.full_name }))}
-          value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)} placeholder="Anyone" />
+        <Select
+          className="h-9 w-44"
+          aria-label="Assignee"
+          options={employees.map((e) => ({ value: e.id, label: e.full_name }))}
+          value={assigneeId}
+          onChange={(e) => setAssigneeId(e.target.value)}
+          placeholder="Anyone"
+        />
         {allTags.length > 0 && (
-          <Select className="h-9 w-36" aria-label="Label" options={allTags.map((t) => ({ value: t, label: t }))}
-            value={tag} onChange={(e) => setTag(e.target.value)} placeholder="All labels" />
+          <Select
+            className="h-9 w-36"
+            aria-label="Label"
+            options={allTags.map((t) => ({ value: t, label: t }))}
+            value={tag}
+            onChange={(e) => setTag(e.target.value)}
+            placeholder="All labels"
+          />
         )}
         <div className="relative">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
@@ -185,7 +237,9 @@ function BoardContent() {
       {error ? (
         <ErrorState title="Could not load the board" message={error} />
       ) : loading ? (
-        <div className="flex justify-center py-24"><Spinner label="Loading board" /></div>
+        <div className="flex justify-center py-24">
+          <Spinner label="Loading board" />
+        </div>
       ) : (
         <div className="flex items-start gap-4 overflow-x-auto pb-2">
           {STATUSES.map((column) => {
@@ -194,16 +248,40 @@ function BoardContent() {
               <div
                 key={column}
                 data-status={column}
-                onDragOver={(e) => { if (canManage) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOver(column); } }}
-                onDragLeave={() => setDragOver((current) => (current === column ? null : current))}
+                onDragOver={(e) => {
+                  if (canManage) {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    setDragOver(column);
+                  }
+                }}
+                onDragLeave={() =>
+                  setDragOver((current) =>
+                    current === column ? null : current,
+                  )
+                }
                 onDrop={(e) => handleDropOnColumn(e, column)}
                 className={`flex min-h-[420px] min-w-64 flex-1 flex-col rounded-xl border bg-surface/50 transition-colors ${
-                  dragOver === column ? "border-brand bg-brand/5" : "border-line"
+                  dragOver === column
+                    ? "border-brand bg-brand/5"
+                    : "border-line"
                 }`}
               >
                 <div className="flex items-center justify-between border-b border-line px-3 py-2.5">
-                  <span className="text-[12px] font-semibold uppercase tracking-wide text-muted">{titleCase(column)}</span>
-                  <Badge tone={column === "completed" ? "success" : column === "blocked" ? "danger" : "neutral"}>{columnTasks.length}</Badge>
+                  <span className="text-[12px] font-semibold uppercase tracking-wide text-muted">
+                    {titleCase(column)}
+                  </span>
+                  <Badge
+                    tone={
+                      column === "completed"
+                        ? "success"
+                        : column === "blocked"
+                          ? "danger"
+                          : "neutral"
+                    }
+                  >
+                    {columnTasks.length}
+                  </Badge>
                 </div>
                 <div className="flex flex-1 flex-col gap-2 p-2">
                   {columnTasks.map((task) => (
@@ -212,44 +290,88 @@ function BoardContent() {
                       data-task-id={task.id}
                       draggable={canManage}
                       onDragStart={(e) => handleDragStart(e, task.id)}
-                      onDragEnd={() => { setDraggingId(null); setDragOver(null); }}
+                      onDragEnd={() => {
+                        setDraggingId(null);
+                        setDragOver(null);
+                      }}
                       className={`group cursor-grab rounded-lg border bg-canvas p-3 transition-all hover:border-brand/40 active:cursor-grabbing ${
-                        draggingId === task.id ? "opacity-50 ring-2 ring-brand/40" : "border-line"
+                        draggingId === task.id
+                          ? "opacity-50 ring-2 ring-brand/40"
+                          : "border-line"
                       }`}
                     >
                       <div className="flex items-start gap-2">
-                        <Link href={`/tasks/${task.id}`} className="min-w-0 flex-1">
-                          <p className="text-[13px] font-medium leading-snug text-ink">{task.title}</p>
-                          {task.project_name && <p className="mt-0.5 truncate text-[11px] text-faint">{task.project_name}</p>}
+                        <Link
+                          href={`/tasks/${task.id}`}
+                          className="min-w-0 flex-1"
+                        >
+                          <p className="text-[13px] font-medium leading-snug text-ink">
+                            {task.title}
+                          </p>
+                          {task.project_name && (
+                            <p className="mt-0.5 truncate text-[11px] text-faint">
+                              {task.project_name}
+                            </p>
+                          )}
                         </Link>
-                        {canManage && <GripVertical className="mt-0.5 h-3.5 w-3.5 shrink-0 text-faint" />}
+                        {canManage && (
+                          <GripVertical className="mt-0.5 h-3.5 w-3.5 shrink-0 text-faint" />
+                        )}
                       </div>
                       {(task.tags ?? []).length > 0 && (
                         <div className="mt-1 flex flex-wrap gap-1">
                           {task.tags!.map((tg) => (
-                            <span key={tg} className="rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-medium text-brand">{tg}</span>
+                            <span
+                              key={tg}
+                              className="rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-medium text-brand"
+                            >
+                              {tg}
+                            </span>
                           ))}
                         </div>
                       )}
                       <div className="mt-1.5 flex items-center justify-between gap-2">
                         <div className="flex min-w-0 items-center gap-1.5">
-                          <Badge tone={task.priority === "critical" ? "danger" : task.priority === "high" ? "warning" : task.priority === "low" ? "neutral" : "brand"}>
+                          <Badge
+                            tone={
+                              task.priority === "critical"
+                                ? "danger"
+                                : task.priority === "high"
+                                  ? "warning"
+                                  : task.priority === "low"
+                                    ? "neutral"
+                                    : "brand"
+                            }
+                          >
                             {task.priority}
                           </Badge>
                           {(task.blocked_by ?? []).length > 0 && (
-                            <span title={(task.blocked_by ?? []).map((b) => b.title).join(", ")} className="rounded-full bg-danger/10 px-2 py-0.5 text-[10px] font-medium text-danger">
-                              {task.blocked_by!.length} blocker{task.blocked_by!.length > 1 ? "s" : ""}
+                            <span
+                              title={(task.blocked_by ?? [])
+                                .map((b) => b.title)
+                                .join(", ")}
+                              className="rounded-full bg-danger/10 px-2 py-0.5 text-[10px] font-medium text-danger"
+                            >
+                              {task.blocked_by!.length} blocker
+                              {task.blocked_by!.length > 1 ? "s" : ""}
                             </span>
                           )}
                         </div>
                         <div className="flex shrink-0 items-center gap-1.5">
-                          {task.assignee_name ? <Avatar name={task.assignee_name} size="xs" /> : null}
-                          <span className="text-[10px] text-faint">{task.due_date ? formatDate(task.due_date) : ""}</span>
+                          {task.assignee_name ? (
+                            <Avatar name={task.assignee_name} size="xs" />
+                          ) : null}
+                          <span className="text-[10px] text-faint">
+                            {task.due_date ? formatDate(task.due_date) : ""}
+                          </span>
                         </div>
                       </div>
                       {task.status === "in_progress" && task.progress > 0 && (
                         <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-line">
-                          <div className="h-full rounded-full bg-brand" style={{ width: `${task.progress}%` }} />
+                          <div
+                            className="h-full rounded-full bg-brand"
+                            style={{ width: `${task.progress}%` }}
+                          />
                         </div>
                       )}
                     </div>
@@ -271,7 +393,16 @@ function BoardContent() {
           icon={CheckSquare2}
           title="No tasks match the filters"
           description="Adjust the filters above or create a task to start executing."
-          action={canManage ? <Button size="sm" onClick={() => window.location.assign("/tasks")}>New task</Button> : undefined}
+          action={
+            canManage ? (
+              <Button
+                size="sm"
+                onClick={() => window.location.assign("/tasks")}
+              >
+                New task
+              </Button>
+            ) : undefined
+          }
         />
       )}
     </div>

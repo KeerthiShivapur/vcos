@@ -41,13 +41,19 @@ const INSIGHT_TYPES = [
   { id: "cross_domain_risk", label: "Cross-domain" },
 ] as const;
 
-const SEVERITY_TONE: Record<string, "brand" | "success" | "warning" | "danger" | "neutral"> = {
+const SEVERITY_TONE: Record<
+  string,
+  "brand" | "success" | "warning" | "danger" | "neutral"
+> = {
   info: "neutral",
   warning: "warning",
   critical: "danger",
 };
 
-const STATUS_TONE: Record<string, "brand" | "success" | "warning" | "danger" | "neutral"> = {
+const STATUS_TONE: Record<
+  string,
+  "brand" | "success" | "warning" | "danger" | "neutral"
+> = {
   active: "warning",
   faded: "neutral",
   resolved: "success",
@@ -69,8 +75,12 @@ export function UniversalInsightsTab() {
   const [insights, setInsights] = useState<BrainInsight[]>([]);
   const [typeFilter, setTypeFilter] = useState("");
   const [selected, setSelected] = useState<BrainInsight | null>(null);
-  const [evidence, setEvidence] = useState<BrainInsightEvidenceItem[] | null>(null);
-  const [history, setHistory] = useState<BrainInsightHistoryResponse | null>(null);
+  const [evidence, setEvidence] = useState<BrainInsightEvidenceItem[] | null>(
+    null,
+  );
+  const [history, setHistory] = useState<BrainInsightHistoryResponse | null>(
+    null,
+  );
   const [related, setRelated] = useState<RelatedInsight[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -112,7 +122,9 @@ export function UniversalInsightsTab() {
       setHistory(historyRes);
       setRelated(rel.related);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load insight detail");
+      setError(
+        err instanceof Error ? err.message : "Failed to load insight detail",
+      );
     }
   };
 
@@ -136,11 +148,18 @@ export function UniversalInsightsTab() {
           </button>
         ))}
         <span className="ml-auto flex items-center gap-2">
-          <Badge tone={critical > 0 ? "danger" : "neutral"}>{critical} critical</Badge>
-          <Badge tone={warnings > 0 ? "warning" : "neutral"}>{warnings} warnings</Badge>
+          <Badge tone={critical > 0 ? "danger" : "neutral"}>
+            {critical} critical
+          </Badge>
+          <Badge tone={warnings > 0 ? "warning" : "neutral"}>
+            {warnings} warnings
+          </Badge>
           <Badge tone="brand">{insights.length} insights</Badge>
           <Button size="sm" variant="secondary" onClick={load} disabled={busy}>
-            <RefreshCw className={`h-3.5 w-3.5 ${busy ? "animate-spin" : ""}`} /> Refresh
+            <RefreshCw
+              className={`h-3.5 w-3.5 ${busy ? "animate-spin" : ""}`}
+            />{" "}
+            Refresh
           </Button>
         </span>
       </div>
@@ -167,15 +186,23 @@ export function UniversalInsightsTab() {
               >
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Badge tone={SEVERITY_TONE[insight.severity] ?? "neutral"}>{insight.severity}</Badge>
-                    <span className="truncate text-[13px] font-medium text-ink">{insight.title}</span>
+                    <Badge tone={SEVERITY_TONE[insight.severity] ?? "neutral"}>
+                      {insight.severity}
+                    </Badge>
+                    <span className="truncate text-[13px] font-medium text-ink">
+                      {insight.title}
+                    </span>
                   </div>
                   {insight.claim && (
-                    <p className="mt-1 line-clamp-2 text-xs text-muted">{insight.claim}</p>
+                    <p className="mt-1 line-clamp-2 text-xs text-muted">
+                      {insight.claim}
+                    </p>
                   )}
                   <p className="mt-1 text-[11px] text-faint">
                     {insight.insight_type}
-                    {insight.scope_type === "project" ? " · project-scoped" : " · org-wide"}
+                    {insight.scope_type === "project"
+                      ? " · project-scoped"
+                      : " · org-wide"}
                     {insight.last_observed_at
                       ? ` · observed ${new Date(insight.last_observed_at).toLocaleString()}`
                       : ""}
@@ -185,7 +212,9 @@ export function UniversalInsightsTab() {
                   <Badge tone={confidenceTone(insight.confidence)}>
                     {Math.round(insight.confidence * 100)}% confidence
                   </Badge>
-                  <Badge tone={STATUS_TONE[insight.status] ?? "neutral"}>{insight.status}</Badge>
+                  <Badge tone={STATUS_TONE[insight.status] ?? "neutral"}>
+                    {insight.status}
+                  </Badge>
                 </div>
               </button>
             ))}
@@ -194,30 +223,40 @@ export function UniversalInsightsTab() {
       </Card>
 
       {selected && (
-        <Card title={selected.title} subtitle={`${selected.insight_type} · ${selected.domain} · ${selected.status}`}>
+        <Card
+          title={selected.title}
+          subtitle={`${selected.insight_type} · ${selected.domain} · ${selected.status}`}
+        >
           <div className="space-y-4">
             <div className="flex flex-wrap gap-2">
-              <Badge tone={SEVERITY_TONE[selected.severity] ?? "neutral"}>{selected.severity}</Badge>
+              <Badge tone={SEVERITY_TONE[selected.severity] ?? "neutral"}>
+                {selected.severity}
+              </Badge>
               <Badge tone={confidenceTone(selected.confidence)}>
                 {Math.round(selected.confidence * 100)}% confidence
               </Badge>
               <Badge tone="neutral">{selected.status}</Badge>
-              {selected.scope_type === "project" && <Badge tone="warning">project-scoped</Badge>}
+              {selected.scope_type === "project" && (
+                <Badge tone="warning">project-scoped</Badge>
+              )}
               {selected.first_observed_at && (
                 <Badge tone="neutral">
-                  since {new Date(selected.first_observed_at).toLocaleDateString()}
+                  since{" "}
+                  {new Date(selected.first_observed_at).toLocaleDateString()}
                 </Badge>
               )}
             </div>
 
             {selected.claim && (
               <p className="text-[13px] leading-relaxed text-muted">
-                <span className="font-medium text-ink">Claim:</span> {selected.claim}
+                <span className="font-medium text-ink">Claim:</span>{" "}
+                {selected.claim}
               </p>
             )}
             {selected.summary && (
               <p className="text-[13px] leading-relaxed text-muted">
-                <span className="font-medium text-ink">Summary:</span> {selected.summary}
+                <span className="font-medium text-ink">Summary:</span>{" "}
+                {selected.summary}
               </p>
             )}
 
@@ -230,9 +269,16 @@ export function UniversalInsightsTab() {
                   {Object.entries(selected.confidence_components ?? {})
                     .filter(([key]) => key !== "weights")
                     .map(([key, value]) => (
-                      <div key={key} className="flex items-center justify-between gap-2 rounded-lg border border-line px-3 py-1.5">
-                        <span className="text-[13px] text-ink">{componentLabel(key)}</span>
-                        <Badge tone="brand">{Math.round(Number(value) * 100)}%</Badge>
+                      <div
+                        key={key}
+                        className="flex items-center justify-between gap-2 rounded-lg border border-line px-3 py-1.5"
+                      >
+                        <span className="text-[13px] text-ink">
+                          {componentLabel(key)}
+                        </span>
+                        <Badge tone="brand">
+                          {Math.round(Number(value) * 100)}%
+                        </Badge>
                       </div>
                     ))}
                 </div>
@@ -245,11 +291,16 @@ export function UniversalInsightsTab() {
                 {evidence === null ? (
                   <p className="text-xs text-faint">Resolving evidence…</p>
                 ) : (evidence?.length ?? 0) === 0 ? (
-                  <p className="text-xs text-faint">No resolvable evidence refs.</p>
+                  <p className="text-xs text-faint">
+                    No resolvable evidence refs.
+                  </p>
                 ) : (
                   <div className="space-y-1.5">
                     {evidence?.map((item, index) => (
-                      <div key={`e-${index}`} className="flex items-center justify-between gap-2 rounded-lg border border-line px-3 py-1.5">
+                      <div
+                        key={`e-${index}`}
+                        className="flex items-center justify-between gap-2 rounded-lg border border-line px-3 py-1.5"
+                      >
                         <div className="min-w-0">
                           <p className="truncate text-[13px] text-ink">
                             <Badge tone="neutral">{item.relationship}</Badge>{" "}
@@ -277,17 +328,24 @@ export function UniversalInsightsTab() {
                 {history === null ? (
                   <p className="text-xs text-faint">Loading history…</p>
                 ) : (history.history?.length ?? 0) === 0 ? (
-                  <p className="text-xs text-faint">No feeding events recorded.</p>
+                  <p className="text-xs text-faint">
+                    No feeding events recorded.
+                  </p>
                 ) : (
                   <div className="space-y-1.5">
                     {history.history.map((item) => (
-                      <div key={item.event_id} className="flex items-center justify-between gap-2 rounded-lg border border-line px-3 py-1.5">
+                      <div
+                        key={item.event_id}
+                        className="flex items-center justify-between gap-2 rounded-lg border border-line px-3 py-1.5"
+                      >
                         <p className="truncate text-[13px] text-ink">
                           <Clock className="mr-1 inline h-3 w-3 text-faint" />
                           {item.event_name}
                         </p>
                         <span className="text-[11px] text-faint">
-                          {item.occurred_at ? new Date(item.occurred_at).toLocaleString() : "—"}
+                          {item.occurred_at
+                            ? new Date(item.occurred_at).toLocaleString()
+                            : "—"}
                         </span>
                       </div>
                     ))}
@@ -304,8 +362,13 @@ export function UniversalInsightsTab() {
                 ) : (
                   <div className="space-y-1.5">
                     {selected.affected_entities?.map((entity) => (
-                      <div key={`${entity.type}-${entity.id}`} className="flex items-center justify-between gap-2 rounded-lg border border-line px-3 py-1.5">
-                        <p className="truncate text-[13px] text-ink">{entity.title || entity.id}</p>
+                      <div
+                        key={`${entity.type}-${entity.id}`}
+                        className="flex items-center justify-between gap-2 rounded-lg border border-line px-3 py-1.5"
+                      >
+                        <p className="truncate text-[13px] text-ink">
+                          {entity.title || entity.id}
+                        </p>
                         <Badge tone="neutral">{entity.type}</Badge>
                       </div>
                     ))}
@@ -343,22 +406,25 @@ export function UniversalInsightsTab() {
       <div className="flex items-center gap-2 text-xs text-faint">
         <Scale className="h-3.5 w-3.5" />
         <span>
-          Insights are observations, never prescriptions — VCOS states what is happening and why it believes it,
-          and never recommends actions or mutates work.
+          Insights are observations, never prescriptions — VCOS states what is
+          happening and why it believes it, and never recommends actions or
+          mutates work.
         </span>
       </div>
       <div className="flex items-center gap-2 text-xs text-faint">
         <Activity className="h-3.5 w-3.5" />
         <span>
-          Composition is change-driven: pattern, memory, decision and approval events enqueue insight.evaluate
-          jobs that recompose bounded neighborhoods into canonical, deduplicated insight rows.
+          Composition is change-driven: pattern, memory, decision and approval
+          events enqueue insight.evaluate jobs that recompose bounded
+          neighborhoods into canonical, deduplicated insight rows.
         </span>
       </div>
       <div className="flex items-center gap-2 text-xs text-faint">
         <AlertTriangle className="h-3.5 w-3.5" />
         <span>
-          Governance-scoped like patterns: scoped callers see exactly their scope subtree, and hidden insights
-          are indistinguishable from missing ones.
+          Governance-scoped like patterns: scoped callers see exactly their
+          scope subtree, and hidden insights are indistinguishable from missing
+          ones.
         </span>
       </div>
     </div>

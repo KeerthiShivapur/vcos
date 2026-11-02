@@ -1,14 +1,30 @@
 "use client";
 
-import { ChevronDown, ChevronUp, FileSearch, Loader2, ShieldCheck, XCircle } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  FileSearch,
+  Loader2,
+  ShieldCheck,
+  XCircle,
+} from "lucide-react";
 import { useState } from "react";
 
-import { getEvidenceItem, getPersonEvidence, getPersonTrust, type EvidenceLine, type TrustProfile } from "@/lib/api";
+import {
+  getEvidenceItem,
+  getPersonEvidence,
+  getPersonTrust,
+  type EvidenceLine,
+  type TrustProfile,
+} from "@/lib/api";
 import type { ExpertiseScore } from "@/types";
 import { Badge } from "@/components/ui/Badge";
 import { formatDate } from "@/lib/utils";
 
-const LIFECYCLE_TONE: Record<string, "neutral" | "warning" | "brand" | "success" | "danger"> = {
+const LIFECYCLE_TONE: Record<
+  string,
+  "neutral" | "warning" | "brand" | "success" | "danger"
+> = {
   none: "neutral",
   emerging: "warning",
   observed: "neutral",
@@ -51,7 +67,9 @@ export default function ExpertiseEvidencePanel({
       setTrust(t);
       setEvidence(ev.evidence);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load trust evidence");
+      setError(
+        err instanceof Error ? err.message : "Unable to load trust evidence",
+      );
     } finally {
       setLoading(false);
     }
@@ -61,7 +79,9 @@ export default function ExpertiseEvidencePanel({
     try {
       setDetail(await getEvidenceItem(item.evidence_id));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to open evidence detail");
+      setError(
+        err instanceof Error ? err.message : "Unable to open evidence detail",
+      );
     }
   }
 
@@ -76,36 +96,47 @@ export default function ExpertiseEvidencePanel({
       >
         <ShieldCheck className="h-3.5 w-3.5" />
         Why we trust it
-        {open ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+        {open ? (
+          <ChevronUp className="h-3.5 w-3.5" />
+        ) : (
+          <ChevronDown className="h-3.5 w-3.5" />
+        )}
       </button>
 
       {open &&
         (loading ? (
           <div className="mt-2 flex items-center gap-2 text-[12px] text-faint">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading trust profile
+            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading trust
+            profile
           </div>
         ) : error ? (
           <p className="mt-2 text-[12px] text-red-600">{error}</p>
         ) : trust ? (
           <div className="mt-2 space-y-2.5 rounded-xl border border-line bg-canvas/50 p-3">
             <div className="flex flex-wrap items-center gap-1.5">
-              <Badge tone={lifecycleTone(trust.lifecycle)}>{trust.lifecycle}</Badge>
-              <Badge tone="neutral">{Math.round(trust.confidence * 100)}% confidence</Badge>
+              <Badge tone={lifecycleTone(trust.lifecycle)}>
+                {trust.lifecycle}
+              </Badge>
+              <Badge tone="neutral">
+                {Math.round(trust.confidence * 100)}% confidence
+              </Badge>
               <Badge tone="neutral">{trust.freshness}</Badge>
               <Badge tone="neutral">{trust.score}/100</Badge>
             </div>
 
             <p className="text-[12px] leading-relaxed text-muted">
-              {trust.successful_count} successful / {trust.failed_count} failed outcome(s) across{" "}
-              {trust.distinct_lineages} independent lineage(s) from {trust.corroborated_kinds}{" "}
-              evidence kind(s) — {trust.evidence_total} evidence item(s),{" "}
+              {trust.successful_count} successful / {trust.failed_count} failed
+              outcome(s) across {trust.distinct_lineages} independent lineage(s)
+              from {trust.corroborated_kinds} evidence kind(s) —{" "}
+              {trust.evidence_total} evidence item(s),{" "}
               {trust.deduplicated_count} deduplicated.
             </p>
 
             {failed > 0 && (
               <p className="flex items-center gap-1.5 text-[12px] font-medium text-red-600">
                 <XCircle className="h-3.5 w-3.5" />
-                {failed} failed or expired item(s) remain visible and count against this claim.
+                {failed} failed or expired item(s) remain visible and count
+                against this claim.
               </p>
             )}
 
@@ -123,11 +154,21 @@ export default function ExpertiseEvidencePanel({
                       {item.source_type}:{item.source_id}
                     </span>
                     {item.source_title && (
-                      <span className="hidden truncate text-faint sm:inline">{item.source_title}</span>
+                      <span className="hidden truncate text-faint sm:inline">
+                        {item.source_title}
+                      </span>
                     )}
                   </span>
                   <span className="flex shrink-0 items-center gap-1.5">
-                    <Badge tone={item.outcome === "failed" ? "danger" : item.outcome === "successful" ? "success" : "neutral"}>
+                    <Badge
+                      tone={
+                        item.outcome === "failed"
+                          ? "danger"
+                          : item.outcome === "successful"
+                            ? "success"
+                            : "neutral"
+                      }
+                    >
                       {item.outcome}
                     </Badge>
                     <Badge tone="neutral">{item.evidence_kind}</Badge>
@@ -138,7 +179,9 @@ export default function ExpertiseEvidencePanel({
                 </button>
               ))}
               {(evidence ?? []).length === 0 && (
-                <p className="text-[12px] text-faint">No current evidence row remains (expired).</p>
+                <p className="text-[12px] text-faint">
+                  No current evidence row remains (expired).
+                </p>
               )}
             </div>
 
@@ -148,7 +191,8 @@ export default function ExpertiseEvidencePanel({
                 <p className="text-[11px] text-faint">
                   <span className="font-medium text-muted">Detail:</span>{" "}
                   {detail.detail || detail.evidence_type} ·{" "}
-                  <span className="font-medium text-muted">lineage:</span> {detail.lineage_key} ·{" "}
+                  <span className="font-medium text-muted">lineage:</span>{" "}
+                  {detail.lineage_key} ·{" "}
                   <span className="font-medium text-muted">origin:</span>{" "}
                   {detail.origin_event_id || "n/a"} ·{" "}
                   <span className="font-medium text-muted">occurred:</span>{" "}
@@ -158,7 +202,9 @@ export default function ExpertiseEvidencePanel({
             )}
           </div>
         ) : (
-          <p className="mt-2 text-[12px] text-faint">Nothing to trust yet — no evidence-derived expertise is visible.</p>
+          <p className="mt-2 text-[12px] text-faint">
+            Nothing to trust yet — no evidence-derived expertise is visible.
+          </p>
         ))}
     </div>
   );

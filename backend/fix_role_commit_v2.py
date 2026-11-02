@@ -1,0 +1,173 @@
+with open('tests/acceptance/adapters.py', 'r') as f:
+    content = f.read()
+
+# Fix Role creation - remove permissions field
+content = content.replace(
+    '''            role = Role(
+                id=self._create_id("role-"),
+                organization_id=self.context.organization_id,
+                name=role_name,
+                code=role_key,
+                description=f"{role_name} role",
+                permissions=permissions,
+                status="active",
+            )''',
+    '''            role = Role(
+                id=self._create_id("role-"),
+                organization_id=self.context.organization_id,
+                name=role_name,
+                code=role_key,
+                description=f"{role_name} role",
+                status="active",
+            )''')
+
+# Fix CompanyCommitment creation
+content = content.replace(
+    '''            commitment = CompanyCommitment(
+                id=self._create_id("com-"),
+                organization_id=self.context.organization_id,
+                action_id=action.id,
+                title=f"Commitment for {action.title}",
+                description=f"Commit to: {action.title}",
+                status="committed",
+                committed_by=self.context.caller.employee_id,
+                committed_at=self._now(),
+                due_date=self._now() + timedelta(days=14),
+            )''',
+    '''            commitment = CompanyCommitment(
+                id=self._create_id("com-"),
+                organization_id=self.context.organization_id,
+                commitment_type="unconditional",
+                title=f"Commitment for {action.title}",
+                description=f"Commit to: {action.title}",
+                rationale="Test commitment",
+                scope_type="organization",
+                scope_id=self.context.organization_id,
+                intent_id=None,
+                objective_id=None,
+                initiative_id=None,
+                project_id=None,
+                decision_id=None,
+                authorization_id=None,
+                approval_required=False,
+                budget_allocated=None,
+                budget_currency="USD",
+                resource_requirements={},
+                resource_constraints={},
+                start_date=self._now().date(),
+                target_date=(self._now() + timedelta(days=14)).date(),
+                conditions={},
+                risk_assessment={},
+                risk_mitigations={},
+                evidence_fingerprints=[],
+                supporting_pattern_ids=[],
+                supporting_lesson_fingerprints=[],
+                contradicting_evidence_fingerprints=[],
+                contradicting_pattern_ids=[],
+                contradicting_lesson_fingerprints=[],
+                contradiction_ids=[],
+                decision_intelligence_context_id=None,
+                decision_alternative_ids=[],
+                action_ids=[action.id],
+                state="committed",
+                authorized_at=None,
+                authorized_by=None,
+                fulfilled_at=None,
+                fulfilled_by=None,
+                supersedes_id=None,
+                superseded_by_id=None,
+                source_event_id=self.context.run_id,
+                source_decision_id=None,
+                source_scenario_id=None,
+                fingerprint=f"{self.context.run_id}-commit-{action.id}",
+                version=1,
+            )''')
+
+with open('tests/acceptance/adapters.py', 'r') as f:
+    content = f.read()
+
+# Apply replacements
+content = content.replace(
+    '''            role = Role(
+                id=self._create_id("role-"),
+                organization_id=self.context.organization_id,
+                name=role_name,
+                code=role_key,
+                description=f"{role_name} role",
+                permissions=permissions,
+                status="active",
+            )''',
+    '''            role = Role(
+                id=self._create_id("role-"),
+                organization_id=self.context.organization_id,
+                name=role_name,
+                code=role_key,
+                description=f"{role_name} role",
+                status="active",
+            )''')
+
+content = content.replace(
+    '''            commitment = CompanyCommitment(
+                id=self._create_id("com-"),
+                organization_id=self.context.organization_id,
+                action_id=action.id,
+                title=f"Commitment for {action.title}",
+                description=f"Commit to: {action.title}",
+                status="committed",
+                committed_by=self.context.caller.employee_id,
+                committed_at=self._now(),
+                due_date=self._now() + timedelta(days=14),
+            )''',
+    '''            commitment = CompanyCommitment(
+                id=self._create_id("com-"),
+                organization_id=self.context.organization_id,
+                commitment_type="unconditional",
+                title=f"Commitment for {action.title}",
+                description=f"Commit to: {action.title}",
+                rationale="Test commitment",
+                scope_type="organization",
+                scope_id=self.context.organization_id,
+                intent_id=None,
+                objective_id=None,
+                initiative_id=None,
+                project_id=None,
+                decision_id=None,
+                authorization_id=None,
+                approval_required=False,
+                budget_allocated=None,
+                budget_currency="USD",
+                resource_requirements={},
+                resource_constraints={},
+                start_date=self._now().date(),
+                target_date=(self._now() + timedelta(days=14)).date(),
+                conditions={},
+                risk_assessment={},
+                risk_mitigations={},
+                evidence_fingerprints=[],
+                supporting_pattern_ids=[],
+                supporting_lesson_fingerprints=[],
+                contradicting_evidence_fingerprints=[],
+                contradicting_pattern_ids=[],
+                contradicting_lesson_fingerprints=[],
+                contradiction_ids=[],
+                decision_intelligence_context_id=None,
+                decision_alternative_ids=[],
+                action_ids=[action.id],
+                state="committed",
+                authorized_at=None,
+                authorized_by=None,
+                fulfilled_at=None,
+                fulfilled_by=None,
+                supersedes_id=None,
+                superseded_by_id=None,
+                source_event_id=self.context.run_id,
+                source_decision_id=None,
+                source_scenario_id=None,
+                fingerprint=f"{self.context.run_id}-commit-{action.id}",
+                version=1,
+            )''')
+
+with open('tests/acceptance/adapters.py', 'w') as f:
+    f.write(content)
+
+print('Fixed Role and CompanyCommitment')

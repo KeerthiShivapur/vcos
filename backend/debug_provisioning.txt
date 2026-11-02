@@ -1,0 +1,30 @@
+async def execute_provisioning(
+        self,
+        db: AsyncSession,
+        provisioning_id: str,
+        caller: Any = None,
+    ) -> Any:
+        """Execute the full provisioning lifecycle."""
+        provisioning = await db.get(Provisioning, provisioning_id)
+        if not provisioning:
+            raise ValueError("Provisioning not found")
+        
+        # Get plan from metadata
+        metadata = provisioning.metadata_json or {}
+        plan_key = metadata.get("plan_key", "starter")
+        
+        plan = await db.execute(
+            select(Plan).where(Plan.key == plan_key)
+        )
+        plan = plan.scalar_one_or_none()
+        if not plan:
+            raise ValueError(f"Plan not found: {plan_key}")
+        
+        try:
+            # Execute each step in order
+            for step_def in STEP_DEFINITIONS:
+                step_name = step_def["step"]
+                
+                # Skip optional steps if not configured
+                if not step_def["required"]:
+  

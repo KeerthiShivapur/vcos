@@ -1,72 +1,83 @@
-"""Slice 4C — governance kernel models: organizational scopes and approval policies.
+"""Governance models."""
 
-One governance kernel for every organization size: scoped role assignments
-(RBAC) anchored on a scope tree (organization -> business_unit -> region ->
-department -> team -> project), scope-anchored delegations and approval
-policies (ABAC context). Complexity emerges from the organization's
-structure, never from separate authorization products.
-"""
+from datetime import datetime
+from typing import Optional, List
+from sqlalchemy import DateTime, Date, ForeignKey, String, Text, JSON, Boolean, Index, UniqueConstraint, Integer
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from typing import Optional
+from app.models.base import Base, TimestampMixin, gen_uuid
 
-from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.database import Base
-from app.models.organization import TimestampMixin, gen_uuid
+class GovernanceScopeType(str):
+    ORGANIZATION = "organization"
+    DEPARTMENT = "department"
+    TEAM = "team"
+    PROJECT = "project"
+    RESOURCE = "resource"
 
 
 class GovernanceScope(Base, TimestampMixin):
-    """A node in the organization's governance tree.
-
-    Role assignments, delegations and approval policies anchor to a scope;
-    effective authority at a scope includes every ancestor scope. The scope
-    tree is optional — an organization with no scopes behaves exactly like a
-    flat role-permission org, so a 5-person startup never configures unused
-    hierarchy levels.
-    """
-
     __tablename__ = "governance_scopes"
-    __table_args__ = (
-        Index("ix_governance_scopes_org", "organization_id"),
-        Index("ix_governance_scopes_parent", "parent_id"),
-    )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
     organization_id: Mapped[str] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    # organization|business_unit|region|department|team|project
-    scope_type: Mapped[str] = mapped_column(String(30), nullable=False, default="department")
-    parent_id: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("governance_scopes.id", ondelete="CASCADE")
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    scope_type: Mapped[str] = mapped_column(String(40), default=GovernanceScopeType.ORGANIZATION, nullable=False)
+    scope_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    parent_scope_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("governance_scopes.id", ondelete="SET NULL"), index=True
     )
-    entity_id: Mapped[Optional[str]] = mapped_column(String(64))
-    depth: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    owner_id: Mapped[str] = mapped_column(
+        ForeignKey("employees.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    policies: Mapped[List[dict]] = mapped_column(JSON, default=list)
+    compliance_requirements: Mapped[List[str]] = mapped_column(JSON, default=list)
+    review_cadence_days: Mapped[int] = mapped_column(Integer, default=90, nullable=False)
+    last_reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    next_review_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    governancescopetype_metadata: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+
+    # Relationships
+    parent: Mapped[Optional["GovernanceScope"]] = relationship(
+        back_populates="children", remote_side="GovernanceScope.id"
+    )
+    children: Mapped[List["GovernanceScope"]] = relationship(back_populates="parent")
+
+    __table_args__ = (
+        Index("ix_governance_scopes_org_type", "organization_id", "scope_type"),
+        Index("ix_governance_scopes_org_active", "organization_id", "is_active"),
+        Index("ix_governance_scopes_next_review", "next_review_at"),
+    )
 
 
 class ApprovalPolicy(Base, TimestampMixin):
-    """Which authority decides which approval — the reusable approval mechanism.
-
-    An approval created under a policy may only be decided by a user holding
-    the policy's required permission at the policy's scope; self-approval is
-    denied unless the policy explicitly allows it.
-    """
-
     __tablename__ = "approval_policies"
-    __table_args__ = (Index("ix_approval_policies_org", "organization_id"),)
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
     organization_id: Mapped[str] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
-    approval_type: Mapped[str] = mapped_column(String(40), nullable=False, default="other")
     description: Mapped[Optional[str]] = mapped_column(Text)
-    required_permission: Mapped[str] = mapped_column(String(120), nullable=False)
-    scope_id: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("governance_scopes.id", ondelete="SET NULL")
+    scope_type: Mapped[str] = mapped_column(String(40), default="organization", nullable=False)
+    scope_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    entity_type: Mapped[str] = mapped_column(String(60), nullable=False)
+    conditions: Mapped[dict] = mapped_column(JSON, default=dict)
+    required_approvers: Mapped[List[str]] = mapped_column(JSON, default=list)
+    min_approvals: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    requires_unanimous: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    allow_self_approval: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    escalation_days: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    escalation_to: Mapped[Optional[str]] = mapped_column(ForeignKey("employees.id", ondelete="SET NULL"))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    governancescopetype_metadata: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+
+    __table_args__ = (
+        Index("ix_approval_policies_org_entity", "organization_id", "entity_type"),
+        Index("ix_approval_policies_org_active", "organization_id", "is_active"),
     )
-    self_approval_allowed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

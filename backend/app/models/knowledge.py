@@ -1,84 +1,22 @@
-"""Knowledge models — Phase 4: the Organization's Brain.
-
-Documents, wiki pages, policies, SOPs, templates and decisions are first-class
-knowledge entities. They share a common shape (title, content, summary, status,
-version, view_count) so one versioning / commenting / search / graph layer can
-serve them all. `entity_type` columns follow the kind registry:
-document | wiki | policy | sop | template | decision.
-"""
+"""Knowledge models for documents, wiki, policies, SOPs, templates, and decisions."""
 
 from datetime import date, datetime, timezone
-from typing import Optional
+from typing import Optional, List
+from sqlalchemy import Date, DateTime, ForeignKey, String, Text, JSON, Boolean, Index, UniqueConstraint, Integer, Float
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column
-
-from app.db.database import Base
-from app.models.organization import gen_uuid
+from app.models.base import Base, TimestampMixin, gen_uuid, utcnow
 
 
-def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+class DocumentStatus(str):
+    DRAFT = "draft"
+    REVIEW = "review"
+    APPROVED = "approved"
+    PUBLISHED = "published"
+    ARCHIVED = "archived"
 
 
-class Timestamped(Base):
-    """Abstract-ish base: created_at / updated_at with utc defaults."""
-
-    __abstract__ = True
-
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
-
-
-class KnowledgeCategory(Base):
-    __tablename__ = "knowledge_categories"
-
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
-    organization_id: Mapped[str] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
-    )
-    name: Mapped[str] = mapped_column(String(120), nullable=False)
-    slug: Mapped[str] = mapped_column(String(120), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text)
-    color: Mapped[Optional[str]] = mapped_column(String(16))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
-
-    __table_args__ = (UniqueConstraint("organization_id", "slug", name="uq_knowledge_categories_org_slug"),)
-
-
-class KnowledgeTag(Base):
-    __tablename__ = "knowledge_tags"
-
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
-    organization_id: Mapped[str] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
-    )
-    name: Mapped[str] = mapped_column(String(80), nullable=False)
-    slug: Mapped[str] = mapped_column(String(80), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
-
-    __table_args__ = (UniqueConstraint("organization_id", "name", name="uq_knowledge_tags_org_name"),)
-
-
-class KnowledgeItemTag(Base):
-    """Link table between any knowledge entity and a tag."""
-
-    __tablename__ = "knowledge_item_tags"
-
-    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
-    organization_id: Mapped[str] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
-    )
-    entity_type: Mapped[str] = mapped_column(String(32), nullable=False)
-    entity_id: Mapped[str] = mapped_column(String(32), nullable=False)
-    tag_id: Mapped[str] = mapped_column(ForeignKey("knowledge_tags.id", ondelete="CASCADE"), nullable=False)
-
-    __table_args__ = (
-        UniqueConstraint("entity_type", "entity_id", "tag_id", name="uq_knowledge_item_tags_entity_tag"),
-    )
-
-
-class Document(Timestamped):
+class Document(Base, TimestampMixin):
     __tablename__ = "documents"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
@@ -98,16 +36,18 @@ class Document(Timestamped):
     project_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
     department_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
     team_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
-    status: Mapped[str] = mapped_column(String(24), default="draft", nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(24), default=DocumentStatus.DRAFT, nullable=False, index=True)
     visibility: Mapped[str] = mapped_column(String(24), default="organization", nullable=False)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     view_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
-    __table_args__ = (UniqueConstraint("organization_id", "slug", name="uq_documents_org_slug"),)
+    __table_args__ = (
+        UniqueConstraint("organization_id", "slug", name="uq_documents_org_slug"),
+    )
 
 
-class WikiPage(Timestamped):
+class WikiPage(Base, TimestampMixin):
     __tablename__ = "wiki_pages"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
@@ -125,17 +65,19 @@ class WikiPage(Timestamped):
     category: Mapped[Optional[str]] = mapped_column(String(80), index=True)
     author_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
     editor_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
-    parent_id: Mapped[Optional[str]] = mapped_column(ForeignKey("wiki_pages.id", ondelete="SET NULL"), index=True)
+    parent_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("wiki_pages.id", ondelete="SET NULL"), index=True
+    )
     project_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
     department_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
     team_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
-    status: Mapped[str] = mapped_column(String(24), default="draft", nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(24), default=DocumentStatus.DRAFT, nullable=False, index=True)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     view_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
 
-class Policy(Timestamped):
+class Policy(Base, TimestampMixin):
     __tablename__ = "policies"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
@@ -155,15 +97,17 @@ class Policy(Timestamped):
     effective_date: Mapped[Optional[date]] = mapped_column(Date)
     review_date: Mapped[Optional[date]] = mapped_column(Date, index=True)
     approval_note: Mapped[Optional[str]] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(String(24), default="draft", nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(24), default=DocumentStatus.DRAFT, nullable=False, index=True)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     view_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
-    __table_args__ = (UniqueConstraint("organization_id", "slug", name="uq_policies_org_slug"),)
+    __table_args__ = (
+        UniqueConstraint("organization_id", "slug", name="uq_policies_org_slug"),
+    )
 
 
-class SOP(Timestamped):
+class SOP(Base, TimestampMixin):
     __tablename__ = "sops"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
@@ -181,7 +125,7 @@ class SOP(Timestamped):
     owner_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
     department_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
     team_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
-    status: Mapped[str] = mapped_column(String(24), default="draft", nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(24), default=DocumentStatus.DRAFT, nullable=False, index=True)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     view_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
@@ -194,7 +138,9 @@ class SOPStep(Base):
     organization_id: Mapped[str] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    sop_id: Mapped[str] = mapped_column(ForeignKey("sops.id", ondelete="CASCADE"), index=True, nullable=False)
+    sop_id: Mapped[str] = mapped_column(
+        ForeignKey("sops.id", ondelete="CASCADE"), index=True, nullable=False
+    )
     title: Mapped[str] = mapped_column(String(240), nullable=False)
     instruction: Mapped[Optional[str]] = mapped_column(Text)
     is_checklist: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -202,7 +148,7 @@ class SOPStep(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
-class Template(Timestamped):
+class Template(Base, TimestampMixin):
     __tablename__ = "templates"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
@@ -219,14 +165,14 @@ class Template(Timestamped):
     kind: Mapped[str] = mapped_column(String(40), default="other", nullable=False, index=True)
     category: Mapped[Optional[str]] = mapped_column(String(80), index=True)
     owner_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
-    status: Mapped[str] = mapped_column(String(24), default="draft", nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(24), default=DocumentStatus.DRAFT, nullable=False, index=True)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     usage_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     view_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
 
-class Decision(Timestamped):
+class Decision(Base, TimestampMixin):
     __tablename__ = "decisions"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
@@ -257,7 +203,9 @@ class Decision(Timestamped):
     view_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
-    __table_args__ = (UniqueConstraint("organization_id", "slug", name="uq_decisions_org_slug"),)
+    __table_args__ = (
+        UniqueConstraint("organization_id", "slug", name="uq_decisions_org_slug"),
+    )
 
 
 class DecisionOption(Base):
@@ -296,8 +244,6 @@ class DecisionParticipant(Base):
 
 
 class DocumentVersion(Base):
-    """Version history shared by every knowledge entity type."""
-
     __tablename__ = "document_versions"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
@@ -319,9 +265,7 @@ class DocumentVersion(Base):
     )
 
 
-class DocumentComment(Base):
-    """Threaded comments on any knowledge entity."""
-
+class DocumentComment(Base, TimestampMixin):
     __tablename__ = "document_comments"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
@@ -334,11 +278,14 @@ class DocumentComment(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     parent_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
     resolved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+    __table_args__ = (
+        Index("ix_document_comments_entity", "entity_type", "entity_id"),
+        Index("ix_document_comments_author", "author_id"),
+    )
 
 
-class DocumentWatcher(Base):
+class DocumentWatcher(Base, TimestampMixin):
     __tablename__ = "document_watchers"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
@@ -348,14 +295,13 @@ class DocumentWatcher(Base):
     entity_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     entity_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     user_id: Mapped[str] = mapped_column(String(32), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     __table_args__ = (
         UniqueConstraint("entity_type", "entity_id", "user_id", name="uq_document_watchers_entity_user"),
     )
 
 
-class DocumentFavorite(Base):
+class DocumentFavorite(Base, TimestampMixin):
     __tablename__ = "document_favorites"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
@@ -365,16 +311,13 @@ class DocumentFavorite(Base):
     entity_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     entity_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     user_id: Mapped[str] = mapped_column(String(32), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     __table_args__ = (
         UniqueConstraint("entity_type", "entity_id", "user_id", name="uq_document_favorites_entity_user"),
     )
 
 
-class DocumentPresence(Base):
-    """Last-viewed marker so "recent documents" and live presence work."""
-
+class DocumentPresence(Base, TimestampMixin):
     __tablename__ = "document_presence"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
@@ -384,67 +327,63 @@ class DocumentPresence(Base):
     entity_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     entity_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     user_id: Mapped[str] = mapped_column(String(32), nullable=False)
-    last_active_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     __table_args__ = (
         UniqueConstraint("entity_type", "entity_id", "user_id", name="uq_document_presence_entity_user"),
     )
 
 
-class KnowledgeRelation(Base):
-    """The knowledge graph: typed edges between knowledge entities and any
-    other entity (project, meeting, task, goal, employee, department…)."""
-
-    __tablename__ = "knowledge_relations"
+class KnowledgeCategory(Base):
+    __tablename__ = "knowledge_categories"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
     organization_id: Mapped[str] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    source_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
-    source_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
-    target_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
-    target_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
-    relation_type: Mapped[str] = mapped_column(String(40), nullable=False)
-    created_by: Mapped[Optional[str]] = mapped_column(String(32))
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    slug: Mapped[str] = mapped_column(String(120), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    color: Mapped[Optional[str]] = mapped_column(String(16))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     __table_args__ = (
-        UniqueConstraint(
-            "source_type", "source_id", "target_type", "target_id", "relation_type",
-            name="uq_knowledge_relations_edge",
-        ),
+        UniqueConstraint("organization_id", "slug", name="uq_knowledge_categories_org_slug"),
     )
 
 
-class KnowledgeQuality(Base):
-    """AI-measured quality signals per knowledge entity."""
-
-    __tablename__ = "knowledge_quality"
+class KnowledgeTag(Base):
+    __tablename__ = "knowledge_tags"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
     organization_id: Mapped[str] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    entity_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
-    entity_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
-    completeness: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    freshness: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    popularity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    usage: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    review_status: Mapped[str] = mapped_column(String(24), default="unknown", nullable=False)
-    score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    duplicate_of: Mapped[Optional[str]] = mapped_column(String(32), index=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    slug: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     __table_args__ = (
-        UniqueConstraint("entity_type", "entity_id", name="uq_knowledge_quality_entity"),
+        UniqueConstraint("organization_id", "name", name="uq_knowledge_tags_org_name"),
+    )
+
+
+class KnowledgeItemTag(Base):
+    __tablename__ = "knowledge_item_tags"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    entity_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    entity_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    tag_id: Mapped[str] = mapped_column(ForeignKey("knowledge_tags.id", ondelete="CASCADE"), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("entity_type", "entity_id", "tag_id", name="uq_knowledge_item_tags_entity_tag"),
     )
 
 
 class KnowledgeIndex(Base):
-    """Search index row per knowledge entity: keywords + deterministic embedding."""
-
     __tablename__ = "knowledge_search_index"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
@@ -466,18 +405,8 @@ class KnowledgeIndex(Base):
 
 
 class KnowledgeVector(Base):
-    """Slice 4D.2 — persisted semantic vector per deterministic chunk.
-
-    One row per (tenant, source, chunk) holding the embedding produced by the
-    configured embedding provider. The row is the evidence lineage for
-    semantic retrieval: every chunk knows its canonical source row
-    (``source_type`` + ``source_id``), when that source last changed
-    (``source_updated_at``) and when the vector was (re)indexed
-    (``indexed_at``). Deletes remove the rows, so removed content can never
-    resurface through search.
-    """
-
     __tablename__ = "knowledge_vectors"
+    __table_args__ = {"extend_existing": True}
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
     organization_id: Mapped[str] = mapped_column(
@@ -488,7 +417,7 @@ class KnowledgeVector(Base):
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     chunk_text: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
-    embedding: Mapped[Optional[str]] = mapped_column(Text)  # JSON float list
+    embedding: Mapped[Optional[str]] = mapped_column(Text)
     provider: Mapped[str] = mapped_column(String(40), nullable=False)
     dim: Mapped[int] = mapped_column(Integer, nullable=False)
     source_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
@@ -502,23 +431,13 @@ class KnowledgeVector(Base):
             "organization_id", "source_type", "source_id", "chunk_index",
             name="uq_knowledge_vector_chunk",
         ),
+        {"extend_existing": True},
     )
 
 
 class KnowledgeSource(Base):
-    """4E.1 — the universal ingestion contract: one canonical registry row per
-    (tenant, source object).
-
-    Every knowledge object — internal (document, wiki, policy, sop, template,
-    decision) or future external (4N adapters: Drive, Slack, Jira, …) — is
-    ingesteed through this single contract and then consumed identically by
-    claims, topics, authority and freshness. Lifecycle follows the knowledge
-    model: discovered → extracted → validated → active → updated → superseded
-    → archived. Temporal truth: rows are never deleted; archival and
-    supersession keep history and provenance.
-    """
-
     __tablename__ = "knowledge_sources"
+    __table_args__ = {"extend_existing": True}
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
     organization_id: Mapped[str] = mapped_column(
@@ -549,19 +468,13 @@ class KnowledgeSource(Base):
             "organization_id", "source_type", "source_id",
             name="uq_knowledge_sources_entity",
         ),
+        {"extend_existing": True},
     )
 
 
 class KnowledgeClaim(Base):
-    """4E.1 — a canonical claim about an organizational knowledge object.
-
-    Claims carry the authority of their source and follow their own lifecycle:
-    candidate → supported → authoritative → contested → superseded. Superseded
-    claims are never deleted: ``valid_to`` + ``superseded_by`` keep the
-    temporal truth ("what was true, what is true now").
-    """
-
     __tablename__ = "knowledge_claims"
+    __table_args__ = {"extend_existing": True}
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
     organization_id: Mapped[str] = mapped_column(
@@ -582,10 +495,6 @@ class KnowledgeClaim(Base):
     superseded_by: Mapped[Optional[str]] = mapped_column(String(32), index=True)
     source_type: Mapped[str] = mapped_column(String(32), nullable=False)
     source_id: Mapped[str] = mapped_column(String(32), nullable=False)
-    # Slice 4E.3 — cross-source understanding: synthesized claims are anchored
-    # to a canonical topic and carry their relationship graph (supporting and
-    # contradicting claim ids, related entities) plus last_seen so a refresh
-    # with unchanged evidence is never treated as new knowledge.
     topic_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("knowledge_topics.id", ondelete="SET NULL"), index=True
     )
@@ -599,20 +508,40 @@ class KnowledgeClaim(Base):
 
     __table_args__ = (
         UniqueConstraint(
-            "organization_id", "subject_type", "subject_id", "predicate", "object_text", "valid_from",
-            name="uq_knowledge_claim_occurrence",
+            "organization_id", "subject_type", "subject_id", "predicate", "object_text",
+            name="uq_knowledge_claims_unique",
         ),
+        {"extend_existing": True},
     )
 
 
-class KnowledgeEvidence(Base):
-    """4E.1 — the link between a claim and the source that supports it.
+class KnowledgeTopic(Base, TimestampMixin):
+    __tablename__ = "knowledge_topics"
+    __table_args__ = {"extend_existing": True}
 
-    Every claim must be traceable: which source (type + id), which excerpt,
-        and with what weight it supports the claim.
-    """
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(240), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    parent_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("knowledge_topics.id", ondelete="SET NULL"), index=True
+    )
+    status: Mapped[str] = mapped_column(String(24), default="active", nullable=False)
+    created_by: Mapped[Optional[str]] = mapped_column(String(32))
+
+    __table_args__ = (
+        UniqueConstraint("organization_id", "name", name="uq_knowledge_topics_org_name"),
+        {"extend_existing": True},
+    )
+
+
+class KnowledgeEvidence(Base, TimestampMixin):
+    """Evidence linking a claim to a source excerpt."""
 
     __tablename__ = "knowledge_evidence"
+    __table_args__ = {"extend_existing": True}
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
     organization_id: Mapped[str] = mapped_column(
@@ -621,167 +550,224 @@ class KnowledgeEvidence(Base):
     claim_id: Mapped[str] = mapped_column(
         ForeignKey("knowledge_claims.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    source_type: Mapped[str] = mapped_column(String(32), nullable=False)
-    source_id: Mapped[str] = mapped_column(String(32), nullable=False)
-    excerpt: Mapped[Optional[str]] = mapped_column(Text)
-    role: Mapped[str] = mapped_column(String(40), default="primary", nullable=False)
-    confidence: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
-    valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    source_id: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    excerpt: Mapped[str] = mapped_column(Text, nullable=False)
+    relevance: Mapped[float] = mapped_column(Float, default=0.5, nullable=False)
+    quality: Mapped[str] = mapped_column(String(24), default="estimated", nullable=False)
+    page_ref: Mapped[Optional[str]] = mapped_column(String(64))
+    metadata_json: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     __table_args__ = (
-        UniqueConstraint("claim_id", "source_type", "source_id", name="uq_knowledge_evidence_source"),
+        Index("ix_knowledge_evidence_claim", "claim_id"),
+        {"extend_existing": True},
     )
 
 
-class KnowledgeRecommendation(Base):
-    """4E.4 — persisted knowledge intelligence recommendations (exact-once).
-
-    A recommendation is a deterministic, evidence-backed judgment (stale
-    critical knowledge, undocumented process, unresolved conflict, …). Rows
-    are keyed by a stable ``fingerprint`` so materialization is idempotent:
-    re-running with the same conditions never duplicates, and when the
-    condition clears the row moves to ``resolved`` (never deleted).
-    """
-
-    __tablename__ = "knowledge_recommendations"
+class KnowledgeConflict(Base, TimestampMixin):
+    __tablename__ = "knowledge_conflicts"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
     organization_id: Mapped[str] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    kind: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
-    fingerprint: Mapped[str] = mapped_column(String(120), nullable=False)
-    status: Mapped[str] = mapped_column(String(16), default="active", nullable=False, index=True)
-    reason: Mapped[str] = mapped_column(Text, nullable=False)
-    confidence: Mapped[float] = mapped_column(Float, default=0.6, nullable=False)
-    risk: Mapped[str] = mapped_column(String(16), default="low", nullable=False)
-    evidence_json: Mapped[Optional[str]] = mapped_column(Text)
-    entities_json: Mapped[Optional[str]] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+    claim_id_1: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_claims.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    claim_id_2: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_claims.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    conflict_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    severity: Mapped[str] = mapped_column(String(20), default="medium", nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="open", nullable=False)  # open, resolved, dismissed
+    resolution: Mapped[Optional[str]] = mapped_column(Text)
+    resolved_by: Mapped[Optional[str]] = mapped_column(String(32))
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    # Slice 4E.5 — recommendation lifecycle: detected -> candidate ->
-    # reviewed -> accepted/rejected -> converted -> executed -> verified,
-    # with an audited trail. Conversion is a USER action: the knowledge layer
-    # recommends, the governed operating layers (tasks / decisions) execute.
-    lifecycle: Mapped[str] = mapped_column(String(20), default="detected", nullable=False, index=True)
-    lifecycle_audit_json: Mapped[Optional[str]] = mapped_column(Text)
-    reviewed_by: Mapped[Optional[str]] = mapped_column(String(32))
-    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    review_note: Mapped[Optional[str]] = mapped_column(Text)
-    decided_by: Mapped[Optional[str]] = mapped_column(String(32))
-    decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    decision_note: Mapped[Optional[str]] = mapped_column(Text)
-    decision_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
-    task_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
-    converted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    executed_by: Mapped[Optional[str]] = mapped_column(String(32))
-    executed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    verified_by: Mapped[Optional[str]] = mapped_column(String(32))
-    verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    verification_outcome: Mapped[Optional[str]] = mapped_column(String(24))
-    verification_note: Mapped[Optional[str]] = mapped_column(Text)
 
     __table_args__ = (
-        UniqueConstraint("organization_id", "kind", "fingerprint", name="uq_knowledge_recommendation_fingerprint"),
+        UniqueConstraint("claim_id_1", "claim_id_2", name="uq_knowledge_conflicts_pair"),
+        {"extend_existing": True},
     )
 
 
-class KnowledgeIntelInsight(Base):
-    """4E.5 — a universal knowledge insight: what the company knows MEANS.
+class ExternalKnowledgeSource(Base, TimestampMixin):
+    __tablename__ = "external_knowledge_sources"
 
-    One canonical insight model across the twelve kinds (discovery, change,
-    contradiction, risk, opportunity, gap, dependency, impact, trend,
-    recommendation, verification_required, decision_required). Insights are
-    materialized deterministically from the persisted knowledge substrate,
-    keyed by a stable ``fingerprint`` so replays are exact-once, and carry
-    their own lifecycle (active -> acknowledged -> resolved — rows are never
-    deleted). Every insight records its lineage: the source event, the claim
-    ids and the entities that produced it.
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    source_type: Mapped[str] = mapped_column(String(40), nullable=False)  # google_drive, slack, jira, github, etc.
+    source_id: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    url: Mapped[Optional[str]] = mapped_column(String(500))
+    access_token_encrypted: Mapped[Optional[str]] = mapped_column(Text)
+    refresh_token_encrypted: Mapped[Optional[str]] = mapped_column(Text)
+    sync_status: Mapped[str] = mapped_column(String(24), default="pending", nullable=False)
+    last_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    sync_error: Mapped[Optional[str]] = mapped_column(Text)
+    config: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
-    The distinct ``knowledge_intel_insights`` table keeps this operating layer
-    separate from the legacy Slice 4 ``knowledge_insights`` worker signals
-    (app.models.intelligence.KnowledgeInsight), which remain untouched.
-    """
+    __table_args__ = (
+        UniqueConstraint("organization_id", "source_type", "source_id", name="uq_external_sources_org_type_id"),
+        {"extend_existing": True},
+    )
+
+
+class KnowledgeContextQuery(Base, TimestampMixin):
+    __tablename__ = "knowledge_context_queries"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    query_text: Mapped[str] = mapped_column(Text, nullable=False)
+    query_vector: Mapped[Optional[str]] = mapped_column(Text)
+    filters: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+    results_count: Mapped[int] = mapped_column(Integer, default=0)
+    top_result_id: Mapped[Optional[str]] = mapped_column(String(32))
+    user_id: Mapped[Optional[str]] = mapped_column(String(32))
+    session_id: Mapped[Optional[str]] = mapped_column(String(32))
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(24), default="completed", nullable=False)
+
+
+class KnowledgeRelation(Base, TimestampMixin):
+    """Relation between knowledge entities and other entities."""
+
+    __tablename__ = "knowledge_relations"
+    __table_args__ = {"extend_existing": True}
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)  # claim, document, topic, source
+    source_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    target_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)  # claim, document, topic, source, project, task, meeting, person
+    target_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    relation_type: Mapped[str] = mapped_column(String(40), nullable=False)  # supports, contradicts, references, derived_from, part_of, related_to
+    strength: Mapped[float] = mapped_column(Float, default=0.5, nullable=False)
+    metadata_json: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    __table_args__ = (
+        Index("ix_knowledge_relation_source", "source_type", "source_id"),
+        Index("ix_knowledge_relation_target", "target_type", "target_id"),
+        UniqueConstraint("organization_id", "source_type", "source_id", "target_type", "target_id", "relation_type", name="uq_knowledge_relation_unique"),
+        {"extend_existing": True},
+    )
+
+
+class KnowledgeIntelInsight(Base, TimestampMixin):
+    """Intelligence insight derived from knowledge synthesis."""
 
     __tablename__ = "knowledge_intel_insights"
+    __table_args__ = {"extend_existing": True}
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
     organization_id: Mapped[str] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    kind: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
-    title: Mapped[str] = mapped_column(String(240), nullable=False)
-    summary: Mapped[str] = mapped_column(Text, nullable=False)
-    severity: Mapped[str] = mapped_column(String(16), default="medium", nullable=False, index=True)
-    confidence: Mapped[float] = mapped_column(Float, default=0.6, nullable=False)
-    impact: Mapped[str] = mapped_column(String(16), default="medium", nullable=False)
-    urgency: Mapped[str] = mapped_column(String(16), default="medium", nullable=False)
-    priority_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False, index=True)
-    status: Mapped[str] = mapped_column(String(16), default="active", nullable=False, index=True)
-    fingerprint: Mapped[str] = mapped_column(String(120), nullable=False)
-    source_event: Mapped[Optional[str]] = mapped_column(String(64))
-    source_claims_json: Mapped[Optional[str]] = mapped_column(Text)
-    source_entities_json: Mapped[Optional[str]] = mapped_column(Text)
-    evidence_json: Mapped[Optional[str]] = mapped_column(Text)
-    topic_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
-    topic_name: Mapped[Optional[str]] = mapped_column(String(120), index=True)
+    kind: Mapped[str] = mapped_column(String(40), nullable=False, index=True)  # pattern, trend, anomaly, correlation, causation, lesson
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, default=0.5, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="discovered", nullable=False)  # discovered, validated, applied, archived
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    source_events_json: Mapped[Optional[str]] = mapped_column(Text)
+    metadata_json: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
-    acknowledged_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    resolved_by: Mapped[Optional[str]] = mapped_column(String(32))
 
     __table_args__ = (
-        UniqueConstraint("organization_id", "kind", "fingerprint", name="uq_knowledge_intel_insight_fingerprint"),
+        Index("ix_knowledge_intel_insight_org_fingerprint", "organization_id", "fingerprint", unique=True),
+        Index("ix_knowledge_intel_insight_org_status", "organization_id", "status"),
+        {"extend_existing": True},
     )
 
 
-class KnowledgeIntelInsightEvent(Base):
-    """4E.5 — audit trail for every insight lifecycle transition (created,
-    acknowledged, resolved) with the acting user, note and details."""
+class KnowledgeIntelInsightEvent(Base, TimestampMixin):
+    """Event log for insight lifecycle."""
 
     __tablename__ = "knowledge_intel_insight_events"
+    __table_args__ = {"extend_existing": True}
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
     organization_id: Mapped[str] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    insight_id: Mapped[str] = mapped_column(
-        ForeignKey("knowledge_intel_insights.id", ondelete="CASCADE"), index=True, nullable=False
-    )
-    action: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
-    actor_id: Mapped[Optional[str]] = mapped_column(String(32))
-    note: Mapped[Optional[str]] = mapped_column(Text)
+    insight_id: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(40), nullable=False)  # discovered, validated, applied, archived, superseded
+    actor_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
     details_json: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
+    __table_args__ = (
+        Index("ix_knowledge_intel_insight_event_org_insight", "organization_id", "insight_id"),
+        {"extend_existing": True},
+    )
 
-class KnowledgeTopic(Base):
-    """4E.1 — the canonical topic registry seeding entity resolution (4E.4).
 
-    A topic is the agreed name for an organizational concept or entity, with
-    aliases other sources may use for the same thing. Topics anchor the
-    knowledge graph without forcing every source to use identical naming.
-    """
+class KnowledgeRecommendation(Base, TimestampMixin):
+    """Recommendation derived from knowledge intelligence."""
 
-    __tablename__ = "knowledge_topics"
+    __tablename__ = "knowledge_recommendations"
+    __table_args__ = {"extend_existing": True}
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
     organization_id: Mapped[str] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    name: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
-    aliases_json: Mapped[Optional[str]] = mapped_column(Text)
-    entity_type: Mapped[Optional[str]] = mapped_column(String(32), index=True)
-    entity_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
-    category: Mapped[Optional[str]] = mapped_column(String(80))
-    status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)
-    created_by: Mapped[Optional[str]] = mapped_column(String(32))
+    insight_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    kind: Mapped[str] = mapped_column(String(40), nullable=False)  # action, investigation, review, update, create, archive
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # 0-5
+    status: Mapped[str] = mapped_column(String(24), default="proposed", nullable=False)  # proposed, under_review, approved, rejected, implemented, deferred
+    confidence: Mapped[float] = mapped_column(Float, default=0.5, nullable=False)
+    estimated_impact: Mapped[Optional[str]] = mapped_column(Text)
+    estimated_effort: Mapped[Optional[str]] = mapped_column(String(32))
+    assignee_id: Mapped[Optional[str]] = mapped_column(String(32), index=True)
+    due_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    metadata_json: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
     __table_args__ = (
-        UniqueConstraint("organization_id", "name", name="uq_knowledge_topics_name"),
+        Index("ix_knowledge_recommendation_org_status", "organization_id", "status"),
+        Index("ix_knowledge_recommendation_org_insight", "organization_id", "insight_id"),
+        {"extend_existing": True},
+    )
+
+
+class KnowledgeQuality(Base, TimestampMixin):
+    """Quality metrics for knowledge sources and claims."""
+    
+    __tablename__ = "knowledge_quality"
+    __table_args__ = {"extend_existing": True}
+    
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    source_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    quality_score: Mapped[float] = mapped_column(Float, default=0.5, nullable=False)
+    freshness_score: Mapped[float] = mapped_column(Float, default=0.5, nullable=False)
+    authority_score: Mapped[float] = mapped_column(Float, default=0.5, nullable=False)
+    completeness_score: Mapped[float] = mapped_column(Float, default=0.5, nullable=False)
+    accuracy_score: Mapped[float] = mapped_column(Float, default=0.5, nullable=False)
+    consistency_score: Mapped[float] = mapped_column(Float, default=0.5, nullable=False)
+    relevance_score: Mapped[float] = mapped_column(Float, default=0.5, nullable=False)
+    metrics_json: Mapped[Optional[str]] = mapped_column(Text)
+    assessed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    assessed_by: Mapped[Optional[str]] = mapped_column(String(32))
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    
+    __table_args__ = (
+        UniqueConstraint("organization_id", "source_type", "source_id", name="uq_knowledge_quality_source"),
+        {"extend_existing": True},
     )

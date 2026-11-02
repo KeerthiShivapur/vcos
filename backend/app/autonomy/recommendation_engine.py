@@ -159,13 +159,21 @@ class RecommendationEngine:
             })
 
         # mentorship: no mentors, many juniors
-        if employees >= 6 and await _count(Employee, title="Junior") >= 3:
+        junior_count = (
+            await db.execute(
+                select(func.count(Employee.id)).where(
+                    Employee.organization_id == organization_id,
+                    Employee.designation.ilike("%junior%"),
+                )
+            )
+        ).scalar() or 0
+        if employees >= 6 and junior_count >= 3:
             out.append({
                 "category": "mentorship",
                 "title": "Assign mentors to junior employees",
                 "description": "Several junior employees would benefit from mentorship.",
                 "rationale": "Mentorship accelerates growth and retention.",
-                "evidence": [{"metric": "junior_employees", "value": await _count(Employee, title="Junior")}],
+                "evidence": [{"metric": "junior_employees", "value": junior_count}],
                 "confidence": 0.65, "impact": "medium",
                 "estimated_benefit": "Faster ramp + higher retention",
             })

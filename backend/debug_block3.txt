@@ -1,0 +1,10 @@
+logger.info("Database cleanup complete")
+    
+    async def _cleanup_test_data(self, db, organization_id, backup_id=None):
+        """Clean up test data for a specific organization, preserving the current backup."""
+        from sqlalchemy import delete, text
+        from app.models.organization import Organization
+        from app.models.user import User
+        from app.models.employee import Employee
+        from app.models.department import Department
+        from app.models.team import Team

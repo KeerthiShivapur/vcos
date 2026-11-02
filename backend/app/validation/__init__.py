@@ -1,0 +1,1 @@
+"""Validation module - capability-aware validation contracts."""

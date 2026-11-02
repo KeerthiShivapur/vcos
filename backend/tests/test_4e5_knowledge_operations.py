@@ -584,6 +584,85 @@ async def test_recommendation_lifecycle_reject_and_guards(client, db_session_fac
     assert task.decision_id == decision_id
 
 
+async def test_failed_lifecycle_requests_leave_state_unchanged(client, db_session_factory):
+    """Stage A / 4E.5 — refused lifecycle requests must not mutate state.
+
+    Invalid convert target, invalid execute and invalid verify are refused
+    with 400, and the committed row must remain byte-for-byte the same:
+    lifecycle, audit trail and conversion links unchanged. The shared-session
+    harness exposes any leaked dirty state on the next successful request."""
+    import json
+
+    org = await register_org(client, email="4e5_safety@test.co")
+    headers = org["headers"]
+    await _seed_budget_conflict(client, headers)
+    await _drain_events(db_session_factory)
+
+    rec, _ = await _first_conflict_recommendation(client, headers)
+
+    async def lifecycle(action, **payload):
+        return await client.post(
+            f"/api/v1/brain/knowledge/recommendations/{rec['id']}/lifecycle",
+            json={"action": action, **payload},
+            headers=headers,
+        )
+
+    async def committed():
+        async with db_session_factory() as session:
+            return (
+                await session.execute(
+                    select(KnowledgeRecommendation).where(
+                        KnowledgeRecommendation.id == rec["id"],
+                    )
+                )
+            ).scalar_one()
+
+    reviewed = await lifecycle("review", note="first pass")
+    assert reviewed.status_code == 200, reviewed.text
+    assert reviewed.json()["lifecycle"] == "reviewed"
+
+    bad_target = await lifecycle("convert", target="spreadsheet")
+    assert bad_target.status_code == 400, "convert target must be task or decision"
+
+    bad_execute = await lifecycle("execute")
+    assert bad_execute.status_code == 400, "execute requires an executed recommendation"
+
+    bad_verify = await lifecycle("verify", note="too early")
+    assert bad_verify.status_code == 400, "verify requires a converted recommendation"
+
+    row = await committed()
+    assert row.lifecycle == "reviewed", "refused actions left lifecycle unchanged"
+    assert len(json.loads(row.lifecycle_audit_json or "[]")) == 1, (
+        "refused actions left no extra audit entries"
+    )
+    assert row.task_id is None and row.decision_id is None
+    assert row.verified_at is None and row.verification_outcome is None
+
+    accepted = await lifecycle("accept", note="evidence is solid")
+    assert accepted.status_code == 200, accepted.text
+
+    converted = await lifecycle("convert", target="task", note="track it")
+    assert converted.status_code == 200, converted.text
+    assert converted.json()["task_id"]
+
+    missing_note = await lifecycle("verify")
+    assert missing_note.status_code == 400, "verification requires a note"
+
+    row = await committed()
+    assert row.lifecycle == "converted", "the no-note verify refused cleanly"
+    assert len(json.loads(row.lifecycle_audit_json or "[]")) == 3, (
+        "review + accept + convert are the only audited transitions"
+    )
+    assert row.verification_outcome is None
+
+    executed = await lifecycle("execute")
+    assert executed.status_code == 200, executed.text
+
+    verified = await lifecycle("verify", note="change shipped, evidence updated")
+    assert verified.status_code == 200, verified.text
+    assert verified.json()["lifecycle"] == "verified"
+
+
 # ------------------------------------------------------- governance (4E.5.10)
 
 

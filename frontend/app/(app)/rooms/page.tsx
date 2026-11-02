@@ -33,7 +33,15 @@ export default function RoomsPage() {
   );
 }
 
-const ROOM_TYPES = ["meeting", "virtual_office", "project", "department", "team", "event", "standup"];
+const ROOM_TYPES = [
+  "meeting",
+  "virtual_office",
+  "project",
+  "department",
+  "team",
+  "event",
+  "standup",
+];
 
 const ROOM_TYPE_META: Record<string, { label: string; hint: string }> = {
   meeting: { label: "Meeting", hint: "Ad-hoc meetings and calls" },
@@ -57,13 +65,17 @@ function RoomsContent() {
   const [showCreate, setShowCreate] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [availabilityByRoom, setAvailabilityByRoom] = useState<Record<string, unknown[]>>({});
+  const [availabilityByRoom, setAvailabilityByRoom] = useState<
+    Record<string, unknown[]>
+  >({});
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const roomList = await listMeetingRooms({ room_type: typeFilter || undefined });
+      const roomList = await listMeetingRooms({
+        room_type: typeFilter || undefined,
+      });
       setRooms(roomList);
       const avail: Record<string, unknown[]> = {};
       for (const room of roomList.slice(0, 12)) {
@@ -102,13 +114,16 @@ function RoomsContent() {
         description: String(form.get("description") ?? "").trim() || undefined,
         capacity: form.get("capacity") ? Number(form.get("capacity")) : 8,
         location: String(form.get("location") ?? "").trim() || undefined,
-        allow_recording: String(form.get("allow_recording") ?? "true") !== "false",
+        allow_recording:
+          String(form.get("allow_recording") ?? "true") !== "false",
       });
       toastSuccess("Room created");
       setShowCreate(false);
       await load();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Unable to create room");
+      setFormError(
+        err instanceof Error ? err.message : "Unable to create room",
+      );
     } finally {
       setSaving(false);
     }
@@ -136,7 +151,9 @@ function RoomsContent() {
     }
   }
 
-  const occupied = rooms.filter((r) => r.status === "occupied" || r.status === "scheduled");
+  const occupied = rooms.filter(
+    (r) => r.status === "occupied" || r.status === "scheduled",
+  );
   const available = rooms.filter((r) => r.status === "available");
 
   return (
@@ -159,61 +176,117 @@ function RoomsContent() {
           aria-label="Room type"
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value)}
-          options={ROOM_TYPES.map((t) => ({ value: t, label: ROOM_TYPE_META[t].label }))}
+          options={ROOM_TYPES.map((t) => ({
+            value: t,
+            label: ROOM_TYPE_META[t].label,
+          }))}
           placeholder="All room types"
         />
         <div className="ml-auto flex items-center gap-3 text-[12px] font-medium">
-          <span className="flex items-center gap-1.5 text-muted"><span className="h-2 w-2 rounded-full bg-success" /> {available.length} available</span>
-          <span className="flex items-center gap-1.5 text-muted"><span className="h-2 w-2 rounded-full bg-danger" /> {occupied.length} in use</span>
+          <span className="flex items-center gap-1.5 text-muted">
+            <span className="h-2 w-2 rounded-full bg-success" />{" "}
+            {available.length} available
+          </span>
+          <span className="flex items-center gap-1.5 text-muted">
+            <span className="h-2 w-2 rounded-full bg-danger" />{" "}
+            {occupied.length} in use
+          </span>
         </div>
       </div>
 
       {error ? (
         <ErrorState title="Could not load rooms" message={error} />
       ) : loading ? (
-        <div className="flex justify-center py-24"><Spinner label="Loading rooms" /></div>
+        <div className="flex justify-center py-24">
+          <Spinner label="Loading rooms" />
+        </div>
       ) : rooms.length === 0 ? (
         <EmptyState
           icon={Building2}
           title="No rooms"
           description="Create rooms where people can meet, hang out and collaborate."
-          action={canManage ? <Button size="sm" onClick={() => setShowCreate(true)}><Plus className="h-4 w-4" /> Create room</Button> : undefined}
+          action={
+            canManage ? (
+              <Button size="sm" onClick={() => setShowCreate(true)}>
+                <Plus className="h-4 w-4" /> Create room
+              </Button>
+            ) : undefined
+          }
         />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {rooms.map((room) => {
-            const meta = ROOM_TYPE_META[room.room_type] ?? ROOM_TYPE_META.meeting;
-            const busy = room.status === "occupied" || room.status === "scheduled";
+            const meta =
+              ROOM_TYPE_META[room.room_type] ?? ROOM_TYPE_META.meeting;
+            const busy =
+              room.status === "occupied" || room.status === "scheduled";
             const upcoming = (availabilityByRoom[room.id] ?? [])
               .filter((item: unknown) => {
-                const it = item as { status?: string; start_at?: string | null };
+                const it = item as {
+                  status?: string;
+                  start_at?: string | null;
+                };
                 return it.status !== "cancelled" && it.status !== "completed";
               })
               .slice(0, 2);
             return (
               <div key={room.id} className="card p-5">
                 <div className="flex items-start justify-between gap-2">
-                  <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${busy ? "bg-danger/10 text-danger" : "bg-brand-soft text-brand"}`}>
-                    {busy ? <Radio className="h-5 w-5" /> : <DoorOpen className="h-5 w-5" />}
+                  <div
+                    className={`flex h-10 w-10 items-center justify-center rounded-xl ${busy ? "bg-danger/10 text-danger" : "bg-brand-soft text-brand"}`}
+                  >
+                    {busy ? (
+                      <Radio className="h-5 w-5" />
+                    ) : (
+                      <DoorOpen className="h-5 w-5" />
+                    )}
                   </div>
-                  <Badge tone={busy ? "danger" : room.status === "maintenance" ? "warning" : "success"}>{room.status}</Badge>
+                  <Badge
+                    tone={
+                      busy
+                        ? "danger"
+                        : room.status === "maintenance"
+                          ? "warning"
+                          : "success"
+                    }
+                  >
+                    {room.status}
+                  </Badge>
                 </div>
-                <h3 className="mt-3 truncate font-semibold text-ink">{room.name}</h3>
-                <p className="text-[12px] text-faint">{meta.label} · {meta.hint}</p>
+                <h3 className="mt-3 truncate font-semibold text-ink">
+                  {room.name}
+                </h3>
+                <p className="text-[12px] text-faint">
+                  {meta.label} · {meta.hint}
+                </p>
                 <p className="mt-2 flex items-center gap-1.5 text-[12px] text-muted">
                   <Users className="h-3.5 w-3.5" /> {room.capacity} capacity
                   {room.location ? ` · ${room.location}` : ""}
                 </p>
-                {room.description && <p className="mt-1 line-clamp-2 text-[12px] text-faint">{room.description}</p>}
+                {room.description && (
+                  <p className="mt-1 line-clamp-2 text-[12px] text-faint">
+                    {room.description}
+                  </p>
+                )}
                 {upcoming.length > 0 && (
                   <div className="mt-3 rounded-lg border border-line bg-canvas p-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-faint">Next in this room</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-faint">
+                      Next in this room
+                    </p>
                     {upcoming.map((item, index) => {
-                      const it = item as { title: string; start_at: string | null };
+                      const it = item as {
+                        title: string;
+                        start_at: string | null;
+                      };
                       return (
-                        <p key={index} className="mt-1 truncate text-[12px] text-muted">
+                        <p
+                          key={index}
+                          className="mt-1 truncate text-[12px] text-muted"
+                        >
                           {it.title}
-                          {it.start_at ? ` · ${new Date(it.start_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : ""}
+                          {it.start_at
+                            ? ` · ${new Date(it.start_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}`
+                            : ""}
                         </p>
                       );
                     })}
@@ -221,10 +294,19 @@ function RoomsContent() {
                 )}
                 {canManage && (
                   <div className="mt-4 flex items-center gap-2">
-                    <Button size="sm" variant="secondary" onClick={() => handleToggleStatus(room)}>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => handleToggleStatus(room)}
+                    >
                       {busy ? "Mark available" : "Mark in use"}
                     </Button>
-                    <Button size="sm" variant="ghost" className="text-danger" onClick={() => handleDelete(room)}>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-danger"
+                      onClick={() => handleDelete(room)}
+                    >
                       Delete
                     </Button>
                   </div>
@@ -235,30 +317,68 @@ function RoomsContent() {
         </div>
       )}
 
-      <Modal open={showCreate} onClose={() => setShowCreate(false)} title="Create room" description="Add a place where people can meet and collaborate.">
+      <Modal
+        open={showCreate}
+        onClose={() => setShowCreate(false)}
+        title="Create room"
+        description="Add a place where people can meet and collaborate."
+      >
         <form onSubmit={handleCreate} className="space-y-4">
-          {formError && <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger">{formError}</div>}
-          <Input label="Name" name="name" required placeholder="Design Studio" />
+          {formError && (
+            <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger">
+              {formError}
+            </div>
+          )}
+          <Input
+            label="Name"
+            name="name"
+            required
+            placeholder="Design Studio"
+          />
           <Select
             label="Type"
             name="room_type"
             defaultValue="meeting"
-            options={ROOM_TYPES.map((t) => ({ value: t, label: ROOM_TYPE_META[t].label }))}
+            options={ROOM_TYPES.map((t) => ({
+              value: t,
+              label: ROOM_TYPE_META[t].label,
+            }))}
           />
           <Textarea label="Description" name="description" rows={2} />
           <div className="grid gap-4 sm:grid-cols-2">
-            <Input label="Capacity" name="capacity" type="number" min={1} defaultValue={8} />
-            <Input label="Location" name="location" placeholder="Virtual / Room 1" />
+            <Input
+              label="Capacity"
+              name="capacity"
+              type="number"
+              min={1}
+              defaultValue={8}
+            />
+            <Input
+              label="Location"
+              name="location"
+              placeholder="Virtual / Room 1"
+            />
           </div>
           <Select
             label="Recording allowed"
             name="allow_recording"
             defaultValue="true"
-            options={[{ value: "true", label: "Yes" }, { value: "false", label: "No" }]}
+            options={[
+              { value: "true", label: "Yes" },
+              { value: "false", label: "No" },
+            ]}
           />
           <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="ghost" onClick={() => setShowCreate(false)}>Cancel</Button>
-            <Button type="submit" loading={saving}>Create room</Button>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setShowCreate(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" loading={saving}>
+              Create room
+            </Button>
           </div>
         </form>
       </Modal>

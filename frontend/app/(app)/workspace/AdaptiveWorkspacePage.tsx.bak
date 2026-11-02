@@ -1,0 +1,1339 @@
+import { Suspense, useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import {
+  Activity,
+  AlertTriangle,
+  Banknote,
+  BarChart3,
+  Briefcase,
+  Building2,
+  CalendarClock,
+  CheckCircle2,
+  Clock,
+  CreditCard,
+  DollarSign,
+  Gauge,
+  LayoutDashboard,
+  ListTodo,
+  Target,
+  Users,
+  Zap,
+  Search,
+  Command,
+  Sparkles,
+  Bell,
+  ChevronRight,
+  MoreHorizontal,
+  Settings,
+  Grid,
+  Brain,
+  Home,
+  TrendingUp,
+  UserPlus,
+  Sun,
+  Key,
+  Smartphone,
+  Shield,
+  FileText,
+  Plus,
+  ArrowRight,
+  Link as LucideLink,
+  Zap as ZapIcon,
+  FileText as FileTextIcon,
+} from "lucide-react";
+
+import { Progress } from "@/components/ui/Progress";
+import { getIconComponent } from "@/lib/icon-utils";
+
+import { getMyDay, getCompanyHome, getManagerWorkspace } from "@/lib/api";
+import { roleCan, PERMISSIONS } from "@/lib/permissions";
+import type { MyDay, CompanyHome, ManagerWorkspace } from "@/types";
+import { useAuth } from "@/hooks/useAuth";
+import { useAdaptiveNavigation } from "@/hooks/useAdaptiveNavigation";
+import { PageHeader, StatCard } from "@/components/ui/PageHeader";
+import type { CompanyExperienceProfile } from "@/types";
+import { Card } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
+import { Badge, statusTone } from "@/components/ui/Badge";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
+import { Spinner } from "@/components/ui/Spinner";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs";
+import { useFetch } from "@/hooks/useFetch";
+import { formatDate } from "@/lib/utils";
+import { CommandPalette } from "@/components/header/CommandPalette";
+
+interface AdaptiveModule {
+  key: string;
+  label: string;
+  icon: string;
+  description: string;
+  required_permissions: string[];
+  priority: number;
+  progressive_disclosure: boolean;
+}
+
+interface AdaptiveNavigationGroup {
+  key: string;
+  label: string;
+  modules: AdaptiveModule[];
+  priority: number;
+  collapsible: boolean;
+  default_collapsed: boolean;
+}
+
+interface CompanyBrainInsights {
+  overview: Record<string, unknown>;
+  recentChanges: Array<Record<string, unknown>>;
+  changeCount: number;
+}
+
+interface DigitalTwinOverlay {
+  healthScore: number;
+  capacityUtilization: number;
+  bottlenecks: string[];
+  activeScenarios: number;
+}
+
+interface RecommendedAction {
+  type: string;
+  label: string;
+  action: string;
+  target: string;
+  priority: number;
+  source: string;
+}
+
+export default function AdaptiveWorkspacePage() {
+  const { user } = useAuth();
+  const {
+    adaptiveGroups,
+    adaptiveModules,
+    profile,
+    dashboardLayout,
+    navigationDensity,
+    progressiveDisclosure,
+    showAdvancedFeatures,
+    featureFlags,
+    companyBrainInsights,
+    digitalTwinOverlay,
+    recommendedActions,
+    contextFingerprint,
+    loading: adaptiveLoading,
+  } = useAdaptiveNavigation();
+
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  // Determine which tabs to show based on experience profile and permissions
+  const showCompanyHome = roleCan(user?.role, PERMISSIONS.EXECUTIVE_VIEW);
+  const showManager = roleCan(user?.role, PERMISSIONS.WORKLOAD_READ);
+  const isStartup = profile === "startup";
+
+  // Build tabs from adaptive navigation groups
+  const workspaceTabs = adaptiveGroups
+    .filter((g) => g.key === "workspace" || g.key === "ai")
+    .flatMap((g) =>
+      g.modules
+        .filter(
+          (m) =>
+            !m.required_permissions.length ||
+            roleCan(user?.role, m.required_permissions[0] as any),
+        )
+        .map((m) => ({
+          key: m.key,
+          label: m.label,
+          icon: m.icon,
+        })),
+    );
+
+  return (
+    <div className="space-y-6">
+      {/* Adaptive Header with Context */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight text-ink">
+            {profile === "startup"
+              ? "My Workspace"
+              : profile === "growing"
+                ? "Team Workspace"
+                : "Company Workspace"}
+          </h1>
+          <p className="mt-0.5 text-sm text-muted">
+            {profile === "startup"
+              ? "Your personal operating surface"
+              : "Your adaptive company operating surface"}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge tone="brand" className="text-xs">
+            {PROFILE_LABELS[profile as keyof typeof PROFILE_LABELS] || profile}
+          </Badge>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setPaletteOpen(true)}
+          >
+            <Command className="h-4 w-4 mr-2" /> Command
+          </Button>
+        </div>
+      </div>
+
+      {/* Adaptive Tabs from Navigation Groups */}
+      <Tabs defaultValue="my-day" className="space-y-6">
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="my-day">My Day</TabsTrigger>
+          {!isStartup && <TabsTrigger value="workspace">Workspace</TabsTrigger>}
+          {showCompanyHome && !isStartup && (
+            <TabsTrigger value="company-home">Company Home</TabsTrigger>
+          )}
+          {showManager && !isStartup && (
+            <TabsTrigger value="manager">Manager</TabsTrigger>
+          )}
+        </TabsList>
+
+        <TabsContent value="my-day">
+          <Suspense fallback={<MyDaySkeleton />}>
+            <MyDayContent />
+          </Suspense>
+        </TabsContent>
+
+        {!isStartup && (
+          <TabsContent value="workspace">
+            <AdaptiveWorkspaceOverview
+              adaptiveGroups={adaptiveGroups}
+              adaptiveModules={adaptiveModules}
+              profile={profile ?? "startup"}
+              dashboardLayout={dashboardLayout}
+              navigationDensity={navigationDensity}
+              progressiveDisclosure={progressiveDisclosure}
+              showAdvancedFeatures={showAdvancedFeatures}
+              featureFlags={featureFlags}
+            />
+          </TabsContent>
+        )}
+
+        {showCompanyHome && !isStartup && (
+          <TabsContent value="company-home">
+            <Suspense fallback={<CompanyHomeSkeleton />}>
+              <AdaptiveCompanyHomeContent
+                companyBrainInsights={companyBrainInsights}
+                digitalTwinOverlay={digitalTwinOverlay}
+                recommendedActions={recommendedActions}
+                profile={profile ?? "startup"}
+              />
+            </Suspense>
+          </TabsContent>
+        )}
+
+        {showManager && !isStartup && (
+          <TabsContent value="manager">
+            <Suspense fallback={<ManagerSkeleton />}>
+              <ManagerWorkspaceContent />
+            </Suspense>
+          </TabsContent>
+        )}
+      </Tabs>
+
+      {/* Command Palette */}
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+      />
+    </div>
+  );
+}
+
+function AdaptiveWorkspaceOverview({
+  adaptiveGroups,
+  adaptiveModules,
+  profile,
+  dashboardLayout,
+  navigationDensity,
+  progressiveDisclosure,
+  showAdvancedFeatures,
+  featureFlags,
+}: {
+  adaptiveGroups: any[];
+  adaptiveModules: any[];
+  profile: string;
+  dashboardLayout: string;
+  navigationDensity: string;
+  progressiveDisclosure: boolean;
+  showAdvancedFeatures: boolean;
+  featureFlags: Record<string, boolean>;
+}) {
+  const { user } = useAuth();
+  const isStartup = profile === "startup";
+  const isGrowing = profile === "growing" || profile === "mid_market";
+  const isEnterprise =
+    profile === "large_enterprise" || profile === "global_enterprise";
+
+  // Get modules for the workspace group
+  const workspaceGroup = adaptiveGroups.find((g) => g.key === "workspace");
+  const workspaceModules = workspaceGroup?.modules || [];
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="Workspace"
+        description="Your adaptive company operating surface."
+        actions={
+          <Link href="/search">
+            <Button variant="secondary">
+              <Search className="h-4 w-4 mr-2" /> Search
+            </Button>
+          </Link>
+        }
+      />
+
+      {/* Adaptive Module Grid */}
+      <div className="grid gap-6 lg:grid-cols-3">
+        {adaptiveGroups
+          .filter((g) => g.key !== "workspace" && g.key !== "ai")
+          .map((group) => (
+            <WorkspaceSection
+              key={group.key}
+              title={group.label}
+              icon={getIconComponent(group.modules[0]?.icon || "LayoutGrid")}
+              modules={group.modules}
+              profile={profile}
+              progressiveDisclosure={progressiveDisclosure}
+            />
+          ))}
+      </div>
+
+      {/* Intelligence Panel - shown for growing+ profiles */}
+      {(isGrowing || isEnterprise) && (
+        <Card
+          title="Intelligence & Insights"
+          className="border-brand/20 bg-brand/[0.04]"
+        >
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <IntelligenceCard
+              icon={Brain}
+              label="Company Brain"
+              description="Organizational intelligence and insights"
+              href="/brain"
+              featureFlag="company_brain_enabled"
+            />
+            <IntelligenceCard
+              icon={Activity}
+              label="Digital Twin"
+              description="Company state simulation with scenarios"
+              href="/twin"
+              featureFlag="digital_twin_enabled"
+            />
+            <IntelligenceCard
+              icon={Target}
+              label="BI / Decisions"
+              description="Business intelligence and decisions"
+              href="/decisions"
+            />
+            {isEnterprise && (
+              <>
+                <IntelligenceCard
+                  icon={BarChart3}
+                  label="Analytics"
+                  description="Advanced analytics and reporting"
+                  href="/analytics"
+                />
+                <IntelligenceCard
+                  icon={Search}
+                  label="Universal Search"
+                  description="Search across all canonical reality"
+                  href="/search"
+                />
+                <IntelligenceCard
+                  icon={Command}
+                  label="Ask VCOS"
+                  description="Natural language command interface"
+                  href="/workspace/command"
+                />
+              </>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* Quick Actions */}
+      <Card>
+        <div className="flex items-center justify-between border-b border-line px-5 py-4">
+          <h2 className="text-sm font-semibold text-ink">Quick Actions</h2>
+        </div>
+        <div className="space-y-2 p-2">
+          <QuickAction
+            href="/workspace?new=note"
+            icon={<FileText className="h-4 w-4" />}
+            label="New note"
+          />
+          <QuickAction
+            href="/workspace?new=bookmark"
+            icon={<LucideLink className="h-4 w-4" />}
+            label="Save a bookmark"
+          />
+          <QuickAction
+            href="/projects/new"
+            icon={<Zap className="h-4 w-4" />}
+            label="Create project"
+          />
+          <QuickAction
+            href="/decisions/new"
+            icon={<Target className="h-4 w-4" />}
+            label="New decision"
+          />
+          <QuickAction
+            href="/settings?tab=members"
+            icon={<UserPlus className="h-4 w-4" />}
+            label="Invite a member"
+          />
+          <QuickAction
+            href="/search"
+            icon={<Search className="h-4 w-4" />}
+            label="Search everything"
+          />
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function AdaptiveCompanyHomeContent({
+  companyBrainInsights,
+  digitalTwinOverlay,
+  recommendedActions,
+  profile,
+}: {
+  companyBrainInsights: CompanyBrainInsights;
+  digitalTwinOverlay: DigitalTwinOverlay;
+  recommendedActions: RecommendedAction[];
+  profile: string;
+}) {
+  const { data, loading, error } = useFetch<CompanyHome>(
+    "/workspace/company-home",
+  );
+  const isGrowing =
+    profile === "growing" || profile === "mid_market";
+  const isEnterprise =
+    profile === "large_enterprise" ||
+    profile === "global_enterprise";
+
+  if (error)
+    return <ErrorState title="Could not load Company Home" message={error} />;
+  if (loading || !data) return <CompanyHomeSkeleton />;
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title={data.organization?.name ?? "Company Home"}
+        description="Executive operating surface — strategy, execution, and intelligence."
+      />
+
+      {/* Top KPI Row */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          label="Active Objectives"
+          value={data.objectives?.length ?? 0}
+          icon={Target}
+        />
+        <StatCard
+          label="Active Projects"
+          value={data.execution?.active_projects ?? 0}
+          icon={Briefcase}
+        />
+        {isGrowing && (
+          <StatCard
+            label="Customers at Risk"
+            value={data.customers?.at_risk ?? 0}
+            icon={AlertTriangle}
+          />
+        )}
+        <StatCard
+          label="Decisions Awaiting"
+          value={data.decisions?.length ?? 0}
+          icon={Target}
+        />
+        {isEnterprise && (
+          <StatCard
+            label="Active Risks"
+            value={data.risks?.length ?? 0}
+            icon={AlertTriangle}
+          />
+        )}
+        {isEnterprise && (
+          <StatCard
+            label="Active Predictions"
+            value={data.predictions?.length ?? 0}
+            icon={TrendingUp}
+          />
+        )}
+      </div>
+
+      {/* Main Grid */}
+      <div className="grid gap-6 lg:grid-cols-3">
+        {/* Strategy & Execution */}
+        <Card title="Strategy & Execution" className="lg:col-span-2">
+          <div className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <StatCard
+                label="Strategic Goals"
+                value={data.strategy?.goals_count ?? 0}
+                icon={Target}
+              />
+              <StatCard
+                label="Active Objectives"
+                value={data.objectives?.length ?? 0}
+                icon={Target}
+              />
+              <StatCard
+                label="Completion Rate"
+                value={`${data.execution?.completion_rate ?? 0}%`}
+                icon={CheckCircle2}
+              />
+              <StatCard
+                label="Active Commitments"
+                value={data.execution?.active_commitments ?? 0}
+                icon={Target}
+              />
+            </div>
+            {data.objectives && data.objectives.length > 0 && (
+              <div>
+                <p className="text-sm font-medium text-ink">
+                  Active Objectives
+                </p>
+                <ul className="divide-y divide-line mt-2">
+                  {data.objectives.slice(0, 5).map((obj: any) => (
+                    <li
+                      key={obj.id}
+                      className="flex items-center justify-between px-5 py-3"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[13px] font-medium text-ink">
+                          {obj.title}
+                        </p>
+                        <div className="mt-1 flex items-center gap-2">
+                          <Progress
+                            value={obj.progress ?? 0}
+                            className="w-48 h-1.5"
+                          />
+                          <span className="text-[12px] font-mono text-brand">
+                            {obj.progress ?? 0}%
+                          </span>
+                        </div>
+                      </div>
+                      <Badge
+                        tone={
+                          obj.progress >= 80
+                            ? "success"
+                            : obj.progress >= 50
+                              ? "warning"
+                              : "neutral"
+                        }
+                      >
+                        {obj.status}
+                      </Badge>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </Card>
+
+        {/* Side Panel */}
+        <div className="space-y-6 lg:col-span-1">
+          {(isGrowing || isEnterprise) && (
+            <Card title="Financial State">
+              <div className="space-y-3">
+                <StatCard
+                  label="Revenue"
+                  value={`$${data.financial_state?.revenue ?? 0}`}
+                  icon={DollarSign}
+                />
+                <StatCard
+                  label="Expenses"
+                  value={`$${data.financial_state?.expenses ?? 0}`}
+                  icon={CreditCard}
+                />
+                <StatCard
+                  label="Cash Position"
+                  value={`$${data.financial_state?.cash_position ?? 0}`}
+                  icon={Banknote}
+                />
+              </div>
+            </Card>
+          )}
+
+          <Card title="People & Capacity">
+            <div className="space-y-3">
+              <StatCard
+                label="Total Employees"
+                value={data.people?.total_employees ?? 0}
+                icon={Users}
+              />
+              <StatCard
+                label="Capacity Utilization"
+                value={`${data.people?.capacity_utilization ?? 0}%`}
+                icon={Gauge}
+              />
+              {isGrowing && (
+                <StatCard
+                  label="Open Roles"
+                  value={data.people?.open_roles ?? 0}
+                  icon={UserPlus}
+                />
+              )}
+            </div>
+          </Card>
+
+          {(isGrowing || isEnterprise) && (
+            <Card title="Risks & Predictions">
+              <div className="space-y-3">
+                <StatCard
+                  label="Active Risks"
+                  value={data.risks?.length ?? 0}
+                  icon={AlertTriangle}
+                />
+                <StatCard
+                  label="Active Predictions"
+                  value={data.predictions?.length ?? 0}
+                  icon={TrendingUp}
+                />
+                <StatCard
+                  label="Decisions Awaiting"
+                  value={data.decisions?.length ?? 0}
+                  icon={Target}
+                />
+              </div>
+            </Card>
+          )}
+
+          {/* Company Brain Insights */}
+          <Card title="Company Brain Insights">
+            <div className="space-y-3">
+              {companyBrainInsights.changeCount > 0 && (
+                <div className="p-4 bg-brand/5 rounded-lg border border-brand/20">
+                  <p className="font-medium text-ink">What Changed This Week</p>
+                  <p className="mt-1 text-[13px] text-muted">
+                    {companyBrainInsights.changeCount} meaningful changes
+                    detected
+                  </p>
+                  <Link href="/brain/what-changed">
+                    <Button variant="ghost" size="sm" className="mt-2">
+                      View Details <ChevronRight className="h-3.5 w-3.5 ml-1" />
+                    </Button>
+                  </Link>
+                </div>
+              )}
+              <div className="p-4 bg-brand/5 rounded-lg border border-brand/20">
+                <p className="font-medium text-ink">Executive Briefing</p>
+                <p className="mt-1 text-[13px] text-muted">
+                  Weekly intelligence summary with risks, decisions, and
+                  changes.
+                </p>
+                <Link href="/brain/brief">
+                  <Button variant="ghost" size="sm" className="mt-2">
+                    Read Briefing <ChevronRight className="h-3.5 w-3.5 ml-1" />
+                  </Button>
+                </Link>
+              </div>
+              {(isGrowing || isEnterprise) && (
+                <div className="p-4 bg-brand/5 rounded-lg border border-brand/20">
+                  <p className="font-medium text-ink">Digital Twin</p>
+                  <p className="mt-1 text-[13px] text-muted">
+                    Company state simulation with scenarios and counterfactuals.
+                  </p>
+                  <Link href="/twin">
+                    <Button variant="ghost" size="sm" className="mt-2">
+                      Explore Twin <ChevronRight className="h-3.5 w-3.5 ml-1" />
+                    </Button>
+                  </Link>
+                </div>
+              )}
+            </div>
+          </Card>
+
+          {/* Digital Twin Overlay */}
+          {digitalTwinOverlay.capacityUtilization > 0 && (
+            <Card title="Digital Twin Status">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted">
+                    Capacity Utilization
+                  </span>
+                  <Badge
+                    tone={
+                      digitalTwinOverlay.capacityUtilization > 90
+                        ? "danger"
+                        : digitalTwinOverlay.capacityUtilization > 75
+                          ? "warning"
+                          : "success"
+                    }
+                  >
+                    {digitalTwinOverlay.capacityUtilization}%
+                  </Badge>
+                </div>
+                {digitalTwinOverlay.bottlenecks.length > 0 && (
+                  <div>
+                    <p className="text-sm font-medium text-ink">Bottlenecks</p>
+                    <ul className="mt-1 space-y-1">
+                      {digitalTwinOverlay.bottlenecks
+                        .slice(0, 3)
+                        .map((b, i) => (
+                          <li
+                            key={i}
+                            className="flex items-center gap-2 text-[13px] text-muted"
+                          >
+                            <AlertTriangle className="h-3.5 w-3.5 text-warning" />
+                            {b}
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+                )}
+                {digitalTwinOverlay.activeScenarios > 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted">Active Scenarios</span>
+                    <Badge tone="brand">
+                      {digitalTwinOverlay.activeScenarios}
+                    </Badge>
+                  </div>
+                )}
+              </div>
+            </Card>
+          )}
+
+          {/* Recommended Actions */}
+          {recommendedActions.length > 0 && (
+            <Card title="Recommended Actions">
+              <ul className="space-y-2">
+                {recommendedActions.slice(0, 5).map((action, i) => (
+                  <Link
+                    key={i}
+                    href={action.target}
+                    className="flex items-center gap-3 p-3 rounded-lg border border-line hover:bg-brand/5 transition-colors"
+                  >
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand">
+                      {action.type.includes("capacity") ? (
+                        <AlertTriangle className="h-4 w-4" />
+                      ) : action.type.includes("bottleneck") ? (
+                        <AlertTriangle className="h-4 w-4" />
+                      ) : action.type.includes("change") ? (
+                        <Activity className="h-4 w-4" />
+                      ) : (
+                        <Target className="h-4 w-4" />
+                      )}
+                    </div>
+                    <p className="flex-1 text-[13px] font-medium text-ink">
+                      {action.label}
+                    </p>
+                    <ChevronRight className="h-4 w-4 text-faint" />
+                  </Link>
+                ))}
+              </ul>
+            </Card>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function IntelligenceCard({
+  icon: Icon,
+  label,
+  description,
+  href,
+  featureFlag,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  description: string;
+  href: string;
+  featureFlag?: string;
+}) {
+  const { featureFlags } = useAdaptiveNavigation();
+  const isEnabled = !featureFlag || featureFlags[featureFlag];
+
+  if (!isEnabled) return null;
+
+  return (
+    <Link
+      href={href}
+      className="flex items-center gap-3 p-4 rounded-lg border border-line hover:bg-brand/5 transition-colors"
+    >
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand">
+        <Icon className="h-5 w-5" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="font-medium text-ink">{label}</p>
+        <p className="text-[12px] text-muted truncate">{description}</p>
+      </div>
+      <ChevronRight className="h-4 w-4 text-faint" />
+    </Link>
+  );
+}
+
+function WorkspaceSection({
+  title,
+  icon: Icon,
+  modules,
+  profile,
+  progressiveDisclosure,
+}: {
+  title: string;
+  icon: React.ComponentType<{ className?: string }>;
+  modules: any[];
+  profile: string;
+  progressiveDisclosure: boolean;
+}) {
+  const { user } = useAuth();
+  const { roleCan } = require("@/lib/permissions");
+
+  const visibleModules = modules.filter((m) => {
+    if (!m.required_permissions.length) return true;
+    return m.required_permissions.some((p: string) =>
+      roleCan(user?.role, p as any),
+    );
+  });
+
+  if (visibleModules.length === 0) return null;
+
+  return (
+    <Card>
+      <div className="flex items-center gap-2 border-b border-line px-5 py-4">
+        <Icon className="h-4 w-4 text-brand" />
+        <h3 className="text-sm font-semibold text-ink">{title}</h3>
+      </div>
+      <div className="p-3 space-y-1.5">
+        {visibleModules.map((module) => {
+          const IconComponent = getIconComponent(module.icon);
+          return (
+            <Link
+              key={module.key}
+              href={`/${module.key}`}
+              className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] text-muted transition-colors hover:bg-brand/5 hover:text-ink"
+            >
+              <IconComponent className="h-4 w-4 shrink-0 text-faint" />
+              <span className="flex-1 truncate font-medium">
+                {module.label}
+              </span>
+              {module.progressive_disclosure && progressiveDisclosure && (
+                <Badge tone="neutral" className="text-[10px]">
+                  Advanced
+                </Badge>
+              )}
+              <ChevronRight className="ml-auto h-3.5 w-3.5 text-faint" />
+            </Link>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
+function Stat({ title, value }: { title: string; value: number }) {
+  return (
+    <div className="bg-card p-4">
+      <dt className="text-[12px] text-faint">{title}</dt>
+      <dd className="mt-0.5 text-lg font-bold text-ink">{value}</dd>
+    </div>
+  );
+}
+
+function QuickAction({
+  href,
+  icon,
+  label,
+}: {
+  href: string;
+  icon: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] text-muted transition-colors hover:bg-brand/5 hover:text-ink"
+    >
+      <span className="text-faint">{icon}</span>
+      {label}
+      <ArrowRight className="ml-auto h-3.5 w-3.5 text-faint" />
+    </Link>
+  );
+}
+
+function MyDaySkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {[1, 2, 3, 4].map((i) => (
+          <Card key={i} className="animate-pulse">
+            <div className="p-5 space-y-2">
+              <div className="h-4 w-1/4 bg-muted rounded" />
+              <div className="h-8 w-1/2 bg-muted rounded" />
+            </div>
+          </Card>
+        ))}
+      </div>
+      <Card className="animate-pulse p-5">
+        <div className="h-2.5 w-1/3 bg-muted rounded mb-3" />
+        <div className="h-2 w-full bg-muted rounded" />
+      </Card>
+      <div className="grid gap-6 lg:grid-cols-3">
+        <Card className="animate-pulse lg:col-span-2 p-5">
+          <div className="h-4 w-1/4 bg-muted rounded mb-4" />
+          <div className="space-y-3">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="h-12 w-full bg-muted rounded" />
+            ))}
+          </div>
+        </Card>
+        <div className="space-y-6">
+          <Card className="animate-pulse p-5">
+            <div className="h-4 w-1/4 bg-muted rounded mb-4" />
+            <div className="space-y-3">
+              {[1, 2].map((i) => (
+                <div key={i} className="h-16 w-full bg-muted rounded" />
+              ))}
+            </div>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CompanyHomeSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {[1, 2, 3, 4].map((i) => (
+          <Card key={i} className="animate-pulse">
+            <div className="p-5 space-y-2">
+              <div className="h-4 w-1/4 bg-muted rounded" />
+              <div className="h-8 w-1/2 bg-muted rounded" />
+            </div>
+          </Card>
+        ))}
+      </div>
+      <div className="grid gap-6 lg:grid-cols-3">
+        <Card className="animate-pulse lg:col-span-2 p-5">
+          <div className="h-4 w-1/4 bg-muted rounded mb-4" />
+          <div className="space-y-3">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="h-12 w-full bg-muted rounded" />
+            ))}
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function ManagerSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {[1, 2, 3, 4].map((i) => (
+          <Card key={i} className="animate-pulse">
+            <div className="p-5 space-y-2">
+              <div className="h-4 w-1/4 bg-muted rounded" />
+              <div className="h-8 w-1/2 bg-muted rounded" />
+            </div>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MyDayContent() {
+  const { data, loading, error } = useFetch<MyDay>("/workspace/my-day");
+
+  if (error)
+    return <ErrorState title="Could not load My Day" message={error} />;
+  if (loading || !data) return <MyDaySkeleton />;
+
+  const {
+    user,
+    meetings,
+    commitments,
+    tasks,
+    blocked_work,
+    approvals,
+    attention_signals,
+    capacity_context,
+    relevant_changes,
+  } = data;
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title={`Good ${new Date().getHours() < 12 ? "morning" : new Date().getHours() < 17 ? "afternoon" : "evening"}, ${user?.name?.split(" ")[0] ?? "there"}.`}
+        description="Your daily operating surface — everything on your plate today."
+      />
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <StatCard
+          label="Meetings"
+          value={meetings.length}
+          icon={CalendarClock}
+        />
+        <StatCard
+          label="Commitments"
+          value={commitments.length}
+          icon={Target}
+        />
+        <StatCard
+          label="Tasks"
+          value={tasks.length}
+          hint={`${tasks.filter((t: any) => t.status === "in_progress").length} in progress`}
+          icon={ListTodo}
+        />
+        <StatCard
+          label="Blocked"
+          value={blocked_work.length}
+          hint="Needs unblocking"
+          icon={AlertTriangle}
+        />
+        <StatCard
+          label="Approvals"
+          value={approvals.length}
+          hint="Awaiting you"
+          icon={CheckCircle2}
+        />
+      </div>
+
+      <Card>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-ink">Weekly capacity</p>
+            <p className="text-[12px] text-faint">
+              {capacity_context.allocated_hours}h tasks +{" "}
+              {capacity_context.meeting_hours || 0}h meetings of{" "}
+              {capacity_context.capacity_hours}h —{" "}
+              {capacity_context.utilization}% utilized
+            </p>
+          </div>
+          <Badge
+            tone={
+              capacity_context.utilization > 90
+                ? "danger"
+                : capacity_context.utilization > 70
+                  ? "warning"
+                  : "success"
+            }
+          >
+            {capacity_context.utilization > 90
+              ? "Overloaded"
+              : capacity_context.utilization > 70
+                ? "Heavy"
+                : "Balanced"}
+          </Badge>
+        </div>
+        <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-canvas">
+          <div
+            className={`h-full rounded-full ${capacity_context.utilization > 90 ? "bg-danger" : capacity_context.utilization > 70 ? "bg-warning" : "bg-brand"}`}
+            style={{ width: `${Math.min(100, capacity_context.utilization)}%` }}
+          />
+        </div>
+      </Card>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="lg:col-span-2 space-y-6">
+          <Card
+            title="Today's Meetings"
+            subtitle={`${meetings.length} scheduled`}
+          >
+            {meetings.length === 0 ? (
+              <EmptyState
+                icon={CalendarClock}
+                title="No meetings today"
+                description="Enjoy the focus time."
+              />
+            ) : (
+              <ul className="divide-y divide-line">
+                {meetings.map((m: any) => (
+                  <li key={m.id} className="flex items-center gap-3 py-3">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand">
+                      <Clock className="h-4 w-4" />
+                    </div>
+                    <Link href={`/meetings/${m.id}`} className="min-w-0 flex-1">
+                      <p className="truncate text-[13px] font-medium text-ink hover:text-brand">
+                        {m.title}
+                      </p>
+                      <p className="text-[12px] text-faint">
+                        {m.start_at ? formatDate(m.start_at) : "TBD"} ·{" "}
+                        {m.location ?? "No location"}
+                      </p>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          <Card
+            title="Commitments Due This Week"
+            subtitle={`${commitments.length} active`}
+          >
+            {commitments.length === 0 ? (
+              <EmptyState icon={Target} title="No commitments due" />
+            ) : (
+              <ul className="divide-y divide-line">
+                {commitments.map((c: any) => (
+                  <li key={c.id} className="flex items-center gap-3 py-3">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand">
+                      <Target className="h-4 w-4" />
+                    </div>
+                    <Link
+                      href={`/commitments/${c.id}`}
+                      className="min-w-0 flex-1"
+                    >
+                      <p className="truncate text-[13px] font-medium text-ink hover:text-brand">
+                        {c.title}
+                      </p>
+                      <p className="text-[12px] text-faint">
+                        Due {c.due_at ? formatDate(c.due_at) : "TBD"} ·{" "}
+                        {c.state}
+                      </p>
+                    </Link>
+                    <Badge tone={statusTone(c.state)}>{c.state}</Badge>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </div>
+
+        <div className="space-y-6">
+          <Card
+            title="Today's Tasks"
+            subtitle={`${tasks.length} total · ${tasks.filter((t: any) => t.status === "in_progress").length} in progress`}
+          >
+            {tasks.length === 0 ? (
+              <EmptyState
+                icon={ListTodo}
+                title="All clear"
+                description="No open tasks assigned to you."
+              />
+            ) : (
+              <ul className="divide-y divide-line">
+                {tasks.slice(0, 10).map((task: any) => (
+                  <li key={task.id} className="flex items-center gap-3 py-3">
+                    <Link href={`/tasks/${task.id}`} className="min-w-0 flex-1">
+                      <p className="truncate text-[13px] font-medium text-ink hover:text-brand">
+                        {task.title}
+                      </p>
+                      <p className="text-[12px] text-faint">
+                        {task.project_id ? `Project · ` : ""}
+                        {task.due_at
+                          ? `due ${formatDate(task.due_at)}`
+                          : "No due date"}
+                      </p>
+                    </Link>
+                    <Badge tone={statusTone(task.status)}>{task.status}</Badge>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          {blocked_work.length > 0 && (
+            <Card
+              title="Blocked Work"
+              subtitle={`${blocked_work.length} items need attention`}
+              className="border-danger/20"
+            >
+              <ul className="divide-y divide-line">
+                {blocked_work.map((task: any) => (
+                  <li key={task.id} className="flex items-center gap-3 py-3">
+                    <AlertTriangle className="h-4 w-4 text-danger shrink-0" />
+                    <Link href={`/tasks/${task.id}`} className="min-w-0 flex-1">
+                      <p className="truncate text-[13px] font-medium text-ink">
+                        {task.title}
+                      </p>
+                      <p className="text-[12px] text-muted">
+                        {task.blocked_reason ?? "No reason given"}
+                      </p>
+                    </Link>
+                    <Badge tone="danger">Blocked</Badge>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+
+          <Card
+            title="Awaiting Your Approval"
+            subtitle={`${approvals.length} pending`}
+          >
+            {approvals.length === 0 ? (
+              <EmptyState icon={CheckCircle2} title="No pending approvals" />
+            ) : (
+              <ul className="divide-y divide-line">
+                {approvals.map((a: any) => (
+                  <li key={a.id} className="flex items-center gap-3 py-3">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-warning/10 text-warning">
+                      <CheckCircle2 className="h-4 w-4" />
+                    </div>
+                    <Link href={`/actions/${a.id}`} className="min-w-0 flex-1">
+                      <p className="truncate text-[13px] font-medium text-ink hover:text-brand">
+                        {a.title}
+                      </p>
+                      <p className="text-[12px] text-faint">{a.action_type}</p>
+                    </Link>
+                    <Button size="sm" variant="ghost">
+                      Review
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </div>
+      </div>
+
+      {(attention_signals.length > 0 || relevant_changes.length > 0) && (
+        <Card
+          title="Attention & Changes"
+          subtitle="Signals and company updates relevant to you"
+        >
+          <div className="space-y-3">
+            {attention_signals.map((signal: any, i: number) => (
+              <div
+                key={i}
+                className="flex items-center gap-3 p-3 rounded-lg bg-warning/5 border border-warning/20"
+              >
+                <AlertTriangle className="h-4 w-4 text-warning shrink-0" />
+                <p className="text-[13px] text-ink">{signal.message}</p>
+              </div>
+            ))}
+            {relevant_changes.slice(0, 5).map((change: any, i: number) => (
+              <div
+                key={i}
+                className="flex items-center gap-3 p-3 rounded-lg border border-line"
+              >
+                <Activity className="h-4 w-4 text-brand shrink-0" />
+                <p className="text-[13px] text-ink truncate">
+                  {change.description ?? "Company update"}
+                </p>
+                <span className="ml-auto text-[12px] text-faint">
+                  {change.timestamp ? formatDate(change.timestamp) : "Recent"}
+                </span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function ManagerWorkspaceContent() {
+  const searchParams = useSearchParams();
+  const teamId = searchParams.get("team");
+
+  const { data, loading, error } = useFetch<ManagerWorkspace>(
+    teamId ? `/workspace/manager/${teamId}` : null,
+  );
+
+  if (!teamId) {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Manager Workspace"
+          description="Select a team to view the manager workspace projection."
+        />
+        <Card>
+          <p className="text-muted">
+            Select a team from the sidebar or navigate from the People page to
+            view the manager workspace.
+          </p>
+        </Card>
+      </div>
+    );
+  }
+
+  if (error)
+    return (
+      <ErrorState title="Could not load Manager Workspace" message={error} />
+    );
+  if (loading || !data) return <ManagerSkeleton />;
+
+  const { team, people, capacity, projects, tasks, bottlenecks, risks } = data;
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title={team?.name ?? "Manager Workspace"}
+        description="Team projection — capacity, commitments, projects, and risks."
+      />
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard label="Team Members" value={people.length} icon={Users} />
+        <StatCard
+          label="Active Projects"
+          value={projects.length}
+          icon={Briefcase}
+        />
+        <StatCard label="Open Tasks" value={tasks.length} icon={ListTodo} />
+        <StatCard
+          label="Bottlenecks"
+          value={bottlenecks.length}
+          icon={AlertTriangle}
+        />
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card title="Team Capacity">
+          <pre className="text-[12px] text-muted">
+            {JSON.stringify(capacity, null, 2)}
+          </pre>
+        </Card>
+
+        <Card title="Bottlenecks & Risks">
+          {bottlenecks.length === 0 && risks.length === 0 ? (
+            <EmptyState
+              title="No bottlenecks or risks"
+              description="Team is running smoothly."
+            />
+          ) : (
+            <ul className="space-y-3">
+              {bottlenecks.map((b, i) => (
+                <li
+                  key={i}
+                  className="flex items-center gap-3 p-3 rounded-lg bg-danger/5 border border-danger/20"
+                >
+                  <AlertTriangle className="h-4 w-4 text-danger shrink-0" />
+                  <p className="text-[13px] text-ink">
+                    {b.description ?? "Bottleneck detected"}
+                  </p>
+                </li>
+              ))}
+              {risks.map((r, i) => (
+                <li
+                  key={i}
+                  className="flex items-center gap-3 p-3 rounded-lg bg-warning/5 border border-warning/20"
+                >
+                  <AlertTriangle className="h-4 w-4 text-warning shrink-0" />
+                  <p className="text-[13px] text-ink">
+                    {r.description ?? "Risk identified"}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+const PROFILE_LABELS: Record<string, string> = {
+  startup: "Startup",
+  growing: "Growing Company",
+  mid_market: "Mid-Market",
+  large_enterprise: "Large Enterprise",
+  global_enterprise: "Global Enterprise",
+};

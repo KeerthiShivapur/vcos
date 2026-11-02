@@ -17,7 +17,7 @@ from app.db.database import get_db
 from app.models.enterprise import AccessGrant
 from app.models.governance import ApprovalPolicy, GovernanceScope
 from app.models.organization import Organization
-from app.models.role import UserRole
+from app.models.role import UserRoleModel
 from app.models.user import User
 from app.schemas.common import Message
 from app.schemas.governance import (
@@ -234,7 +234,7 @@ async def remove_assignment(
     org: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_db),
 ):
-    assignment = await db.get(UserRole, assignment_id)
+    assignment = await db.get(UserRoleModel, assignment_id)
     if assignment is None or assignment.organization_id != org.id:
         raise HTTPException(404, "Assignment not found")
     await audit_service.log(

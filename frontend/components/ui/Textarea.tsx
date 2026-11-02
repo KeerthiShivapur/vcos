@@ -7,7 +7,13 @@ interface TextareaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement
   error?: string;
 }
 
-export function Textarea({ label, error, className, id, ...props }: TextareaProps) {
+export function Textarea({
+  label,
+  error,
+  className,
+  id,
+  ...props
+}: TextareaProps) {
   const inputId = id ?? props.name;
   return (
     <div className="w-full">
@@ -18,7 +24,11 @@ export function Textarea({ label, error, className, id, ...props }: TextareaProp
       )}
       <textarea
         id={inputId}
-        className={classNames("input min-h-24 resize-y", error && "border-danger", className)}
+        className={classNames(
+          "input min-h-24 resize-y",
+          error && "border-danger",
+          className,
+        )}
         {...props}
       />
       {error && <p className="mt-1 text-xs text-danger">{error}</p>}

@@ -1,36 +1,38 @@
-"""Phase 19 — Optimization history (applied optimizations).
+"""Optimization History model."""
 
-Records applied optimizations and their expected benefit. Distinct from the
-Phase 18 optimization history table owned by ``OptimizationAction``.
-"""
+from datetime import datetime
+from typing import Optional
+from sqlalchemy import DateTime, ForeignKey, String, Text, JSON, Boolean, Index, UniqueConstraint, Integer
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from typing import Any, Optional
-
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Index, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
-
-from app.db.database import Base
-from app.models.organization import TimestampMixin, gen_uuid
+from app.models.base import Base, TimestampMixin, gen_uuid
 
 
 class OptimizationHistory(Base, TimestampMixin):
-    """Record of applied optimizations and their expected benefit."""
-
-    __tablename__ = "optimization_records"
-    __table_args__ = (
-        Index("ix_optimization_records_org", "organization_id"),
-    )
+    __tablename__ = "optimization_history"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=gen_uuid)
     organization_id: Mapped[str] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    category: Mapped[str] = mapped_column(String(40), nullable=False)
-    title: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text)
-    recommendation_id: Mapped[Optional[str]] = mapped_column(String(32))
-    expected_benefit: Mapped[Optional[str]] = mapped_column(String(255))
-    savings: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, default=dict)
-    status: Mapped[str] = mapped_column(String(20), default="applied")
-    applied_by: Mapped[Optional[str]] = mapped_column(String(32))
-    applied_at: Mapped[Optional[Any]] = mapped_column(DateTime(timezone=True))
+    context_id: Mapped[str] = mapped_column(
+        ForeignKey("optimization_contexts.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    alternative_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("optimization_alternatives.id", ondelete="SET NULL"), index=True
+    )
+    action: Mapped[str] = mapped_column(String(60), nullable=False)  # created, evaluated, selected, rejected, implemented
+    parameters: Mapped[dict] = mapped_column(JSON, default=dict)
+    predicted_outcome: Mapped[float] = mapped_column(default=0.0, nullable=False)
+    actual_outcome: Mapped[Optional[float]] = mapped_column(default=None)
+    score: Mapped[float] = mapped_column(default=0.0, nullable=False)
+    rank: Mapped[Optional[int]] = mapped_column(Integer)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    performed_by: Mapped[Optional[str]] = mapped_column(ForeignKey("employees.id", ondelete="SET NULL"))
+    optimizationhistory_metadata: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+
+    __table_args__ = (
+        Index("ix_optimization_history_org_context", "organization_id", "context_id"),
+        Index("ix_optimization_history_org_action", "organization_id", "action"),
+        {"extend_existing": True},
+    )

@@ -49,6 +49,7 @@ from app.models.skills_intelligence import (
     PersonSkill,
 )
 from app.people.skill_engine import skill_engine, MAX_EXTRACT
+from app.intelligence.company_context import resolve_caller_access, CallerAccess
 
 logger = logging.getLogger("vcos.intelligence.expertise")
 

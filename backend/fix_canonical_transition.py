@@ -1,0 +1,88 @@
+with open('app/intelligence/canonical_mutation.py', 'rb') as f:
+    content = f.read()
+
+old = (
+    b'async def canonical_transition(\n'
+    b'    db: AsyncSession,\n'
+    b'    caller: CallerAccess,\n'
+    b'    entity_type: str,\n'
+    b'    entity_id: str,\n'
+    b'    target_state: str,\n'
+    b'    expected_version: Optional[int] = None,\n'
+    b'    fingerprint: Optional[str] = None,\n'
+    b'    provenance: dict = None,\n'
+    b'    required_permissions: list[str] = None,\n'
+    b'    trigger_reason: Optional[str] = None,\n'
+    b') -> MutationResult:\n'
+    b'    """Execute a canonical state transition through the boundary."""\n'
+    b'    # Fetch entity to get organization_id for tenant isolation check\n'
+    b'    type_map = {\n'
+    b'        "CompanyDecision": CompanyDecision,\n'
+    b'        "CompanyAuthorization": CompanyAuthorization,\n'
+    b'        "CompanyCommitment": CompanyCommitment,\n'
+    b'        "CompanyAction": CompanyAction,\n'
+    b'        "CompanyDecisionAlternative": CompanyDecisionAlternative,\n'
+    b'        "CompanyDecisionContradiction": CompanyDecisionContradiction,\n'
+    b'        }\n'
+    b'        model = type_map.get(entity_type)\n'
+    b'    if not model:\n'
+    b'        raise ValueError(f"Unknown entity type for transition: {entity_type}")\n'
+    b'   \n'
+    b'    entity = await db.get(model, entity_id)\n'
+    b'    if not entity:\n'
+    b'        raise ValueError(f"Entity not found: {entity_type}:{entity_id}")\n'
+    b'   \n'
+    b'    target_org_id = getattr(entity, "organization_id", None)\n'
+    b'\n'
+    b'    # Determine the state field name for this entity type\n'
+    b'    state_field = "status" if entity_type in ("CompanyDecisionContradiction", "ObjectiveContradiction") else "state"\n'
+    b'   \n'
+    b'    async def transition_fn(db: AsyncSession):'
+)
+
+new = (
+    b'async def canonical_transition(\n'
+    b'    db: AsyncSession,\n'
+    b'    caller: CallerAccess,\n'
+    b'    entity_type: str,\n'
+    b'    entity_id: str,\n'
+    b'    target_state: str,\n'
+    b'    expected_version: Optional[int] = None,\n'
+    b'    fingerprint: Optional[str] = None,\n'
+    b'    provenance: dict = None,\n'
+    b'    required_permissions: list[str] = None,\n'
+    b'    trigger_reason: Optional[str] = None,\n'
+    b') -> MutationResult:\n'
+    b'    """Execute a canonical state transition through the boundary."""\n'
+    b'    # Fetch entity to get organization_id for tenant isolation check\n'
+    b'    type_map = {\n'
+    b'        "CompanyDecision": CompanyDecision,\n'
+    b'        "CompanyAuthorization": CompanyAuthorization,\n'
+    b'        "CompanyCommitment": CompanyCommitment,\n'
+    b'        "CompanyAction": CompanyAction,\n'
+    b'        "CompanyDecisionAlternative": CompanyDecisionAlternative,\n'
+    b'        "CompanyDecisionContradiction": CompanyDecisionContradiction,\n'
+    b'    }\n'
+    b'    model = type_map.get(entity_type)\n'
+    b'    if not model:\n'
+    b'        raise ValueError(f"Unknown entity type for transition: {entity_type}")\n'
+    b'\n'
+    b'    entity = await db.get(model, entity_id)\n'
+    b'    if not entity:\n'
+    b'        raise ValueError(f"Entity not found: {entity_type}:{entity_id}")\n'
+    b'\n'
+    b'    target_org_id = getattr(entity, "organization_id", None)\n'
+    b'\n'
+    b'    # Determine the state field name for this entity type\n'
+    b'    state_field = "status" if entity_type in ("CompanyDecisionContradiction", "ObjectiveContradiction") else "state"\n'
+    b'\n'
+    b'    async def transition_fn(db: AsyncSession):'
+)
+
+if old in content:
+    content = content.replace(old, new)
+    with open('app/intelligence/canonical_mutation.py', 'wb') as f:
+        f.write(content)
+    print('Fixed canonical_transition')
+else:
+    print('Pattern not found')

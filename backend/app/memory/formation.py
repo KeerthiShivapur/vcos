@@ -916,6 +916,65 @@ async def _upsert_memory(
     return _memory_summary(memory)
 
 
+async def record_decision_lesson(
+    db: AsyncSession, *, organization_id: str, event: EventRow,
+    decision: dict[str, Any],
+) -> Optional[dict[str, Any]]:
+    """Slice 4H.1 — a closed company decision loop derives its lesson memory.
+
+    The lesson is explicitly ``lesson``-labeled (guidance derived from
+    evidence, never a fact) with evidence lineage back to the CompanyDecision.
+    Exact-once on the ``lesson:decision:{decision_id}`` dedupe key.
+    """
+    lesson_text = (decision.get("lesson") or "").strip()
+    decision_id = decision.get("decision_id") or ""
+    title = (decision.get("title") or "").strip() or "company decision"
+    if not lesson_text or not decision_id:
+        return None
+    rule = {
+        "kind": "decision_lesson",
+        "base_confidence": 0.6,
+        "fact_kind": "lesson",
+        "importance": "high",
+    }
+    ctx = {
+        "decision": {"id": decision_id},
+        "context_json": {
+            "decision_id": decision_id,
+            "kind": decision.get("kind"),
+            "title": title,
+        },
+    }
+    scope = {"auth_scope": "org", "auth_project_id": None, "auth_scope_id": None}
+    return await _upsert_memory(
+        db,
+        organization_id=organization_id,
+        rule=rule,
+        ctx=ctx,
+        event=event,
+        payload={},
+        memory_category="decision_lesson",
+        domain="company",
+        dedupe_key=f"lesson:decision:{decision_id}",
+        entity_type="decision",
+        entity_id=decision_id,
+        title=title,
+        summary=_snippet(lesson_text, 300),
+        evidence=[
+            {
+                "entity": "decision",
+                "id": decision_id,
+                "label": title,
+                "kind": "company_decision",
+            }
+        ],
+        scope=scope,
+        lesson=lesson_text,
+        outcome_type=decision.get("outcome_kind") or None,
+        outcome=lesson_text,
+    )
+
+
 async def _record_outcome(
     db: AsyncSession,
     *,

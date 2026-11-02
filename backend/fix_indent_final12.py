@@ -1,0 +1,12 @@
+with open('app/intelligence/canonical_mutation.py', 'rb') as f:
+    content = f.read()
+
+old = b'    async def _load_entity(self, db: AsyncSession, entity_type: str, entity_id: str):\r\n        """Load entity by type and ID."""\r\ntype_map = {\r\n            "CompanyDecision": CompanyDecision,\r\n            "CompanyAuthorization": CompanyAuthorization,\r\n            "CompanyCommitment": CompanyCommitment,\r\n            "CompanyAction": CompanyAction,\r\n            "CompanyDecisionAlternative": CompanyDecisionAlternative,\r\n            "CompanyDecisionContradiction": CompanyDecisionContradiction,\r\n            "CompanyGoal": CompanyGoal,\r\n            "CompanyObjective": CompanyObjective,\r\n            "CompanyInitiative": CompanyInitiative,\r\n            "CompanyIntent": CompanyIntent,\r\n            "Project": Project,\r\n            "Task": Task,\r\n            "Employee": Employee,\r\n            "CanonicalOperation": CanonicalOperation,\r\n        }\r\n    model = type_map.get(entity_type)\r\n        if not model:\r\n            return None\r\n        return await db.get(model, entity_id)'
+
+new = b'    async def _load_entity(self, db: AsyncSession, entity_type: str, entity_id: str):\r\n        """Load entity by type and ID."""\r\n        type_map = {\r\n            "CompanyDecision": CompanyDecision,\r\n            "CompanyAuthorization": CompanyAuthorization,\r\n            "CompanyCommitment": CompanyCommitment,\r\n            "CompanyAction": CompanyAction,\r\n            "CompanyDecisionAlternative": CompanyDecisionAlternative,\r\n            "CompanyDecisionContradiction": CompanyDecisionContradiction,\r\n            "CompanyGoal": CompanyGoal,\r\n            "CompanyObjective": CompanyObjective,\r\n            "CompanyInitiative": CompanyInitiative,\r\n            "CompanyIntent": CompanyIntent,\r\n            "Project": Project,\r\n            "Task": Task,\r\n            "Employee": Employee,\r\n            "CanonicalOperation": CanonicalOperation,\r\n        }\r\n        model = type_map.get(entity_type)\r\n        if not model:\r\n            return None\r\n        return await db.get(model, entity_id)'
+
+content = content.replace(old, new)
+
+with open('app/intelligence/canonical_mutation.py', 'wb') as f:
+    f.write(content)
+print('Fixed')

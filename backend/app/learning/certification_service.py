@@ -67,13 +67,16 @@ class CertificationService:
         ).scalar_one_or_none()
 
     async def list_certifications(
-        self, db: AsyncSession, *, organization_id: str, category: Optional[str] = None, status: str = "published"
+        self, db: AsyncSession, *, organization_id: str, category: Optional[str] = None, status: str = "published",
+        limit: Optional[int] = None,
     ) -> list[Certification]:
         query = select(Certification).where(Certification.organization_id == organization_id)
         if status:
             query = query.where(Certification.status == status)
         if category:
             query = query.where(Certification.category == category)
+        if limit is not None:
+            query = query.limit(limit)
         return (await db.execute(query.order_by(Certification.category, Certification.name))).scalars().all()
 
     async def categories(self, db: AsyncSession, *, organization_id: str) -> list[str]:

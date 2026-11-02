@@ -1,0 +1,47 @@
+async def _execute_phase(
+        self,
+        db: AsyncSession,
+        context: RestoreContext,
+        phase_name: str,
+        restore_op: RestoreOperation,
+    ):
+        """Execute a single restore phase with error handling."""
+        phase_start = utcnow()
+        phase_record = {
+            "phase": phase_name,
+            "started_at": utcnow().isoformat(),
+            "completed_at": None,
+            "passed": False,
+            "message": "",
+            "details": {},
+            "validation_status": ValidationStatus.INCONCLUSIVE.value,
+        }
+        context.phases.append(phase_record)
+        restore_op.phase = phase_name
+        await db.flush()
+        
+        phase_func = getattr(self, f"_phase_{phase_name.lower()}", None)
+        if not phase_func:
+            raise RuntimeError(f"No implementation for phase: {phase_name}")
+        
+        try:
+            result = await phase_func(db, context, restore_op)
+            phase_record["passed"] = result.get("passed", False)
+            phase_record["message"] = result.get("message", "")
+            phase_record["details"] = result.get("details", {})
+            phase_record["completed_at"] = utcnow().isoformat()
+            phase_record["duration_ms"] = int((utcnow() - datetime.fromisoformat(phase_record["started_at"])).total_seconds() * 1000)
+            
+            # Store validation status
+            if "validation_status" in result:
+                phase_record["validation_status"] = result["validation_status"]
+            if "validation_details" in result:
+                phase_record["validation_details"] = result["validation_details"]
+                # Store in context for final evidence
+                context.validation_results[phase_name] = result["validation_details"]
+            
+            if not phase_record["passed"]:
+                raise RuntimeError(f"Phase {phase_name} failed: {result.get('message', 'Unknown error')}")
+                
+        except Exception as e:
+     

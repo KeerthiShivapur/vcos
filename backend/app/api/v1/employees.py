@@ -1,6 +1,6 @@
 """Employees API — the living people directory (Phase 2)."""
 
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +23,10 @@ from app.schemas.people import (
     EmployeeSummary,
     EmployeeUpdate,
     TimelineOut,
+    PresenceOut,
+    PresenceUpdate,
+    OperatingContextOut,
+    OperatingPresenceOut,
 )
 
 router = APIRouter(prefix="/employees", tags=["Employees"])
@@ -462,3 +466,190 @@ async def remove_achievement(
     )
     await db.commit()
     return Message(message="Achievement removed")
+
+
+# ------------------------------------------------------------------ canonical presence (Gate 8.1)
+
+@router.get("/me/presence", response_model=PresenceOut)
+async def my_presence(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("employees:profile")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get current user's canonical operating presence."""
+    employee = await employee_service.get_by_user(db, organization_id=org.id, user_id=user.id)
+    if employee is None:
+        raise HTTPException(404, "No employee record for this user")
+    
+    from app.people.canonical_presence_service import canonical_presence_service
+    presence = await canonical_presence_service.get_current_presence(
+        db, organization_id=org.id, employee_id=employee.id
+    )
+    if presence is None:
+        raise HTTPException(404, "No presence record found")
+    return PresenceOut.model_validate(presence)
+
+
+@router.patch("/me/presence", response_model=PresenceOut)
+async def update_my_presence(
+    payload: PresenceUpdate,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("employees:profile")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update current user's canonical operating presence."""
+    employee = await employee_service.get_by_user(db, organization_id=org.id, user_id=user.id)
+    if employee is None:
+        raise HTTPException(404, "No employee record for this user")
+    
+    from app.people.canonical_presence_service import canonical_presence_service
+    from app.intelligence.company_context import resolve_caller_access
+    
+    caller = await resolve_caller_access(db, organization_id=org.id, user=user)
+    
+    try:
+        presence = await canonical_presence_service.set_presence(
+            db,
+            caller=caller,
+            employee_id=employee.id,
+            state=payload.status,
+            note=payload.note,
+            source_event_id=payload.source_event_id,
+            expected_version=payload.expected_version,
+        )
+        await db.commit()
+        return PresenceOut.model_validate(presence)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        # Handle canonical mutation errors
+        if "ExactOnceViolation" in str(type(exc)):
+            raise HTTPException(409, "Duplicate presence detected")
+        if "ConcurrencyViolation" in str(type(exc)):
+            raise HTTPException(409, "Concurrency conflict - presence was modified")
+        if "PresenceGovernanceViolation" in str(type(exc)):
+            raise HTTPException(403, str(exc))
+        if "InvalidPresenceState" in str(type(exc)):
+            raise HTTPException(400, str(exc))
+        raise
+
+
+@router.get("/{employee_id}/presence", response_model=PresenceOut)
+async def get_employee_presence(
+    employee_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("employees:read")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get employee's canonical operating presence."""
+    await _get_employee_or_404(db, org, employee_id)
+    
+    from app.people.canonical_presence_service import canonical_presence_service
+    presence = await canonical_presence_service.get_current_presence(
+        db, organization_id=org.id, employee_id=employee_id
+    )
+    if presence is None:
+        raise HTTPException(404, "No presence record found")
+    return PresenceOut.model_validate(presence)
+
+
+@router.patch("/{employee_id}/presence", response_model=PresenceOut)
+async def update_employee_presence(
+    employee_id: str,
+    payload: PresenceUpdate,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("employees:manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update employee's canonical operating presence (authorized management)."""
+    employee = await _get_employee_or_404(db, org, employee_id)
+    
+    from app.people.canonical_presence_service import canonical_presence_service
+    from app.intelligence.company_context import resolve_caller_access
+    
+    caller = await resolve_caller_access(db, organization_id=org.id, user=user)
+    
+    try:
+        presence = await canonical_presence_service.set_presence(
+            db,
+            caller=caller,
+            employee_id=employee.id,
+            state=payload.status,
+            note=payload.note,
+            source_event_id=payload.source_event_id,
+            expected_version=payload.expected_version,
+        )
+        await db.commit()
+        return PresenceOut.model_validate(presence)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        if "ExactOnceViolation" in str(type(exc)):
+            raise HTTPException(409, "Duplicate presence detected")
+        if "ConcurrencyViolation" in str(type(exc)):
+            raise HTTPException(409, "Concurrency conflict - presence was modified")
+        if "PresenceGovernanceViolation" in str(type(exc)):
+            raise HTTPException(403, str(exc))
+        if "InvalidPresenceState" in str(type(exc)):
+            raise HTTPException(400, str(exc))
+        raise
+
+
+@router.get("/me/operating-context", response_model=OperatingContextOut)
+async def my_operating_context(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("employees:profile")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get current user's canonical operating context."""
+    employee = await employee_service.get_by_user(db, organization_id=org.id, user_id=user.id)
+    if employee is None:
+        raise HTTPException(404, "No employee record for this user")
+    
+    from app.people.operating_context_service import operating_context_service
+    from app.intelligence.company_context import resolve_caller_access
+    
+    caller = await resolve_caller_access(db, organization_id=org.id, user=user)
+    
+    context = await operating_context_service.derive_operating_context(
+        db, caller=caller, employee_id=employee.id
+    )
+    return OperatingContextOut.model_validate(context)
+
+
+@router.get("/{employee_id}/operating-context", response_model=OperatingContextOut)
+async def get_employee_operating_context(
+    employee_id: str,
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("employees:read")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get employee's canonical operating context."""
+    await _get_employee_or_404(db, org, employee_id)
+    
+    from app.people.operating_context_service import operating_context_service
+    from app.intelligence.company_context import resolve_caller_access
+    
+    caller = await resolve_caller_access(db, organization_id=org.id, user=user)
+    
+    context = await operating_context_service.derive_operating_context(
+        db, caller=caller, employee_id=employee_id
+    )
+    return OperatingContextOut.model_validate(context)
+
+
+@router.get("/company/presence", response_model=List[dict])
+async def get_company_presence(
+    org: Organization = Depends(get_current_organization),
+    user: User = Depends(require_permission("employees:read")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get governed company presence view for caller's visible scope."""
+    from app.people.canonical_presence_service import canonical_presence_service
+    from app.intelligence.company_context import resolve_caller_access
+    
+    caller = await resolve_caller_access(db, organization_id=org.id, user=user)
+    
+    from app.people.canonical_presence_service import canonical_presence_service
+    presence = await canonical_presence_service.get_governed_company_presence(db, caller)
+    return presence

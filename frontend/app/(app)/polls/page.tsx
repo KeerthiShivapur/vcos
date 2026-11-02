@@ -74,15 +74,25 @@ function PollsContent() {
       />
 
       {error ? (
-        <ErrorState title="Could not load polls" message={error} onRetry={load} />
+        <ErrorState
+          title="Could not load polls"
+          message={error}
+          onRetry={load}
+        />
       ) : loading ? (
-        <div className="flex justify-center py-24"><Spinner label="Loading polls" /></div>
+        <div className="flex justify-center py-24">
+          <Spinner label="Loading polls" />
+        </div>
       ) : polls.length === 0 ? (
         <EmptyState
           icon={Vote}
           title="No polls yet"
           description="Ask your team a question and get answers fast."
-          action={<Button size="sm" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" /> New poll</Button>}
+          action={
+            <Button size="sm" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-4 w-4" /> New poll
+            </Button>
+          }
         />
       ) : (
         <div className="mx-auto max-w-2xl space-y-4">
@@ -132,7 +142,7 @@ function PollCard({
         ? prev.includes(optionId)
           ? prev.filter((c) => c !== optionId)
           : [...prev, optionId]
-        : [optionId]
+        : [optionId],
     );
   }
 
@@ -161,15 +171,23 @@ function PollCard({
     <div className="rounded-lg border border-line bg-surface p-5">
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="text-[15px] font-semibold text-ink">{poll.title}</h3>
-        <Badge tone={poll.status === "open" ? "success" : "neutral"}>{poll.status}</Badge>
+        <Badge tone={poll.status === "open" ? "success" : "neutral"}>
+          {poll.status}
+        </Badge>
         {poll.multiple_choice && <Badge tone="brand">Multiple</Badge>}
         {poll.anonymous && <Badge tone="neutral">Anonymous</Badge>}
       </div>
-      {poll.question && <p className="mt-1 text-[13px] text-muted">{poll.question}</p>}
+      {poll.question && (
+        <p className="mt-1 text-[13px] text-muted">{poll.question}</p>
+      )}
       <div className="mt-2 flex items-center gap-3 text-[12px] text-faint">
-        <span className="flex items-center gap-1.5"><Avatar name={poll.creator_name} size="xs" /> {poll.creator_name}</span>
+        <span className="flex items-center gap-1.5">
+          <Avatar name={poll.creator_name} size="xs" /> {poll.creator_name}
+        </span>
         <span>· {timeAgo(poll.created_at)}</span>
-        {poll.community_name && <Badge tone="neutral">{poll.community_name}</Badge>}
+        {poll.community_name && (
+          <Badge tone="neutral">{poll.community_name}</Badge>
+        )}
         <span>· {poll.participant_count} participants</span>
       </div>
 
@@ -187,7 +205,9 @@ function PollCard({
               disabled={poll.status !== "open" || poll.voted}
               onClick={() => toggleChoice(option.id)}
               className={`relative w-full overflow-hidden rounded-md border px-3 py-2 text-left text-[13px] transition ${
-                selected ? "border-brand bg-brand-soft text-brand" : "border-line bg-surface-muted text-ink hover:border-brand/40"
+                selected
+                  ? "border-brand bg-brand-soft text-brand"
+                  : "border-line bg-surface-muted text-ink hover:border-brand/40"
               }`}
             >
               {showBars && (
@@ -211,12 +231,19 @@ function PollCard({
 
       <div className="mt-3 flex items-center gap-2">
         {poll.status === "open" && !poll.voted && !isMine ? (
-          <Button size="sm" onClick={submit} loading={voting} disabled={choices.length === 0}>
+          <Button
+            size="sm"
+            onClick={submit}
+            loading={voting}
+            disabled={choices.length === 0}
+          >
             Vote
           </Button>
         ) : null}
         {showBars ? (
-          <Button variant="ghost" size="sm" onClick={() => setResults(null)}>Refresh results</Button>
+          <Button variant="ghost" size="sm" onClick={() => setResults(null)}>
+            Refresh results
+          </Button>
         ) : (
           <Button variant="ghost" size="sm" onClick={showResults}>
             <BarChart3 className="h-4 w-4" /> Results
@@ -298,14 +325,26 @@ function CreatePollModal({
       description="Ask your team a question."
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
           <Button onClick={submit}>Create poll</Button>
         </>
       }
     >
       <div className="space-y-4">
-        <Input label="Title" placeholder="e.g. Where should the offsite be?" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <Input label="Question (optional)" placeholder="More detail" value={question} onChange={(e) => setQuestion(e.target.value)} />
+        <Input
+          label="Title"
+          placeholder="e.g. Where should the offsite be?"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+        />
+        <Input
+          label="Question (optional)"
+          placeholder="More detail"
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+        />
         <div className="space-y-2">
           <p className="label">Options</p>
           {optionTexts.map((text, index) => (
@@ -313,16 +352,30 @@ function CreatePollModal({
               <Input
                 placeholder={`Option ${index + 1}`}
                 value={text}
-                onChange={(e) => setOptionTexts((prev) => prev.map((t, i) => (i === index ? e.target.value : t)))}
+                onChange={(e) =>
+                  setOptionTexts((prev) =>
+                    prev.map((t, i) => (i === index ? e.target.value : t)),
+                  )
+                }
               />
               {optionTexts.length > 2 && (
-                <Button variant="ghost" size="sm" onClick={() => setOptionTexts((prev) => prev.filter((_, i) => i !== index))}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() =>
+                    setOptionTexts((prev) => prev.filter((_, i) => i !== index))
+                  }
+                >
                   Remove
                 </Button>
               )}
             </div>
           ))}
-          <Button variant="secondary" size="sm" onClick={() => setOptionTexts((prev) => [...prev, ""])}>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setOptionTexts((prev) => [...prev, ""])}
+          >
             Add option
           </Button>
         </div>
@@ -336,11 +389,19 @@ function CreatePollModal({
           />
         )}
         <label className="flex items-center gap-2 text-[13px] text-muted">
-          <input type="checkbox" checked={multiple} onChange={(e) => setMultiple(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={multiple}
+            onChange={(e) => setMultiple(e.target.checked)}
+          />
           Allow multiple choices
         </label>
         <label className="flex items-center gap-2 text-[13px] text-muted">
-          <input type="checkbox" checked={anonymous} onChange={(e) => setAnonymous(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={anonymous}
+            onChange={(e) => setAnonymous(e.target.checked)}
+          />
           Anonymous responses
         </label>
         {error && <p className="text-[13px] text-danger">{error}</p>}

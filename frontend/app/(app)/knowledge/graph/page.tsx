@@ -58,7 +58,7 @@ export default function KnowledgeGraphPage() {
           focus: focusId || undefined,
           kind: kindFilter || undefined,
           limit: 200,
-        })
+        }),
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load graph");
@@ -86,7 +86,10 @@ export default function KnowledgeGraphPage() {
     const perRing: number[] = [];
     let remaining = n;
     for (let r = 0; r < ringCount; r++) {
-      const share = r === ringCount - 1 ? remaining : Math.ceil((n - (r * n) / ringCount) / (ringCount - r));
+      const share =
+        r === ringCount - 1
+          ? remaining
+          : Math.ceil((n - (r * n) / ringCount) / (ringCount - r));
       perRing.push(share);
       remaining -= share;
     }
@@ -113,7 +116,10 @@ export default function KnowledgeGraphPage() {
   if (error) {
     return (
       <div className="space-y-6">
-        <PageHeader title="Knowledge Graph" description="The visible map of the company's brain." />
+        <PageHeader
+          title="Knowledge Graph"
+          description="The visible map of the company's brain."
+        />
         <ErrorState title="Could not load graph" message={error} />
       </div>
     );
@@ -131,10 +137,18 @@ export default function KnowledgeGraphPage() {
         subtitle={`${data?.nodes.length ?? 0} nodes · ${data?.edges.length ?? 0} relations`}
         actions={
           <div className="flex items-center gap-1.5">
-            <Button size="sm" variant="ghost" onClick={() => setZoom((z) => Math.max(0.5, z - 0.15))}>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setZoom((z) => Math.max(0.5, z - 0.15))}
+            >
               <ZoomOut className="h-4 w-4" />
             </Button>
-            <Button size="sm" variant="ghost" onClick={() => setZoom((z) => Math.min(2, z + 0.15))}>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setZoom((z) => Math.min(2, z + 0.15))}
+            >
               <ZoomIn className="h-4 w-4" />
             </Button>
           </div>
@@ -144,13 +158,23 @@ export default function KnowledgeGraphPage() {
         <div className="grid gap-0 lg:grid-cols-[1fr_260px]">
           <div className="relative overflow-hidden" style={{ height: 640 }}>
             {loading ? (
-              <div className="flex h-full items-center justify-center"><Spinner label="Laying out graph" /></div>
+              <div className="flex h-full items-center justify-center">
+                <Spinner label="Laying out graph" />
+              </div>
             ) : !data || data.nodes.length === 0 ? (
               <div className="flex h-full items-center justify-center">
-                <EmptyState icon={Network} title="Nothing to map yet" description="Create knowledge items and link them to projects to see them here." />
+                <EmptyState
+                  icon={Network}
+                  title="Nothing to map yet"
+                  description="Create knowledge items and link them to projects to see them here."
+                />
               </div>
             ) : (
-              <svg viewBox="0 0 900 620" className="h-full w-full" style={{ transform: `scale(${zoom})` }}>
+              <svg
+                viewBox="0 0 900 620"
+                className="h-full w-full"
+                style={{ transform: `scale(${zoom})` }}
+              >
                 <g>
                   {data.edges.map((edge, i) => {
                     const source = layout.find((n) => n.id === edge.source);
@@ -166,7 +190,13 @@ export default function KnowledgeGraphPage() {
                           stroke="#d1d5db"
                           strokeWidth={1}
                           className="transition-opacity"
-                          opacity={selected && selected.id !== edge.source && selected.id !== edge.target ? 0.15 : 1}
+                          opacity={
+                            selected &&
+                            selected.id !== edge.source &&
+                            selected.id !== edge.target
+                              ? 0.15
+                              : 1
+                          }
                         />
                         <text
                           x={(source.x + target.x) / 2}
@@ -210,7 +240,9 @@ export default function KnowledgeGraphPage() {
                           fill="#374151"
                           opacity={selected && !isSelected ? 0.3 : 1}
                         >
-                          {node.label.length > 22 ? `${node.label.slice(0, 20)}…` : node.label}
+                          {node.label.length > 22
+                            ? `${node.label.slice(0, 20)}…`
+                            : node.label}
                         </text>
                       </g>
                     );
@@ -223,7 +255,9 @@ export default function KnowledgeGraphPage() {
           <div className="border-t border-line p-4 lg:border-l lg:border-t-0">
             <div className="space-y-3">
               <div>
-                <label className="mb-1 block text-[12px] font-medium text-faint">Focus on an item</label>
+                <label className="mb-1 block text-[12px] font-medium text-faint">
+                  Focus on an item
+                </label>
                 <div className="flex gap-2">
                   <Input
                     placeholder="entity id (e.g. doc id)"
@@ -231,11 +265,15 @@ export default function KnowledgeGraphPage() {
                     onChange={(e) => setFocus(e.target.value)}
                     className="text-sm"
                   />
-                  <Button size="sm" onClick={() => load(focus)}>Go</Button>
+                  <Button size="sm" onClick={() => load(focus)}>
+                    Go
+                  </Button>
                 </div>
               </div>
               <div>
-                <label className="mb-1 block text-[12px] font-medium text-faint">Filter by kind</label>
+                <label className="mb-1 block text-[12px] font-medium text-faint">
+                  Filter by kind
+                </label>
                 <Select
                   value={kind}
                   onChange={(e) => {
@@ -244,21 +282,40 @@ export default function KnowledgeGraphPage() {
                   }}
                   options={[
                     { value: "", label: "All kinds" },
-                    ...Object.entries(KIND_LABELS).map(([value, label]) => ({ value, label })),
+                    ...Object.entries(KIND_LABELS).map(([value, label]) => ({
+                      value,
+                      label,
+                    })),
                   ]}
                 />
               </div>
-              <Button size="sm" variant="ghost" onClick={() => { setFocus(""); setKind(""); load(); }}>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setFocus("");
+                  setKind("");
+                  load();
+                }}
+              >
                 Reset view
               </Button>
             </div>
 
             <div className="mt-5 border-t border-line pt-4">
-              <p className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-faint">Legend</p>
+              <p className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-faint">
+                Legend
+              </p>
               <div className="space-y-1.5">
                 {Object.entries(KIND_LABELS).map(([k, label]) => (
-                  <div key={k} className="flex items-center gap-2 text-[12px] text-muted">
-                    <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: KIND_COLORS[k] }} />
+                  <div
+                    key={k}
+                    className="flex items-center gap-2 text-[12px] text-muted"
+                  >
+                    <span
+                      className="h-2.5 w-2.5 rounded-full"
+                      style={{ backgroundColor: KIND_COLORS[k] }}
+                    />
                     {label}
                   </div>
                 ))}
@@ -267,13 +324,26 @@ export default function KnowledgeGraphPage() {
 
             {selected && (
               <div className="mt-5 border-t border-line pt-4">
-                <p className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-faint">Selected</p>
-                <p className="text-[13px] font-semibold text-ink">{selected.label}</p>
+                <p className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-faint">
+                  Selected
+                </p>
+                <p className="text-[13px] font-semibold text-ink">
+                  {selected.label}
+                </p>
                 <Badge tone="brand">{kindLabel(selected.kind)}</Badge>
-                {selected.status && <p className="mt-1 text-[12px] text-muted">Status: {selected.status}</p>}
-                <p className="mt-1 truncate text-[12px] text-faint">{selected.id}</p>
+                {selected.status && (
+                  <p className="mt-1 text-[12px] text-muted">
+                    Status: {selected.status}
+                  </p>
+                )}
+                <p className="mt-1 truncate text-[12px] text-faint">
+                  {selected.id}
+                </p>
                 {typeof selected.meta.url === "string" && (
-                  <Link href={selected.meta.url} className="mt-2 inline-block text-[12px] font-medium text-brand hover:underline">
+                  <Link
+                    href={selected.meta.url}
+                    className="mt-2 inline-block text-[12px] font-medium text-brand hover:underline"
+                  >
                     Open →
                   </Link>
                 )}

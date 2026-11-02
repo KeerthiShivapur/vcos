@@ -10,7 +10,7 @@ licenses:manage, feature_flags:manage) or enterprise:manage. All endpoints
 are scoped to the caller's organization.
 """
 
-from typing import Any, Optional
+from typing import Any, Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -18,11 +18,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_organization, require_permission
+from app.core.timeutils import utcnow
 from app.db.database import get_db
 from app.enterprise.ai_service import ai_service
 from app.enterprise.api_gateway import api_gateway_service
 from app.enterprise.compliance_service import compliance_service
-from app.enterprise.feature_flag_service import feature_flag_service
 from app.enterprise.identity_service import identity_service
 from app.enterprise.integration_service import integration_service
 from app.enterprise.licensing_service import licensing_service
@@ -41,7 +41,6 @@ from app.enterprise.sso_service import sso_service
 from app.models.enterprise import (
     ApiKey,
     ComplianceControl,
-    FeatureFlag,
     IdentityProvider,
     IntegrationConnection,
     Plugin,
@@ -290,6 +289,28 @@ async def sso_provider_assertion(
             signature=payload.get("signature", ""),
             subject=payload.get("subject", ""),
             email=payload.get("email", ""),
+        )
+        await db.commit()
+        return result
+    except ValueError as exc:
+        raise _bad(str(exc)) from exc
+
+
+@router.post("/sso/assertion")
+async def sso_assertion_completion(
+    payload: dict[str, Any],
+    org: Organization = Depends(get_current_organization),
+    _user: User = Depends(require_permission("identity:manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Complete SSO from SAML assertion or OIDC ID token."""
+    try:
+        result = await sso_service.complete_from_assertion(
+            db,
+            organization_id=org.id,
+            provider_id=payload.get("provider_id", ""),
+            assertion=payload.get("assertion", ""),
+            redirect_uri=payload.get("redirect_uri"),
         )
         await db.commit()
         return result
@@ -888,6 +909,292 @@ async def delete_integration(
     await db.commit()
 
 
+# ---------------------------------------------------- OAuth2 for integrations
+
+class OAuthUrlRequest(BaseModel):
+    provider: str
+    redirect_uri: str
+    scopes: Optional[list[str]] = None
+
+
+class OAuthUrlResponse(BaseModel):
+    authorization_url: str
+    state: str
+
+
+class OAuthCallbackRequest(BaseModel):
+    provider: str
+    code: str
+    state: str
+    redirect_uri: str
+
+
+class OAuthCallbackResponse(BaseModel):
+    success: bool
+    connection_id: Optional[str] = None
+    detail: str
+    provider: str
+
+
+@router.post("/integrations/oauth/authorize", response_model=OAuthUrlResponse)
+async def generate_oauth_authorize_url(
+    request: OAuthUrlRequest,
+    org: Organization = Depends(get_current_organization),
+    _user: User = Depends(require_permission("integrations:manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate OAuth authorization URL for a provider."""
+    import secrets
+    from app.services.provider_adapters import GoogleWorkspaceAdapter, Microsoft365Adapter, SlackAdapter, GitHubAdapter, JiraAdapter
+    
+    provider = request.provider.lower()
+    redirect_uri = request.redirect_uri
+    scopes = request.scopes
+    
+    # Generate state for CSRF protection
+    state = secrets.token_urlsafe(32)
+    
+    # Create a temporary connection record to store the state
+    connection = await integration_service.create(
+        db,
+        organization_id=org.id,
+        name=f"{provider.capitalize()} OAuth (pending)",
+        provider=provider,
+        kind="api",
+        config={"redirect_uri": redirect_uri, "scopes": scopes or [], "base_url": "https://graph.microsoft.com/v1.0" if provider == "microsoft" else None},
+        auth_type="oauth2",
+    )
+    
+    # Store the state in the connection
+    connection.oauth_state = state
+    await db.flush()
+    
+    # Generate authorization URL using the appropriate adapter
+    adapter_map = {
+        "google": GoogleWorkspaceAdapter,
+        "microsoft": Microsoft365Adapter,
+        "slack": SlackAdapter,
+        "github": GitHubAdapter,
+        "jira": JiraAdapter,
+    }
+    
+    adapter_class = adapter_map.get(provider)
+    if not adapter_class:
+        raise _bad(f"Unsupported provider: {provider}")
+    
+    # Create a mock instance for the adapter
+    class MockInstance:
+        def __init__(self, config):
+            self.config = config
+            self.credentials = {}
+    
+    mock_instance = MockInstance(config={"redirect_uri": redirect_uri, "scopes": scopes or []})
+    adapter = adapter_class(mock_instance)
+    
+    try:
+        auth_url = adapter.generate_oauth_url(redirect_uri, state, scopes)
+    except Exception as e:
+        raise _bad(f"Failed to generate OAuth URL: {str(e)}")
+    
+    return OAuthUrlResponse(authorization_url=auth_url, state=state)
+
+
+@router.post("/integrations/oauth/callback", response_model=OAuthCallbackResponse)
+async def handle_oauth_callback(
+    request: OAuthCallbackRequest,
+    org: Organization = Depends(get_current_organization),
+    _user: User = Depends(require_permission("integrations:manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Handle OAuth callback and exchange code for tokens."""
+    from app.services.provider_adapters import GoogleWorkspaceAdapter, Microsoft365Adapter, SlackAdapter, GitHubAdapter, JiraAdapter
+    from sqlalchemy import select
+    
+    provider = request.provider.lower()
+    code = request.code
+    state = request.state
+    redirect_uri = request.redirect_uri
+    
+    # Find the connection with the matching state
+    result = await db.execute(
+        select(IntegrationConnection).where(
+            IntegrationConnection.organization_id == org.id,
+            IntegrationConnection.oauth_state == state,
+            IntegrationConnection.provider == provider,
+        )
+    )
+    connection = result.scalars().first()
+    
+    if not connection:
+        raise _not_found("No pending OAuth connection found for this state")
+    
+    # Create a mock instance for the adapter
+    class MockInstance:
+        def __init__(self, config, credentials):
+            self.config = config
+            self.credentials = credentials
+    
+    mock_instance = MockInstance(config=connection.config or {}, credentials=connection.credentials or {})
+    
+    adapter_map = {
+        "google": GoogleWorkspaceAdapter,
+        "microsoft": Microsoft365Adapter,
+        "slack": SlackAdapter,
+        "github": GitHubAdapter,
+        "jira": JiraAdapter,
+    }
+    
+    adapter_class = adapter_map.get(provider)
+    if not adapter_class:
+        raise _bad(f"Unsupported provider: {provider}")
+    
+    adapter = adapter_class(mock_instance)
+    
+    try:
+        token_data = await adapter.handle_oauth_callback(code, state, redirect_uri)
+    except Exception as e:
+        connection.status = "error"
+        connection.error = f"OAuth callback failed: {str(e)}"
+        await db.commit()
+        return OAuthCallbackResponse(success=False, detail=str(e), provider=provider)
+    
+    # Update connection with tokens
+    connection.access_token = token_data.get("access_token")
+    connection.refresh_token = token_data.get("refresh_token")
+    connection.token_expires_at = token_data.get("expires_at")
+    connection.refresh_token_expires_at = token_data.get("refresh_token_expires_at")
+    connection.oauth_scopes = token_data.get("scope", "").split() if token_data.get("scope") else []
+    connection.oauth_state = None
+    connection.status = "active"
+    connection.connected_at = utcnow()
+    connection.error = None
+    connection.name = f"{provider.capitalize()} Integration"
+    
+    await db.commit()
+    
+    return OAuthCallbackResponse(
+        success=True,
+        connection_id=connection.id,
+        detail=f"Successfully connected to {provider.capitalize()}",
+        provider=provider
+    )
+
+
+@router.post("/integrations/{connection_id}/refresh-token")
+async def refresh_integration_token(
+    connection_id: str,
+    org: Organization = Depends(get_current_organization),
+    _user: User = Depends(require_permission("integrations:manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Refresh the OAuth access token for an integration."""
+    from app.services.provider_adapters import GoogleWorkspaceAdapter, Microsoft365Adapter, SlackAdapter, GitHubAdapter, JiraAdapter
+    
+    connection = await integration_service.get(db, org.id, connection_id)
+    if not connection:
+        raise _not_found("Integration not found")
+    
+    if not connection.refresh_token:
+        raise _bad("No refresh token available")
+    
+    provider = connection.provider.lower()
+    adapter_map = {
+        "google": GoogleWorkspaceAdapter,
+        "microsoft": Microsoft365Adapter,
+        "slack": SlackAdapter,
+        "github": GitHubAdapter,
+        "jira": JiraAdapter,
+    }
+    
+    adapter_class = adapter_map.get(provider)
+    if not adapter_class:
+        raise _bad(f"Unsupported provider: {provider}")
+    
+    class MockInstance:
+        def __init__(self, credentials):
+            self.credentials = credentials
+    
+    mock_instance = MockInstance(credentials={
+        "refresh_token": connection.refresh_token,
+        "client_id": (connection.config or {}).get("client_id"),
+        "client_secret": (connection.config or {}).get("client_secret"),
+    })
+    
+    adapter = adapter_class(mock_instance)
+    
+    try:
+        success = await adapter._refresh_token(mock_instance.credentials)
+    except Exception as e:
+        raise _bad(f"Token refresh failed: {str(e)}")
+    
+    if not success:
+        raise _bad("Failed to refresh token")
+    
+    # Update connection with new tokens
+    connection.access_token = mock_instance.credentials.get("access_token")
+    connection.refresh_token = mock_instance.credentials.get("refresh_token")
+    connection.token_expires_at = mock_instance.credentials.get("expires_at")
+    connection.refresh_token_expires_at = mock_instance.credentials.get("refresh_token_expires_at")
+    connection.status = "active"
+    connection.error = None
+    
+    await db.commit()
+    
+    return {"success": True, "detail": "Token refreshed successfully"}
+
+
+@router.post("/integrations/{connection_id}/disconnect")
+async def disconnect_integration(
+    connection_id: str,
+    org: Organization = Depends(get_current_organization),
+    _user: User = Depends(require_permission("integrations:manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Disconnect an integration and revoke tokens if possible."""
+    from app.services.provider_adapters import GoogleWorkspaceAdapter, Microsoft365Adapter, SlackAdapter, GitHubAdapter, JiraAdapter
+    
+    connection = await integration_service.get(db, org.id, connection_id)
+    if not connection:
+        raise _not_found("Integration not found")
+    
+    provider = connection.provider.lower()
+    adapter_map = {
+        "google": GoogleWorkspaceAdapter,
+        "microsoft": Microsoft365Adapter,
+        "slack": SlackAdapter,
+        "github": GitHubAdapter,
+        "jira": JiraAdapter,
+    }
+    
+    adapter_class = adapter_map.get(provider)
+    
+    # Try to revoke tokens if adapter supports it
+    if adapter_class and connection.access_token:
+        class MockInstance:
+            def __init__(self, credentials):
+                self.credentials = credentials
+        
+        mock_instance = MockInstance(credentials={
+            "access_token": connection.access_token,
+            "refresh_token": connection.refresh_token,
+            "client_id": (connection.config or {}).get("client_id"),
+            "client_secret": (connection.config or {}).get("client_secret"),
+        })
+        
+        adapter = adapter_class(mock_instance)
+        if hasattr(adapter, 'revoke_token'):
+            try:
+                await adapter.revoke_token(mock_instance)
+            except Exception:
+                pass  # Best effort
+    
+    # Remove the connection
+    await integration_service.remove(db, org.id, connection_id, actor_id=_user.id)
+    await db.commit()
+    
+    return {"success": True, "detail": "Integration disconnected"}
+
+
 # ---------------------------------------------------- monitoring & observability
 
 @router.get("/monitoring/health")
@@ -1082,7 +1389,8 @@ async def security_rules(
     db: AsyncSession = Depends(get_db),
 ):
     return {
-        "event_types": EVENT_TYPES,
+        "event_types": sorted(EVENT_TYPES.keys()),
+        "event_type_descriptions": EVENT_TYPES,
         "brute_force_threshold": BRUTE_FORCE_THRESHOLD,
         "brute_force_window_minutes": BRUTE_FORCE_WINDOW_MINUTES,
     }
@@ -1236,93 +1544,6 @@ async def license_plans(
     return licensing_service.plans()
 
 
-# --------------------------------------------------------------- feature flags
-
-@router.get("/feature-flags")
-async def list_feature_flags(
-    org: Organization = Depends(get_current_organization),
-    _user: User = Depends(require_permission("feature_flags:manage")),
-    db: AsyncSession = Depends(get_db),
-):
-    return await feature_flag_service.list_flags(db, organization_id=org.id)
-
-
-@router.post("/feature-flags", status_code=201)
-async def create_feature_flag(
-    payload: dict[str, Any],
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("feature_flags:manage")),
-    db: AsyncSession = Depends(get_db),
-):
-    try:
-        flag = await feature_flag_service.create(
-            db,
-            organization_id=org.id,
-            key=payload.get("key", ""),
-            name=payload.get("name", ""),
-            description=payload.get("description"),
-            enabled=payload.get("enabled", False),
-            rules=payload.get("rules"),
-            updated_by=user.id,
-        )
-        await db.commit()
-        return flag
-    except ValueError as exc:
-        raise _bad(str(exc)) from exc
-
-
-@router.patch("/feature-flags/{flag_id}")
-async def update_feature_flag(
-    flag_id: str,
-    payload: dict[str, Any],
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("feature_flags:manage")),
-    db: AsyncSession = Depends(get_db),
-):
-    flag = await feature_flag_service.update(
-        db,
-        organization_id=org.id,
-        flag_id=flag_id,
-        enabled=payload.get("enabled"),
-        name=payload.get("name"),
-        description=payload.get("description"),
-        rules=payload.get("rules"),
-        updated_by=user.id,
-    )
-    if flag is None:
-        raise _not_found("Feature flag")
-    await db.commit()
-    return flag
-
-
-@router.delete("/feature-flags/{flag_id}", status_code=204)
-async def delete_feature_flag(
-    flag_id: str,
-    org: Organization = Depends(get_current_organization),
-    _user: User = Depends(require_permission("feature_flags:manage")),
-    db: AsyncSession = Depends(get_db),
-):
-    if not await feature_flag_service.delete(db, organization_id=org.id, flag_id=flag_id):
-        raise _not_found("Feature flag")
-    await db.commit()
-
-
-@router.post("/feature-flags/evaluate")
-async def evaluate_feature_flag(
-    payload: dict[str, Any],
-    org: Organization = Depends(get_current_organization),
-    user: User = Depends(require_permission("feature_flags:manage")),
-    db: AsyncSession = Depends(get_db),
-):
-    return await feature_flag_service.evaluate(
-        db,
-        organization_id=org.id,
-        key=payload.get("key", ""),
-        user_id=user.id,
-        roles=payload.get("roles"),
-    )
-
-
 # ------------------------------------------------------------------------- AI
 
 @router.get("/ai/models")
@@ -1416,13 +1637,6 @@ async def enterprise_overview(
             )
         )
     ).scalar_one()
-    flags = (
-        await db.execute(
-            select(func.count(FeatureFlag.id)).where(
-                FeatureFlag.organization_id == org.id, FeatureFlag.enabled.is_(True)
-            )
-        )
-    ).scalar_one()
     metrics = (
         await db.execute(
             select(func.count(SystemMetric.id)).where(SystemMetric.organization_id == org.id)
@@ -1436,7 +1650,6 @@ async def enterprise_overview(
         "active_api_keys": int(keys),
         "active_integrations": int(integrations),
         "open_security_events": int(open_security),
-        "enabled_feature_flags": int(flags),
         "metric_samples": int(metrics),
         "license": license_state,
     }

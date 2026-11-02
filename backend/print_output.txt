@@ -1,0 +1,35 @@
+1626:     async def test_incomplete_restore_rejection_real_pg(self, pg_db_session, production_company_real_pg):
+1627:         """Test that incomplete restore is not marked as ready."""
+1628:         
+1629:         logger.info("=== Incomplete Restore Rejection Test (Real PostgreSQL) ===")
+1630:         
+1631:         org = production_company_real_pg["organization"]
+1632:         
+1633:         # Create a restore operation that will fail
+1634:         from app.models.backup_manifest import RestoreOperation
+1635:         
+1636:         restore_op = RestoreOperation(
+1637:             id=f"rop-fail-{uuid.uuid4().hex[:12]}",
+1638:             backup_id="nonexistent-backup",
+1639:             organization_id=org_id,
+1640:             restore_id="rst-fail-test",
+1641:             target_time=None,
+1642:             target_version=None,
+1643:             initiated_by="fail_test",
+1644:             phase="BACKUP_SELECTED",
+1645:             status="in_progress",
+1646:             started_at=utcnow(),
+1647:         )
+1648:         pg_db_session.add(restore_op)
+1649:         await pg_db_session.flush()
+1650:         
+1651:         # Try to activate an incomplete restore - should fail
+1652:         with pytest.raises(Exception) as exc_info:
+1653:             # The restore should fail at BACKUP_SELECTED phase
+1654:             await restore_service.restore_from_backup(
+1655:                 db=pg_db_session,
+1656:                 backup_id="nonexistent-backup",
+1657:                 organization_id=org_id,
+1658:                 initiated_by="fail_test",
+1659:             )
+1660:         

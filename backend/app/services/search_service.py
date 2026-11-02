@@ -3,6 +3,10 @@
 Indexes users, organizations, roles, and workspace items within the tenant.
 Later phases extend this service to projects, documents, knowledge, meetings,
 messages, customers — everything.
+
+Gate 35-B: PostgreSQL Full-Text Search integration.
+Uses PostgreSQL tsvector/GIN indexes for high-performance full-text search
+while preserving canonical semantics, tenant isolation, and governance.
 """
 
 import json
@@ -20,6 +24,18 @@ from app.models.workspace import WorkspaceItem
 
 
 class SearchService:
+    def __init__(self):
+        # Lazy initialization - PostgresFullTextSearchService requires a db session
+        # which will be provided at search time
+        self._postgres_fts = None
+    
+    def _get_postgres_fts(self, db: AsyncSession):
+        """Get or create PostgresFullTextSearchService with the given db session."""
+        if self._postgres_fts is None:
+            from app.services.postgres_fulltext_search import PostgresFullTextSearchService
+            self._postgres_fts = PostgresFullTextSearchService(db)
+        return self._postgres_fts
+    
     def _like(self, value: str) -> str:
         return f"%{value}%"
 
@@ -33,6 +49,26 @@ class SearchService:
         limit: int = 20,
         user: Optional[Any] = None,
     ) -> dict[str, Any]:
+        # Use PostgreSQL full-text search for high-performance search
+        # Fall back to LIKE-based search if PostgreSQL FTS is not available
+        try:
+            fts_service = self._get_postgres_fts(db)
+            return await fts_service.search_fulltext(
+                db=db,
+                organization_id=organization_id,
+                query=query,
+                user_id=user_id,
+                limit=limit,
+                user=user,
+                mode="HYBRID",
+            )
+        except Exception as e:
+            # Log the error and fall back to LIKE-based search
+            import logging
+            logging.getLogger("vcos.search").warning(
+                f"PostgreSQL FTS search failed, falling back to LIKE: {e}"
+            )
+        
         started = time.perf_counter()
         q = query.strip()
         results: list[dict[str, Any]] = []
@@ -942,13 +978,13 @@ class SearchService:
         universal search."""
         from app.models.enterprise import (
             ComplianceControl,
-            FeatureFlag,
             IdentityProvider,
             IntegrationConnection,
             MarketplaceItem,
             Plugin,
             SecurityEvent,
         )
+        from app.models.feature_flags import FeatureFlag
 
         out: list[dict[str, Any]] = []
         remaining = limit
@@ -1029,9 +1065,9 @@ class SearchService:
             for flag in flags.scalars().all():
                 _hit("feature_flag", f"/enterprise?tab=flags&flag={flag.id}",
                      f"{flag.name} ({flag.key})",
-                     f"Feature flag · {'enabled' if flag.enabled else 'disabled'}",
+                     f"Feature flag · {flag.status}",
                      flag.description or "", 0.5,
-                     {"key": flag.key, "enabled": flag.enabled})
+                     {"key": flag.key, "status": flag.status})
 
         if remaining > 0:
             events = await db.execute(

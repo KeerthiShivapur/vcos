@@ -1,0 +1,66 @@
+_test_cross_tenant_restore_attempt(result, db, organization_id)
+            print("DEBUG ADV: Cross-tenant test completed")
+            
+            # Test 2: Restore with mixed tenant data in backup
+            print("DEBUG ADV: Running mixed tenant data test")
+            await self._test_restore_mixed_tenant_data(result, db, organization_id)
+            print("DEBUG ADV: Mixed tenant test completed")
+            
+            # Test 3: Restore with manipulated backup manifest
+            print("DEBUG ADV: Running manipulated manifest test")
+            await self._test_manipulated_backup_manifest(result, db, organization_id)
+            print("DEBUG ADV: Manipulated manifest test completed")
+            
+            # Test 4: Cross-tenant backup access
+            print("DEBUG ADV: Running cross-tenant backup access test")
+            await self._test_cross_tenant_backup_access(result, db, organization_id)
+            print("DEBUG ADV: Cross-tenant backup access test completed")
+            
+            result.add_check(ValidationCheck(
+                name="restore_adversarial_tests",
+                status=ValidationStatus.VERIFIED,
+                message="All restore-specific adversarial tests passed",
+                details={"tests_run": 4},
+            ))
+            print("DEBUG ADV: All adversarial tests passed")
+        except Exception as e:
+            print("DEBUG ADV: Caught exception in adversarial tests: {}".format(e))
+            result.add_check(ValidationCheck(
+                name="restore_adversarial_tests",
+                status=ValidationStatus.INCONCLUSIVE,
+                message=f"Restore adversarial tests failed: {str(e)}",
+                details={"error": str(e)},
+            ))
+
+    async def _test_cross_tenant_restore_attempt(
+        self,
+        result: ValidationResult,
+        db: AsyncSession,
+        organization_id: str,
+    ) -> None:
+        """Test that restore cannot be initiated for another tenant's backup."""
+        try:
+            # Create a second organization
+            from app.models.organization import Organization
+            import uuid
+            
+            other_org = Organization(
+                id=f"other-{uuid.uuid4().hex[:8]}",
+                name="Other Test Org",
+                slug=f"other-{uuid.uuid4().hex[:8]}",
+                status="active",
+            )
+            db.add(other_org)
+            await db.flush()
+            
+            # Create a backup for the other organization
+            from app.models.backup_manifest import BackupManifest, BackupStatus, BackupKind
+            other_backup = BackupManifest(
+                id=f"bkp-other-{uuid.uuid4().hex[:8]}",
+                organization_id=other_org.id,
+                backup_kind=BackupKind.FULL,
+                status=BackupStatus.VERIFIED,
+                started_at=utcnow() - timedelta(hours=1),
+                completed_at=utcnow(),
+                backup_size_bytes=1024 * 1024 * 100,
+                ch

@@ -1,0 +1,15 @@
+     outcome_context = {
+            "state": {
+                **objective_outcome_context.get("state", {}),
+                **strategic_outcome_context.get("state", {}),
+            },
+            "epistemic_status": "measured",
+            "confidence": min(
+                objective_outcome_context.get("confidence", 0.8),
+                strategic_outcome_context.get("confidence", 0.8)
+            ),
+            "provenance": objective_outcome_context.get("provenance", []) + strategic_outcome_context.get("provenance", []),
+            "contradictions": objective_outcome_context.get("contradictions", []) + strategic_outcome_context.get("contradictions", []),
+        }
+        
+        # C

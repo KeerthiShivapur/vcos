@@ -1,29 +1,35 @@
-"""Phase 9 — Background Intelligence & Autonomous Organization engines."""
+"""Intelligence package exports."""
 
-from app.intelligence.burnout_engine import burnout_engine  # noqa: F401
-from app.intelligence.collaboration_engine import collaboration_engine  # noqa: F401
-from app.intelligence.duplicate_engine import duplicate_engine  # noqa: F401
-from app.intelligence.expertise_engine import expertise_engine  # noqa: F401
-from app.intelligence.graph_engine import graph_engine  # noqa: F401
-from app.intelligence.insights_engine import insights_engine  # noqa: F401
-from app.intelligence.knowledge_engine import knowledge_engine  # noqa: F401
-from app.intelligence.learning_engine import learning_engine  # noqa: F401
-from app.intelligence.pattern_engine import pattern_engine  # noqa: F401
-from app.intelligence.recommendation_engine import recommendation_engine  # noqa: F401
-from app.intelligence.search_engine import search_engine  # noqa: F401
-from app.intelligence.workflow_engine import workflow_engine  # noqa: F401
+# Register all submodules to avoid relative import issues
+import sys
+import importlib.util
+import os
+
+_intelligence_dir = os.path.dirname(__file__)
+
+_submodules = [
+    f[:-3] for f in os.listdir(_intelligence_dir) if f.endswith(".py") and f != "__init__.py"
+]
+
+for name in _submodules:
+    module_path = os.path.join(_intelligence_dir, f"{name}.py")
+    if os.path.exists(module_path):
+        spec = importlib.util.spec_from_file_location(
+            f"app.intelligence.{name}", module_path
+        )
+        if spec:
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[f"app.intelligence.{name}"] = module
+            spec.loader.exec_module(module)
+
+# Import key services for convenience - get from sys.modules after dynamic load
+company_brain_module = sys.modules.get("app.intelligence.company_brain")
+company_brain = getattr(company_brain_module, "company_brain", None)
+
+company_context_module = sys.modules.get("app.intelligence.company_context")
+resolve_caller_access = getattr(company_context_module, "resolve_caller_access", None)
 
 __all__ = [
-    "expertise_engine",
-    "graph_engine",
-    "knowledge_engine",
-    "search_engine",
-    "collaboration_engine",
-    "burnout_engine",
-    "duplicate_engine",
-    "pattern_engine",
-    "learning_engine",
-    "workflow_engine",
-    "recommendation_engine",
-    "insights_engine",
+    "company_brain",
+    "resolve_caller_access",
 ]

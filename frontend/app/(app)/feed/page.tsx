@@ -52,7 +52,9 @@ export default function FeedPage() {
 function FeedContent() {
   const searchParams = useSearchParams();
   const [communities, setCommunities] = useState<Community[]>([]);
-  const [communityId, setCommunityId] = useState(searchParams.get("community_id") ?? "");
+  const [communityId, setCommunityId] = useState(
+    searchParams.get("community_id") ?? "",
+  );
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -144,15 +146,25 @@ function FeedContent() {
       </div>
 
       {error ? (
-        <ErrorState title="Could not load feed" message={error} onRetry={load} />
+        <ErrorState
+          title="Could not load feed"
+          message={error}
+          onRetry={load}
+        />
       ) : loading ? (
-        <div className="flex justify-center py-24"><Spinner label="Loading feed" /></div>
+        <div className="flex justify-center py-24">
+          <Spinner label="Loading feed" />
+        </div>
       ) : posts.length === 0 ? (
         <EmptyState
           icon={Newspaper}
           title="No posts yet"
           description="Share an update, question, or idea with your communities."
-          action={<Button size="sm" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" /> New post</Button>}
+          action={
+            <Button size="sm" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-4 w-4" /> New post
+            </Button>
+          }
         />
       ) : (
         <div className="mx-auto max-w-2xl space-y-4">
@@ -242,7 +254,9 @@ function PostCard({
         <Avatar name={post.author_name} size="md" />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-[13px] font-semibold text-ink">{post.author_name}</p>
+            <p className="text-[13px] font-semibold text-ink">
+              {post.author_name}
+            </p>
             <Badge tone="neutral">{post.community_name}</Badge>
             {post.pinned && <Badge tone="brand">Pinned</Badge>}
           </div>
@@ -252,16 +266,28 @@ function PostCard({
           {isMine && (
             <>
               <Button variant="ghost" size="sm" onClick={() => onPin(post)}>
-                <Pin className={`h-4 w-4 ${post.pinned ? "fill-brand text-brand" : ""}`} />
+                <Pin
+                  className={`h-4 w-4 ${post.pinned ? "fill-brand text-brand" : ""}`}
+                />
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => onDelete(post)}>Delete</Button>
+              <Button variant="ghost" size="sm" onClick={() => onDelete(post)}>
+                Delete
+              </Button>
             </>
           )}
         </div>
       </div>
 
-      {post.title && <h3 className="mt-3 text-[15px] font-semibold text-ink">{post.title}</h3>}
-      {post.content && <p className="mt-1.5 whitespace-pre-wrap text-[13px] leading-relaxed text-muted">{post.content}</p>}
+      {post.title && (
+        <h3 className="mt-3 text-[15px] font-semibold text-ink">
+          {post.title}
+        </h3>
+      )}
+      {post.content && (
+        <p className="mt-1.5 whitespace-pre-wrap text-[13px] leading-relaxed text-muted">
+          {post.content}
+        </p>
+      )}
 
       <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-line pt-3 text-[12px] text-faint">
         <ReactPicker
@@ -269,11 +295,23 @@ function PostCard({
           onPick={(emoji) => onReact(post, emoji)}
           count={post.reaction_count}
         />
-        <button className="flex items-center gap-1 hover:text-ink" onClick={() => { setExpanded(!expanded); if (!expanded) loadComments(); }}>
+        <button
+          className="flex items-center gap-1 hover:text-ink"
+          onClick={() => {
+            setExpanded(!expanded);
+            if (!expanded) loadComments();
+          }}
+        >
           <MessageCircle className="h-4 w-4" /> {post.comment_count}
         </button>
-        <button className="flex items-center gap-1 hover:text-ink" onClick={() => onBookmark(post)}>
-          <Bookmark className={`h-4 w-4 ${post.is_bookmarked ? "fill-brand text-brand" : ""}`} /> {post.bookmark_count}
+        <button
+          className="flex items-center gap-1 hover:text-ink"
+          onClick={() => onBookmark(post)}
+        >
+          <Bookmark
+            className={`h-4 w-4 ${post.is_bookmarked ? "fill-brand text-brand" : ""}`}
+          />{" "}
+          {post.bookmark_count}
         </button>
       </div>
 
@@ -286,14 +324,20 @@ function PostCard({
               onChange={(e) => setCommentText(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && submitComment()}
             />
-            <Button variant="secondary" size="sm" onClick={submitComment}><Send className="h-4 w-4" /></Button>
+            <Button variant="secondary" size="sm" onClick={submitComment}>
+              <Send className="h-4 w-4" />
+            </Button>
           </div>
           {comments.map((comment) => (
             <div key={comment.id} className="rounded-md bg-surface-muted p-3">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-[12px] font-semibold text-ink">{comment.author_name}</p>
+                <p className="text-[12px] font-semibold text-ink">
+                  {comment.author_name}
+                </p>
                 <div className="flex items-center gap-2">
-                  {comment.is_resolution && <Badge tone="success">Resolution</Badge>}
+                  {comment.is_resolution && (
+                    <Badge tone="success">Resolution</Badge>
+                  )}
                   <ReactPicker
                     emoji={comment.my_reaction}
                     onPick={(emoji) => reactComment(comment, emoji)}
@@ -301,7 +345,9 @@ function PostCard({
                   />
                 </div>
               </div>
-              <p className="mt-1 whitespace-pre-wrap text-[13px] text-muted">{comment.content}</p>
+              <p className="mt-1 whitespace-pre-wrap text-[13px] text-muted">
+                {comment.content}
+              </p>
             </div>
           ))}
         </div>
@@ -338,7 +384,10 @@ function ReactPicker({
               <button
                 key={reaction}
                 className={`rounded-md px-2 py-1 text-[11px] font-medium capitalize hover:bg-brand-soft ${emoji === reaction ? "bg-brand-soft text-brand" : "text-muted"}`}
-                onClick={() => { onPick(reaction); setOpen(false); }}
+                onClick={() => {
+                  onPick(reaction);
+                  setOpen(false);
+                }}
               >
                 {reaction.replace("_", " ")}
               </button>
@@ -361,7 +410,12 @@ function CreatePostModal({
   onClose: () => void;
   communities: Community[];
   defaultCommunityId: string;
-  onCreated: (payload: { community_id: string; title?: string; content?: string; visibility?: string }) => Promise<void>;
+  onCreated: (payload: {
+    community_id: string;
+    title?: string;
+    content?: string;
+    visibility?: string;
+  }) => Promise<void>;
 }) {
   const [communityId, setCommunityId] = useState(defaultCommunityId);
   const [title, setTitle] = useState("");
@@ -407,7 +461,9 @@ function CreatePostModal({
       description="Share an update with your community."
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
           <Button onClick={submit}>Post</Button>
         </>
       }
@@ -420,8 +476,19 @@ function CreatePostModal({
           placeholder="Select a community"
           options={communities.map((c) => ({ value: c.id, label: c.name }))}
         />
-        <Input label="Title (optional)" placeholder="A short headline" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <Textarea label="Content" placeholder="What do you want to share?" value={content} onChange={(e) => setContent(e.target.value)} rows={5} />
+        <Input
+          label="Title (optional)"
+          placeholder="A short headline"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+        />
+        <Textarea
+          label="Content"
+          placeholder="What do you want to share?"
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          rows={5}
+        />
         <Select
           label="Visibility"
           value={visibility}

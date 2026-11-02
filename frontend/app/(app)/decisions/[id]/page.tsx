@@ -37,12 +37,13 @@ const STATUS_FLOW: Record<string, string> = {
   implemented: "reviewed",
 };
 
-const ACTION_TONES: Record<string, "neutral" | "brand" | "success" | "danger"> = {
-  pending: "neutral",
-  in_progress: "brand",
-  completed: "success",
-  skipped: "danger",
-};
+const ACTION_TONES: Record<string, "neutral" | "brand" | "success" | "danger"> =
+  {
+    pending: "neutral",
+    in_progress: "brand",
+    completed: "success",
+    skipped: "danger",
+  };
 
 export default function DecisionDetailPage() {
   return (
@@ -63,7 +64,10 @@ function DetailContent() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
-  const [chooseModal, setChooseModal] = useState<{ optionId: string; reason: string } | null>(null);
+  const [chooseModal, setChooseModal] = useState<{
+    optionId: string;
+    reason: string;
+  } | null>(null);
 
   async function load() {
     setLoading(true);
@@ -91,7 +95,13 @@ function DetailContent() {
     if (!chooseModal) return;
     setBusy(true);
     try {
-      setDecision(await chooseDecisionOption(id, chooseModal.optionId, chooseModal.reason || undefined));
+      setDecision(
+        await chooseDecisionOption(
+          id,
+          chooseModal.optionId,
+          chooseModal.reason || undefined,
+        ),
+      );
       setChooseModal(null);
       toastSuccess("Decision recorded");
     } catch (err) {
@@ -141,11 +151,20 @@ function DetailContent() {
   }
 
   if (loading) {
-    return <div className="flex justify-center py-24"><Spinner label="Loading decision" /></div>;
+    return (
+      <div className="flex justify-center py-24">
+        <Spinner label="Loading decision" />
+      </div>
+    );
   }
 
   if (error || !decision) {
-    return <ErrorState title="Decision not found" message={error ?? "It may have been deleted."} />;
+    return (
+      <ErrorState
+        title="Decision not found"
+        message={error ?? "It may have been deleted."}
+      />
+    );
   }
 
   const chosen = decision.options?.find((option) => option.chosen);
@@ -163,11 +182,20 @@ function DetailContent() {
             {canManage && (
               <>
                 {nextStatus && (
-                  <Button size="sm" variant="secondary" onClick={advance} loading={busy}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={advance}
+                    loading={busy}
+                  >
                     <ThumbsUp className="h-4 w-4" /> Mark {nextStatus}
                   </Button>
                 )}
-                <Button size="sm" variant="ghost" onClick={() => setShowDelete(true)}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setShowDelete(true)}
+                >
                   <Trash2 className="h-4 w-4 text-danger" />
                 </Button>
               </>
@@ -179,54 +207,97 @@ function DetailContent() {
       <WatchBar kind="decision" entityId={decision.id} />
 
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-[12px] text-muted">
-        {decision.decision_maker_name && <span className="flex items-center gap-1.5"><Avatar name={decision.decision_maker_name} size="xs" /> {decision.decision_maker_name}</span>}
+        {decision.decision_maker_name && (
+          <span className="flex items-center gap-1.5">
+            <Avatar name={decision.decision_maker_name} size="xs" />{" "}
+            {decision.decision_maker_name}
+          </span>
+        )}
         <span>v{decision.version}</span>
         <span>{decision.view_count} views</span>
-        {decision.project_name && <Link href={`/projects/${decision.project_id}`} className="text-brand hover:underline">{decision.project_name}</Link>}
-        {decision.decision_date && <span>Decided {formatDate(decision.decision_date)}</span>}
-        <span className="ml-auto text-faint">Updated {formatDate(decision.updated_at)}</span>
+        {decision.project_name && (
+          <Link
+            href={`/projects/${decision.project_id}`}
+            className="text-brand hover:underline"
+          >
+            {decision.project_name}
+          </Link>
+        )}
+        {decision.decision_date && (
+          <span>Decided {formatDate(decision.decision_date)}</span>
+        )}
+        <span className="ml-auto text-faint">
+          Updated {formatDate(decision.updated_at)}
+        </span>
       </div>
 
       {chosen && (
         <div className="rounded-lg border border-brand/30 bg-brand-soft/40 p-4">
           <p className="text-[13px] font-semibold text-brand">Chosen option</p>
-          <p className="mt-1 text-[15px] font-semibold text-ink">{chosen.title}</p>
-          {chosen.chosen_reason && <p className="mt-1 text-[13px] text-muted">{chosen.chosen_reason}</p>}
+          <p className="mt-1 text-[15px] font-semibold text-ink">
+            {chosen.title}
+          </p>
+          {chosen.chosen_reason && (
+            <p className="mt-1 text-[13px] text-muted">
+              {chosen.chosen_reason}
+            </p>
+          )}
         </div>
       )}
 
       {decision.context && (
         <div className="card p-6">
           <p className="mb-2 text-[13px] font-semibold text-ink">Context</p>
-          <div className="whitespace-pre-wrap text-[14px] leading-relaxed text-muted">{decision.context}</div>
+          <div className="whitespace-pre-wrap text-[14px] leading-relaxed text-muted">
+            {decision.context}
+          </div>
         </div>
       )}
 
       {decision.impact && (
         <div className="card p-6">
-          <p className="mb-2 text-[13px] font-semibold text-ink">Expected impact</p>
-          <div className="whitespace-pre-wrap text-[14px] leading-relaxed text-muted">{decision.impact}</div>
+          <p className="mb-2 text-[13px] font-semibold text-ink">
+            Expected impact
+          </p>
+          <div className="whitespace-pre-wrap text-[14px] leading-relaxed text-muted">
+            {decision.impact}
+          </div>
         </div>
       )}
 
       <div className="card p-6">
         <div className="mb-4 flex items-center gap-2">
           <Gavel className="h-4 w-4 text-brand" />
-          <p className="text-[13px] font-semibold text-ink">Options considered</p>
+          <p className="text-[13px] font-semibold text-ink">
+            Options considered
+          </p>
         </div>
         <div className="space-y-3">
           {decision.options?.map((option) => (
-            <div key={option.id} className={`rounded-lg border p-4 ${option.chosen ? "border-brand/50 bg-brand-soft/30" : "border-line"}`}>
+            <div
+              key={option.id}
+              className={`rounded-lg border p-4 ${option.chosen ? "border-brand/50 bg-brand-soft/30" : "border-line"}`}
+            >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="flex items-center gap-2 text-[14px] font-semibold text-ink">
                     {option.chosen && <Check className="h-4 w-4 text-brand" />}
                     {option.title}
                   </p>
-                  {option.description && <p className="mt-0.5 text-[13px] text-muted">{option.description}</p>}
+                  {option.description && (
+                    <p className="mt-0.5 text-[13px] text-muted">
+                      {option.description}
+                    </p>
+                  )}
                 </div>
                 {canManage && !option.chosen && !chosen && (
-                  <Button size="sm" variant="secondary" onClick={() => setChooseModal({ optionId: option.id, reason: "" })}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() =>
+                      setChooseModal({ optionId: option.id, reason: "" })
+                    }
+                  >
                     <Check className="h-4 w-4" /> Choose
                   </Button>
                 )}
@@ -235,14 +306,22 @@ function DetailContent() {
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
                   {option.pros && (
                     <div className="rounded-md bg-emerald-50 px-3 py-2">
-                      <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-600">Pros</p>
-                      <p className="mt-0.5 whitespace-pre-wrap text-[13px] text-muted">{option.pros}</p>
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-600">
+                        Pros
+                      </p>
+                      <p className="mt-0.5 whitespace-pre-wrap text-[13px] text-muted">
+                        {option.pros}
+                      </p>
                     </div>
                   )}
                   {option.cons && (
                     <div className="rounded-md bg-rose-50 px-3 py-2">
-                      <p className="text-[11px] font-bold uppercase tracking-wide text-rose-600">Cons</p>
-                      <p className="mt-0.5 whitespace-pre-wrap text-[13px] text-muted">{option.cons}</p>
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-rose-600">
+                        Cons
+                      </p>
+                      <p className="mt-0.5 whitespace-pre-wrap text-[13px] text-muted">
+                        {option.cons}
+                      </p>
                     </div>
                   )}
                 </div>
@@ -256,9 +335,16 @@ function DetailContent() {
         <div className="card p-6">
           <div className="mb-4 flex items-center gap-2">
             <Check className="h-4 w-4 text-brand" />
-            <p className="text-[13px] font-semibold text-ink">Follow-up actions</p>
+            <p className="text-[13px] font-semibold text-ink">
+              Follow-up actions
+            </p>
             <span className="ml-auto text-[12px] text-faint">
-              {decision.follow_up_actions.filter((a) => a.status !== "completed").length} open
+              {
+                decision.follow_up_actions.filter(
+                  (a) => a.status !== "completed",
+                ).length
+              }{" "}
+              open
             </span>
           </div>
           <div className="space-y-3">
@@ -275,19 +361,30 @@ function DetailContent() {
             ))}
           </div>
           <p className="mt-4 text-[12px] text-faint">
-            When every converted task is completed, the decision is automatically marked implemented.
+            When every converted task is completed, the decision is
+            automatically marked implemented.
           </p>
         </div>
       )}
 
       {decision.participants && decision.participants.length > 0 && (
         <div className="card p-6">
-          <p className="mb-3 text-[13px] font-semibold text-ink">Participants</p>
+          <p className="mb-3 text-[13px] font-semibold text-ink">
+            Participants
+          </p>
           <div className="flex flex-wrap gap-2">
             {decision.participants.map((participant) => (
-              <div key={participant.id} className="flex items-center gap-2 rounded-md border border-line bg-canvas px-2.5 py-1.5">
-                <Avatar name={participant.employee_name ?? participant.employee_id} size="xs" />
-                <span className="text-[13px] font-medium text-ink">{participant.employee_name ?? participant.employee_id}</span>
+              <div
+                key={participant.id}
+                className="flex items-center gap-2 rounded-md border border-line bg-canvas px-2.5 py-1.5"
+              >
+                <Avatar
+                  name={participant.employee_name ?? participant.employee_id}
+                  size="xs"
+                />
+                <span className="text-[13px] font-medium text-ink">
+                  {participant.employee_name ?? participant.employee_id}
+                </span>
                 <Badge tone="neutral">{participant.role}</Badge>
               </div>
             ))}
@@ -315,18 +412,35 @@ function DetailContent() {
           rows={3}
           placeholder="Why this option? (optional)"
           value={chooseModal?.reason ?? ""}
-          onChange={(e) => setChooseModal((prev) => (prev ? { ...prev, reason: e.target.value } : prev))}
+          onChange={(e) =>
+            setChooseModal((prev) =>
+              prev ? { ...prev, reason: e.target.value } : prev,
+            )
+          }
         />
         <div className="mt-4 flex justify-end gap-2">
-          <Button variant="ghost" onClick={() => setChooseModal(null)}>Cancel</Button>
-          <Button variant="secondary" onClick={chooseOption} loading={busy}>Record choice</Button>
+          <Button variant="ghost" onClick={() => setChooseModal(null)}>
+            Cancel
+          </Button>
+          <Button variant="secondary" onClick={chooseOption} loading={busy}>
+            Record choice
+          </Button>
         </div>
       </Modal>
 
-      <Modal open={showDelete} onClose={() => setShowDelete(false)} title="Delete decision?" description="This cannot be undone.">
+      <Modal
+        open={showDelete}
+        onClose={() => setShowDelete(false)}
+        title="Delete decision?"
+        description="This cannot be undone."
+      >
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={() => setShowDelete(false)}>Cancel</Button>
-          <Button variant="danger" onClick={remove} loading={busy}>Delete</Button>
+          <Button variant="ghost" onClick={() => setShowDelete(false)}>
+            Cancel
+          </Button>
+          <Button variant="danger" onClick={remove} loading={busy}>
+            Delete
+          </Button>
         </div>
       </Modal>
     </div>
@@ -348,7 +462,9 @@ function FollowUpRow({
   busy: boolean;
   onConvert: (index: number) => void;
 }) {
-  const task = action.task_id ? decision.tasks?.find((t) => t.id === action.task_id) ?? null : null;
+  const task = action.task_id
+    ? (decision.tasks?.find((t) => t.id === action.task_id) ?? null)
+    : null;
   return (
     <div className="rounded-lg border border-line p-4">
       <div className="flex items-start justify-between gap-3">
@@ -356,23 +472,38 @@ function FollowUpRow({
           <p className="text-[14px] font-semibold text-ink">{action.text}</p>
           <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted">
             <span className="flex items-center gap-1.5">
-              <Avatar name={action.owner_name ?? action.owner_id ?? "?"} size="xs" />
+              <Avatar
+                name={action.owner_name ?? action.owner_id ?? "?"}
+                size="xs"
+              />
               {action.owner_name ?? "Unassigned"}
             </span>
             {task && (
-              <Link href={`/tasks/${task.id}`} className="text-brand hover:underline">
+              <Link
+                href={`/tasks/${task.id}`}
+                className="text-brand hover:underline"
+              >
                 {task.title} · {task.status.replace(/_/g, " ")}
               </Link>
             )}
-            {action.project_id && decision.tasks?.length === 0 && <span>Project linked</span>}
+            {action.project_id && decision.tasks?.length === 0 && (
+              <span>Project linked</span>
+            )}
             {action.goal_id && <span>Goal linked</span>}
             {action.due_date && <span>Due {formatDate(action.due_date)}</span>}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <Badge tone={ACTION_TONES[action.status] ?? "neutral"}>{action.status.replace(/_/g, " ")}</Badge>
+          <Badge tone={ACTION_TONES[action.status] ?? "neutral"}>
+            {action.status.replace(/_/g, " ")}
+          </Badge>
           {canManage && !task && action.status === "pending" && (
-            <Button size="sm" variant="secondary" loading={busy} onClick={() => onConvert(index)}>
+            <Button
+              size="sm"
+              variant="secondary"
+              loading={busy}
+              onClick={() => onConvert(index)}
+            >
               <Check className="h-4 w-4" /> Convert to task
             </Button>
           )}

@@ -13,7 +13,13 @@ import { Avatar } from "@/components/ui/Avatar";
 import { formatDateTime } from "@/lib/utils";
 import { toastSuccess } from "@/components/ui/Toaster";
 
-export function VersionHistory({ kind, entityId }: { kind: string; entityId: string }) {
+export function VersionHistory({
+  kind,
+  entityId,
+}: {
+  kind: string;
+  entityId: string;
+}) {
   const [versions, setVersions] = useState<KnowledgeVersion[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<KnowledgeVersion | null>(null);
@@ -48,26 +54,42 @@ export function VersionHistory({ kind, entityId }: { kind: string; entityId: str
   }
 
   return (
-    <Card title="Version history" subtitle="Every edit is preserved" className="mt-6">
+    <Card
+      title="Version history"
+      subtitle="Every edit is preserved"
+      className="mt-6"
+    >
       {loading ? (
-        <div className="flex justify-center py-6"><Spinner label="Loading versions" /></div>
+        <div className="flex justify-center py-6">
+          <Spinner label="Loading versions" />
+        </div>
       ) : versions.length === 0 ? (
-        <EmptyState icon={History} title="No versions yet" description="Edits will appear here." />
+        <EmptyState
+          icon={History}
+          title="No versions yet"
+          description="Edits will appear here."
+        />
       ) : (
         <div className="space-y-2">
           {versions.map((version) => (
-            <div key={version.id} className="flex items-start justify-between gap-3 rounded-lg border border-line px-3 py-2.5">
+            <div
+              key={version.id}
+              className="flex items-start justify-between gap-3 rounded-lg border border-line px-3 py-2.5"
+            >
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="rounded-md bg-brand-soft px-1.5 py-0.5 text-[11px] font-bold text-brand">
                     v{version.version}
                   </span>
-                  <p className="truncate text-[13px] font-medium text-ink">{version.title}</p>
+                  <p className="truncate text-[13px] font-medium text-ink">
+                    {version.title}
+                  </p>
                 </div>
                 <p className="mt-1 flex items-center gap-1.5 text-[12px] text-faint">
                   {version.editor_name ? (
                     <>
-                      <Avatar name={version.editor_name} size="xs" /> {version.editor_name}
+                      <Avatar name={version.editor_name} size="xs" />{" "}
+                      {version.editor_name}
                     </>
                   ) : (
                     "Unknown editor"
@@ -75,13 +97,28 @@ export function VersionHistory({ kind, entityId }: { kind: string; entityId: str
                   <span>·</span>
                   <span>{formatDateTime(version.created_at)}</span>
                 </p>
-                {version.change_note && <p className="mt-1 text-[12px] italic text-muted">“{version.change_note}”</p>}
+                {version.change_note && (
+                  <p className="mt-1 text-[12px] italic text-muted">
+                    “{version.change_note}”
+                  </p>
+                )}
               </div>
               <div className="flex shrink-0 gap-1.5">
-                <Button size="sm" variant="ghost" onClick={() => setSelected(selected?.id === version.id ? null : version)}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() =>
+                    setSelected(selected?.id === version.id ? null : version)
+                  }
+                >
                   View
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => restore(version.version)} loading={restoring}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => restore(version.version)}
+                  loading={restoring}
+                >
                   <RotateCcw className="h-3.5 w-3.5" /> Restore
                 </Button>
               </div>

@@ -61,14 +61,19 @@ class AssessmentService:
     async def list_assessments(
         self, db: AsyncSession, *, organization_id: str,
         kind: Optional[str] = None, status: str = "published", search: Optional[str] = None,
+        category: Optional[str] = None, limit: Optional[int] = None,
     ) -> list[Assessment]:
         query = select(Assessment).where(Assessment.organization_id == organization_id)
         if status:
             query = query.where(Assessment.status == status)
         if kind:
             query = query.where(Assessment.kind == kind)
+        if category:
+            query = query.where(Assessment.kind == category)
         if search:
             query = query.where(Assessment.title.ilike(f"%{search}%"))
+        if limit is not None:
+            query = query.limit(limit)
         return (await db.execute(query.order_by(Assessment.created_at.desc()))).scalars().all()
 
     # ------------------------------------------------------------------ attempts

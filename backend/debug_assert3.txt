@@ -1,0 +1,9 @@
+ssert if not using mock restore (which doesn't actually restore data)
+        restore_result_mock = False
+        if 'restore_result' in locals() and isinstance(restore_result, dict):
+            restore_result_mock = restore_result.get('mock', False)
+        if not restore_result_mock:
+            assert memory_count > 0, "Living Company Memory should have events after restore"
+        logger.info(f"✅ 1. Living Company Memory: {memory_count} timeline events")
+        
+        # 15.2: Ask Compan

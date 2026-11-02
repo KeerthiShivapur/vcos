@@ -1,0 +1,1 @@
+& "C:\Program Files\PostgreSQL\18\bin\psql.exe" -h localhost -p 5432 -U postgres -d vcos_test -c "SELECT pg_reload_conf()"

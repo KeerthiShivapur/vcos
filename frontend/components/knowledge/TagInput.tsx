@@ -25,7 +25,10 @@ export function TagInput({
     <div>
       <div className="flex flex-wrap gap-1.5 rounded-lg border border-line bg-canvas px-2.5 py-2 focus-within:border-brand">
         {tags.map((tag) => (
-          <span key={tag} className="flex items-center gap-1 rounded-md bg-brand-soft px-2 py-0.5 text-[12px] font-medium text-brand">
+          <span
+            key={tag}
+            className="flex items-center gap-1 rounded-md bg-brand-soft px-2 py-0.5 text-[12px] font-medium text-brand"
+          >
             #{tag}
             <button
               type="button"
@@ -54,7 +57,9 @@ export function TagInput({
         />
       </div>
       <input type="hidden" name={name} value={JSON.stringify(tags)} />
-      <p className="mt-1 text-[11px] text-faint">{tags.length} tag{tags.length === 1 ? "" : "s"} selected</p>
+      <p className="mt-1 text-[11px] text-faint">
+        {tags.length} tag{tags.length === 1 ? "" : "s"} selected
+      </p>
     </div>
   );
 }

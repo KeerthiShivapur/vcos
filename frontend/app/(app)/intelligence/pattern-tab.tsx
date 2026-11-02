@@ -1,7 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Activity, AlertTriangle, Clock, Link2, RefreshCw, Repeat2, ShieldCheck } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  Clock,
+  Link2,
+  RefreshCw,
+  Repeat2,
+  ShieldCheck,
+} from "lucide-react";
 
 import {
   brainPatternEvidence,
@@ -34,7 +42,10 @@ const FAMILIES = [
   { id: "organization", label: "Organization" },
 ] as const;
 
-const LIFECYCLE_TONE: Record<string, "brand" | "success" | "warning" | "danger" | "neutral"> = {
+const LIFECYCLE_TONE: Record<
+  string,
+  "brand" | "success" | "warning" | "danger" | "neutral"
+> = {
   candidate: "neutral",
   emerging: "brand",
   confirmed: "warning",
@@ -45,7 +56,9 @@ const LIFECYCLE_TONE: Record<string, "brand" | "success" | "warning" | "danger" 
   dismissed: "neutral",
 };
 
-function familyBadge(family: string): "brand" | "success" | "warning" | "danger" | "neutral" {
+function familyBadge(
+  family: string,
+): "brand" | "success" | "warning" | "danger" | "neutral" {
   if (family === "execution") return "danger";
   if (family === "decision") return "warning";
   if (family === "governance") return "brand";
@@ -68,9 +81,15 @@ export function PatternTab() {
   const [patterns, setPatterns] = useState<BrainPattern[]>([]);
   const [family, setFamily] = useState("");
   const [selected, setSelected] = useState<BrainPattern | null>(null);
-  const [evidence, setEvidence] = useState<BrainPatternEvidenceItem[] | null>(null);
-  const [supporting, setSupporting] = useState<BrainPatternEvidenceItem[] | null>(null);
-  const [history, setHistory] = useState<BrainPatternHistoryResponse | null>(null);
+  const [evidence, setEvidence] = useState<BrainPatternEvidenceItem[] | null>(
+    null,
+  );
+  const [supporting, setSupporting] = useState<
+    BrainPatternEvidenceItem[] | null
+  >(null);
+  const [history, setHistory] = useState<BrainPatternHistoryResponse | null>(
+    null,
+  );
   const [related, setRelated] = useState<RelatedPattern[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -123,12 +142,14 @@ export function PatternTab() {
           id: memory.id,
           title: memory.title,
           relationship: `${memory.memory_category ?? "memory"} · ${memory.fact_kind ?? "fact"}`,
-        }))
+        })),
       );
       setHistory(historyRes);
       setRelated(rel.related);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load pattern detail");
+      setError(
+        err instanceof Error ? err.message : "Failed to load pattern detail",
+      );
     }
   };
 
@@ -169,7 +190,10 @@ export function PatternTab() {
         <span className="ml-auto flex items-center gap-2">
           <Badge tone="brand">{patterns.length} observable patterns</Badge>
           <Button size="sm" variant="secondary" onClick={load} disabled={busy}>
-            <RefreshCw className={`h-3.5 w-3.5 ${busy ? "animate-spin" : ""}`} /> Refresh
+            <RefreshCw
+              className={`h-3.5 w-3.5 ${busy ? "animate-spin" : ""}`}
+            />{" "}
+            Refresh
           </Button>
         </span>
       </div>
@@ -197,21 +221,32 @@ export function PatternTab() {
               >
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Badge tone={familyBadge(pattern.family)}>{pattern.family}</Badge>
-                    <span className="truncate text-[13px] font-medium text-ink">{pattern.title}</span>
+                    <Badge tone={familyBadge(pattern.family)}>
+                      {pattern.family}
+                    </Badge>
+                    <span className="truncate text-[13px] font-medium text-ink">
+                      {pattern.title}
+                    </span>
                   </div>
                   {pattern.description && (
-                    <p className="mt-1 line-clamp-2 text-xs text-muted">{pattern.description}</p>
+                    <p className="mt-1 line-clamp-2 text-xs text-muted">
+                      {pattern.description}
+                    </p>
                   )}
                   <p className="mt-1 text-[11px] text-faint">
                     {pattern.pattern_type}
-                    {pattern.scope_type === "project" ? ` · project-scoped` : " · org-wide"}
-                    {pattern.last_seen ? ` · last seen ${new Date(pattern.last_seen).toLocaleString()}` : ""}
+                    {pattern.scope_type === "project"
+                      ? ` · project-scoped`
+                      : " · org-wide"}
+                    {pattern.last_seen
+                      ? ` · last seen ${new Date(pattern.last_seen).toLocaleString()}`
+                      : ""}
                   </p>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1">
                   <Badge tone={confidenceTone(pattern.confidence)}>
-                    {Math.round(pattern.confidence * 100)}% · {pattern.confidence_label}
+                    {Math.round(pattern.confidence * 100)}% ·{" "}
+                    {pattern.confidence_label}
                   </Badge>
                   <Badge tone={LIFECYCLE_TONE[pattern.status] ?? "neutral"}>
                     {pattern.status} · ×{pattern.occurrence_count}
@@ -230,15 +265,23 @@ export function PatternTab() {
         >
           <div className="space-y-4">
             <div className="flex flex-wrap gap-2">
-              <Badge tone={LIFECYCLE_TONE[selected.status] ?? "neutral"}>status {selected.status}</Badge>
-              <Badge tone="brand">×{selected.occurrence_count} occurrences</Badge>
+              <Badge tone={LIFECYCLE_TONE[selected.status] ?? "neutral"}>
+                status {selected.status}
+              </Badge>
+              <Badge tone="brand">
+                ×{selected.occurrence_count} occurrences
+              </Badge>
               <Badge tone={confidenceTone(selected.confidence)}>
                 {Math.round(selected.confidence * 100)}% confidence
               </Badge>
               <Badge tone="neutral">trend {selected.trend}</Badge>
-              <Badge tone="neutral">window {selected.time_window_days} days</Badge>
+              <Badge tone="neutral">
+                window {selected.time_window_days} days
+              </Badge>
               {selected.avg_interval_days !== null && (
-                <Badge tone="neutral">every ~{selected.avg_interval_days?.toFixed(1)} days</Badge>
+                <Badge tone="neutral">
+                  every ~{selected.avg_interval_days?.toFixed(1)} days
+                </Badge>
               )}
               {selected.scope_type === "project" && (
                 <Badge tone="warning">project-scoped</Badge>
@@ -246,27 +289,37 @@ export function PatternTab() {
             </div>
 
             {selected.description && (
-              <p className="text-[13px] leading-relaxed text-muted">{selected.description}</p>
+              <p className="text-[13px] leading-relaxed text-muted">
+                {selected.description}
+              </p>
             )}
             {selected.detail && (
               <p className="text-[13px] leading-relaxed text-muted">
-                <span className="font-medium text-ink">Detail:</span> {selected.detail}
+                <span className="font-medium text-ink">Detail:</span>{" "}
+                {selected.detail}
               </p>
             )}
 
             <div className="grid gap-4 lg:grid-cols-2">
               <div>
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-faint">
-                  Why VCOS believes this ({(evidence ?? []).length + (supporting ?? []).length} refs)
+                  Why VCOS believes this (
+                  {(evidence ?? []).length + (supporting ?? []).length} refs)
                 </p>
                 {evidence === null ? (
                   <p className="text-xs text-faint">Resolving evidence…</p>
-                ) : (evidence?.length ?? 0) === 0 && (supporting?.length ?? 0) === 0 ? (
-                  <p className="text-xs text-faint">No resolvable evidence refs.</p>
+                ) : (evidence?.length ?? 0) === 0 &&
+                  (supporting?.length ?? 0) === 0 ? (
+                  <p className="text-xs text-faint">
+                    No resolvable evidence refs.
+                  </p>
                 ) : (
                   <div className="space-y-1.5">
                     {supporting?.map((item) => (
-                      <div key={`m-${item.id}`} className="flex items-center justify-between gap-2 rounded-lg border border-line px-3 py-1.5">
+                      <div
+                        key={`m-${item.id}`}
+                        className="flex items-center justify-between gap-2 rounded-lg border border-line px-3 py-1.5"
+                      >
                         <div className="min-w-0">
                           <p className="truncate text-[13px] text-ink">
                             <Badge tone="brand">{item.relationship}</Badge>{" "}
@@ -277,7 +330,10 @@ export function PatternTab() {
                       </div>
                     ))}
                     {evidence?.map((item, index) => (
-                      <div key={`e-${index}`} className="flex items-center justify-between gap-2 rounded-lg border border-line px-3 py-1.5">
+                      <div
+                        key={`e-${index}`}
+                        className="flex items-center justify-between gap-2 rounded-lg border border-line px-3 py-1.5"
+                      >
                         <div className="min-w-0">
                           <p className="truncate text-[13px] text-ink">
                             <Badge tone="neutral">{item.relationship}</Badge>{" "}
@@ -285,7 +341,8 @@ export function PatternTab() {
                           </p>
                           {item.occurred_at && (
                             <p className="text-[11px] text-faint">
-                              event at {new Date(item.occurred_at).toLocaleString()}
+                              event at{" "}
+                              {new Date(item.occurred_at).toLocaleString()}
                             </p>
                           )}
                         </div>
@@ -303,17 +360,24 @@ export function PatternTab() {
                 {history === null ? (
                   <p className="text-xs text-faint">Loading history…</p>
                 ) : (history.history?.length ?? 0) === 0 ? (
-                  <p className="text-xs text-faint">No resolvable occurrence events.</p>
+                  <p className="text-xs text-faint">
+                    No resolvable occurrence events.
+                  </p>
                 ) : (
                   <div className="space-y-1.5">
                     {history.history.map((item) => (
-                      <div key={item.event_id} className="flex items-center justify-between gap-2 rounded-lg border border-line px-3 py-1.5">
+                      <div
+                        key={item.event_id}
+                        className="flex items-center justify-between gap-2 rounded-lg border border-line px-3 py-1.5"
+                      >
                         <p className="truncate text-[13px] text-ink">
                           <Clock className="mr-1 inline h-3 w-3 text-faint" />
                           {item.event_name}
                         </p>
                         <span className="text-[11px] text-faint">
-                          {item.occurred_at ? new Date(item.occurred_at).toLocaleString() : "—"}
+                          {item.occurred_at
+                            ? new Date(item.occurred_at).toLocaleString()
+                            : "—"}
                         </span>
                       </div>
                     ))}
@@ -352,14 +416,29 @@ export function PatternTab() {
                   Manage pattern (brain:manage)
                 </span>
                 <span className="ml-auto flex gap-2">
-                  <Button size="sm" variant="secondary" onClick={() => void setStatus(selected, "acknowledged")} disabled={busy}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void setStatus(selected, "acknowledged")}
+                    disabled={busy}
+                  >
                     Acknowledge
                   </Button>
-                  <Button size="sm" variant="ghost" onClick={() => void setStatus(selected, "dismissed")} disabled={busy}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void setStatus(selected, "dismissed")}
+                    disabled={busy}
+                  >
                     Dismiss
                   </Button>
                   {selected.status !== "resolved" && (
-                    <Button size="sm" variant="ghost" onClick={() => void setStatus(selected, "resolved")} disabled={busy}>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => void setStatus(selected, "resolved")}
+                      disabled={busy}
+                    >
                       Resolve
                     </Button>
                   )}
@@ -373,15 +452,17 @@ export function PatternTab() {
       <div className="flex items-center gap-2 text-xs text-faint">
         <AlertTriangle className="h-3.5 w-3.5" />
         <span>
-          Patterns are evidence-backed and governance-scoped: scoped callers see exactly their scope subtree,
-          and hidden patterns are indistinguishable from missing ones.
+          Patterns are evidence-backed and governance-scoped: scoped callers see
+          exactly their scope subtree, and hidden patterns are indistinguishable
+          from missing ones.
         </span>
       </div>
       <div className="flex items-center gap-2 text-xs text-faint">
         <Activity className="h-3.5 w-3.5" />
         <span>
-          Detection is change-driven — significant events enqueue pattern.evaluate jobs, and the pattern worker
-          consolidates occurrences into lifecycle states (candidate → emerging → confirmed → persistent).
+          Detection is change-driven — significant events enqueue
+          pattern.evaluate jobs, and the pattern worker consolidates occurrences
+          into lifecycle states (candidate → emerging → confirmed → persistent).
         </span>
       </div>
     </div>

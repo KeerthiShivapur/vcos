@@ -1,0 +1,609 @@
+{
+  "run_id": "f4ed28fa-efa",
+  "evidence_schema_version": "1.0",
+  "scale_profile": "small",
+  "employee_count": 50,
+  "tenant_count": 1,
+  "seed": 42,
+  "dataset_identity": {
+    "vcos_revision": "cd653b84c2a4",
+    "schema_revision": "unknown",
+    "generator_revision": "1.0",
+    "scale_profile": "small",
+    "employee_count": 50,
+    "tenant_count": 1,
+    "seed": 42,
+    "density_strategy": "standard",
+    "environment_fingerprint": "pending"
+  },
+  "environment_fingerprint": {
+    "vcos_revision": "cd653b84c2a4",
+    "schema_revision": "unknown",
+    "postgresql_version": "PostgreSQL 18.2 on x86_64-windows, compiled by msvc-19.44.35222, 64-bit",
+    "runtime": "external_postgres",
+    "runtime_version": "unknown",
+    "image": "external",
+    "image_digest": "unknown",
+    "cpu_count": 8,
+    "memory_bytes": "unknown",
+    "storage_type": "external",
+    "extensions": [
+      {
+        "name": "btree_gin",
+        "version": "1.3"
+      },
+      {
+        "name": "btree_gist",
+        "version": "1.8"
+      },
+      {
+        "name": "pg_trgm",
+        "version": "1.6"
+      },
+      {
+        "name": "uuid-ossp",
+        "version": "1.1"
+      }
+    ],
+    "configuration_fingerprint": "a486493b8a2b23f5",
+    "scale_profile": "unknown",
+    "employee_count": 0,
+    "tenant_count": 1,
+    "dataset_seed": "42",
+    "dataset_fingerprint": "deterministic",
+    "started_at": "unknown",
+    "completed_at": "unknown",
+    "configuration": {
+      "checkpoint_timeout": "1800",
+      "effective_cache_size": "1310720",
+      "maintenance_work_mem": "262144",
+      "max_connections": "50",
+      "max_parallel_workers_per_gather": "1",
+      "max_wal_size": "1024",
+      "shared_buffers": "65536",
+      "work_mem": "32768"
+    }
+  },
+  "schema_revision": "unknown",
+  "vcos_revision": "cd653b84c2a4",
+  "generator_revision": "1.0",
+  "environment": {
+    "postgresql_version": "PostgreSQL 18.2 on x86_64-windows, compiled by msvc-19.44.35222, 64-bit",
+    "environment_type": "external_postgres",
+    "endpoint_identifier": "localhost:5432/vcos",
+    "extensions": [
+      "pg_trgm",
+      "uuid-ossp",
+      "btree_gin",
+      "btree_gist"
+    ],
+    "configuration_fingerprint": "unknown",
+    "cpu_count": null,
+    "memory_bytes": null,
+    "storage_type": null
+  },
+  "generation": {
+    "entities_generated": {
+      "roles": 6,
+      "departments": 5,
+      "teams": 15,
+      "employees": 50,
+      "user_roles": 0,
+      "projects": 30,
+      "tasks": 600,
+      "goals": 25,
+      "meetings": 14400,
+      "decisions": 9000,
+      "documents": 100,
+      "wiki_pages": 10,
+      "policies": 5,
+      "sops": 5,
+      "templates": 5,
+      "conversations": 390,
+      "messages": 19500,
+      "budgets": 5,
+      "vendors": 1,
+      "invoices": 2,
+      "purchase_orders": 1,
+      "purchase_requests": 10,
+      "expenses": 100,
+      "customers": 5,
+      "integrations": 0,
+      "security_events": 1,
+      "operations": 250,
+      "observations": 250000,
+      "correlations": 5,
+      "degradations": 1,
+      "health_dimensions": 50,
+      "slo_targets": 2,
+      "freshness_checks": 100,
+      "operational_targets": 2,
+      "learning": 2,
+      "attention": 1
+    },
+    "total_rows": 294684,
+    "generation_duration_seconds": 401.4041745000286,
+    "throughput_rows_per_second": 734.1328733490265,
+    "checkpoint_completion": {
+      "roles": true,
+      "departments": true,
+      "teams": true,
+      "employees": true,
+      "user_roles": true,
+      "projects": true,
+      "tasks": true,
+      "goals": true,
+      "meetings": true,
+      "decisions": true,
+      "documents": true,
+      "wiki_pages": true,
+      "policies": true,
+      "sops": true,
+      "templates": true,
+      "conversations": true,
+      "messages": true,
+      "budgets": true,
+      "vendors": true,
+      "invoices": true,
+      "purchase_orders": true,
+      "purchase_requests": true,
+      "expenses": true,
+      "customers": true,
+      "integrations": true,
+      "security_events": true,
+      "operations": true,
+      "observations": true,
+      "correlations": true,
+      "degradations": true,
+      "health_dimensions": true,
+      "slo_targets": true,
+      "freshness_checks": true,
+      "operational_targets": true,
+      "learning": true,
+      "attention": true
+    },
+    "retry_count": 0,
+    "interrupted": false
+  },
+  "structural_integrity": {
+    "fk_validation_passed": true,
+    "required_fields_passed": true,
+    "enum_validity_passed": true,
+    "duplicate_fingerprints": 0,
+    "organization_ownership_passed": true,
+    "failed_entities": [],
+    "anomalies": []
+  },
+  "tenant_isolation": {
+    "read_isolation_passed": true,
+    "write_isolation_passed": true,
+    "entities_tested": 44,
+    "cross_tenant_attempts": 0,
+    "blocked_attempts": 0,
+    "successful_unauthorized_attempts": 0,
+    "details": [
+      {
+        "table": "employees",
+        "test": "org_id_filter",
+        "count": 50,
+        "passed": true
+      },
+      {
+        "table": "departments",
+        "test": "org_id_filter",
+        "count": 5,
+        "passed": true
+      },
+      {
+        "table": "teams",
+        "test": "org_id_filter",
+        "count": 15,
+        "passed": true
+      },
+      {
+        "table": "projects",
+        "test": "org_id_filter",
+        "count": 30,
+        "passed": true
+      },
+      {
+        "table": "tasks",
+        "test": "org_id_filter",
+        "count": 600,
+        "passed": true
+      },
+      {
+        "table": "decisions",
+        "test": "org_id_filter",
+        "count": 9000,
+        "passed": true
+      },
+      {
+        "table": "documents",
+        "test": "org_id_filter",
+        "count": 100,
+        "passed": true
+      },
+      {
+        "table": "wiki_pages",
+        "test": "org_id_filter",
+        "count": 10,
+        "passed": true
+      },
+      {
+        "table": "policies",
+        "test": "org_id_filter",
+        "count": 5,
+        "passed": true
+      },
+      {
+        "table": "sops",
+        "test": "org_id_filter",
+        "count": 5,
+        "passed": true
+      },
+      {
+        "table": "templates",
+        "test": "org_id_filter",
+        "count": 5,
+        "passed": true
+      },
+      {
+        "table": "conversations",
+        "test": "org_id_filter",
+        "count": 390,
+        "passed": true
+      },
+      {
+        "table": "conversation_members",
+        "test": "org_id_filter",
+        "count": 1342,
+        "passed": true
+      },
+      {
+        "table": "messages",
+        "test": "org_id_filter",
+        "count": 19500,
+        "passed": true
+      },
+      {
+        "table": "budgets",
+        "test": "org_id_filter",
+        "count": 5,
+        "passed": true
+      },
+      {
+        "table": "vendors",
+        "test": "org_id_filter",
+        "count": 1,
+        "passed": true
+      },
+      {
+        "table": "invoices",
+        "test": "org_id_filter",
+        "count": 2,
+        "passed": true
+      },
+      {
+        "table": "purchase_orders",
+        "test": "org_id_filter",
+        "count": 1,
+        "passed": true
+      },
+      {
+        "table": "purchase_requests",
+        "test": "org_id_filter",
+        "count": 10,
+        "passed": true
+      },
+      {
+        "table": "expenses",
+        "test": "org_id_filter",
+        "count": 100,
+        "passed": true
+      },
+      {
+        "table": "customers",
+        "test": "org_id_filter",
+        "count": 5,
+        "passed": true
+      },
+      {
+        "table": "meetings",
+        "test": "org_id_filter",
+        "count": 14400,
+        "passed": true
+      },
+      {
+        "table": "goals",
+        "test": "org_id_filter",
+        "count": 25,
+        "passed": true
+      },
+      {
+        "table": "tasks",
+        "test": "org_id_filter",
+        "count": 600,
+        "passed": true
+      },
+      {
+        "table": "canonical_observations",
+        "test": "org_id_filter",
+        "count": 250000,
+        "passed": true
+      },
+      {
+        "table": "security_events",
+        "test": "org_id_filter",
+        "count": 1,
+        "passed": true
+      },
+      {
+        "table": "canonical_operations",
+        "test": "org_id_filter",
+        "count": 250,
+        "passed": true
+      },
+      {
+        "table": "operation_attempts",
+        "test": "org_id_filter",
+        "count": 484,
+        "passed": true
+      },
+      {
+        "table": "company_state_snapshots",
+        "test": "org_id_filter",
+        "count": 0,
+        "passed": true
+      },
+      {
+        "table": "company_attention",
+        "test": "org_id_filter",
+        "count": 1,
+        "passed": true
+      },
+      {
+        "table": "organizational_learning",
+        "test": "org_id_filter",
+        "count": 2,
+        "passed": true
+      },
+      {
+        "table": "learning_evidence",
+        "test": "org_id_filter",
+        "count": 0,
+        "passed": true
+      },
+      {
+        "table": "canonical_metrics",
+        "test": "org_id_filter",
+        "count": 0,
+        "passed": true
+      },
+      {
+        "table": "metric_observations",
+        "test": "org_id_filter",
+        "count": 0,
+        "passed": true
+      },
+      {
+        "table": "connector_instances",
+        "test": "org_id_filter",
+        "count": 0,
+        "passed": true
+      },
+      {
+        "table": "sync_runs",
+        "test": "org_id_filter",
+        "count": 0,
+        "passed": true
+      },
+      {
+        "table": "company_decisions",
+        "test": "org_id_filter",
+        "count": 0,
+        "passed": true
+      },
+      {
+        "table": "company_commitments",
+        "test": "org_id_filter",
+        "count": 0,
+        "passed": true
+      },
+      {
+        "table": "company_authorizations",
+        "test": "org_id_filter",
+        "count": 0,
+        "passed": true
+      },
+      {
+        "table": "company_objectives",
+        "test": "org_id_filter",
+        "count": 0,
+        "passed": true
+      },
+      {
+        "table": "company_goals",
+        "test": "org_id_filter",
+        "count": 0,
+        "passed": true
+      },
+      {
+        "table": "company_actions",
+        "test": "org_id_filter",
+        "count": 0,
+        "passed": true
+      },
+      {
+        "table": "company_state_snapshots",
+        "test": "org_id_filter",
+        "count": 0,
+        "passed": true
+      },
+      {
+        "table": "company_attention",
+        "test": "org_id_filter",
+        "count": 1,
+        "passed": true
+      },
+      {
+        "table": "employees",
+        "test": "write_isolation_check",
+        "passed": true,
+        "details": "Has 12 check constraints"
+      },
+      {
+        "table": "projects",
+        "test": "write_isolation_check",
+        "passed": true,
+        "details": "Has 8 check constraints"
+      },
+      {
+        "table": "documents",
+        "test": "write_isolation_check",
+        "passed": true,
+        "details": "Has 10 check constraints"
+      }
+    ]
+  },
+  "temporal": {
+    "recorded_at_coherent": true,
+    "observed_at_coherent": true,
+    "effective_from_coherent": true,
+    "effective_to_coherent": true,
+    "supersession_valid": true,
+    "ordering_coherent": true,
+    "anomalies": [
+      {
+        "type": "inverted_timestamps",
+        "table": "tasks",
+        "count": 271
+      },
+      {
+        "type": "completed_before_started",
+        "table": "tasks",
+        "count": 14
+      },
+      {
+        "type": "decided_before_created",
+        "table": "decisions",
+        "count": 4468
+      },
+      {
+        "type": "future_date",
+        "table": "invoices",
+        "column": "due_at",
+        "count": 2
+      },
+      {
+        "type": "future_date",
+        "table": "meetings",
+        "column": "start_at",
+        "count": 7349
+      },
+      {
+        "type": "future_date",
+        "table": "meetings",
+        "column": "end_at",
+        "count": 7369
+      },
+      {
+        "type": "decided_before_created",
+        "table": "decisions",
+        "count": 4468
+      },
+      {
+        "type": "future_date",
+        "table": "meetings",
+        "column": "start_at",
+        "count": 7349
+      },
+      {
+        "type": "future_date",
+        "table": "meetings",
+        "column": "end_at",
+        "count": 7369
+      }
+    ]
+  },
+  "provenance": {
+    "external_sources_tracked": true,
+    "source_identities_preserved": true,
+    "source_timestamps_preserved": true,
+    "provenance_relationships_intact": true,
+    "external_boundaries_respected": true,
+    "anomalies": []
+  },
+  "epistemic": {
+    "confirmed_preserved": true,
+    "supported_preserved": true,
+    "historical_preserved": true,
+    "corrected_preserved": true,
+    "conflicting_preserved": true,
+    "predicted_preserved": true,
+    "expected_preserved": true,
+    "unknown_preserved": true,
+    "not_collapsed_to_confidence": true,
+    "anomalies": []
+  },
+  "governance": {
+    "canonical_authorization_used": true,
+    "no_scale_specific_auth": true,
+    "access_control_validated": true,
+    "permission_resolution_validated": true,
+    "anomalies": []
+  },
+  "company_brain": {
+    "canonical_reality_intact": true,
+    "context_retrieval_works": true,
+    "projection_over_reality": true,
+    "query_intelligence_works": true,
+    "tenant_scope_respected": true,
+    "governance_respected": true,
+    "not_separate_intelligence_system": true,
+    "anomalies": []
+  },
+  "performance": {
+    "generation_duration_seconds": 401.4041745000286,
+    "database_size_mb": 0,
+    "index_size_mb": 0,
+    "throughput_rows_per_second": 734.1328733490265,
+    "query_latency_p50_ms": 0.116,
+    "query_latency_p95_ms": 1.064,
+    "query_latency_p99_ms": 1.064,
+    "fts_latency_ms": null,
+    "cursor_pagination_latency_ms": null,
+    "company_brain_context_latency_ms": null,
+    "integrity_validation_duration_seconds": 0,
+    "cleanup_duration_seconds": 0,
+    "unavailable_measurements": []
+  },
+  "resources": {
+    "connections_used": 0,
+    "peak_connections": 0,
+    "memory_mb": null,
+    "wal_mb": 0,
+    "cleanup_completed": true,
+    "resource_leaks": [],
+    "connection_leaks": 0
+  },
+  "acceptance_result": "PASS",
+  "acceptance_reason": "",
+  "mandatory_checks": {
+    "environment_preflight": true,
+    "schema_validation": true,
+    "generation_complete": true,
+    "structural_integrity": true,
+    "tenant_isolation": true,
+    "temporal_integrity": true,
+    "provenance": true,
+    "epistemic": true,
+    "governance": true,
+    "company_brain": true,
+    "query_performance": true,
+    "resource_safety": true
+  },
+  "started_at": "2026-09-26T07:06:36.917707",
+  "completed_at": "2026-09-26T07:13:50.460932",
+  "duration_seconds": 433.543249
+}

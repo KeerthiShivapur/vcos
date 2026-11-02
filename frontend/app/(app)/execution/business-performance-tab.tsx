@@ -38,7 +38,10 @@ import {
 } from "@/lib/api";
 import { timeAgo } from "@/lib/utils";
 
-const STATE_TONE: Record<string, "success" | "warning" | "danger" | "neutral" | "brand"> = {
+const STATE_TONE: Record<
+  string,
+  "success" | "warning" | "danger" | "neutral" | "brand"
+> = {
   healthy: "success",
   concerned: "warning",
   at_risk: "danger",
@@ -50,7 +53,10 @@ const TREND_TONE: Record<string, "success" | "danger" | "neutral"> = {
   stable: "neutral",
 } as const;
 
-const STATUS_TONE: Record<string, "success" | "warning" | "danger" | "neutral" | "brand"> = {
+const STATUS_TONE: Record<
+  string,
+  "success" | "warning" | "danger" | "neutral" | "brand"
+> = {
   on_track: "success",
   at_risk: "warning",
   slipped: "danger",
@@ -61,13 +67,17 @@ const STATUS_TONE: Record<string, "success" | "warning" | "danger" | "neutral" |
 } as const;
 
 export function BusinessPerformanceTab() {
-  const [performance, setPerformance] = useState<BusinessPerformanceResponse | null>(null);
+  const [performance, setPerformance] =
+    useState<BusinessPerformanceResponse | null>(null);
   const [metrics, setMetrics] = useState<BusinessMetricsResponse | null>(null);
   const [targets, setTargets] = useState<BusinessTargetRow[]>([]);
   const [forecasts, setForecasts] = useState<BusinessForecastRow[]>([]);
   const [drivers, setDrivers] = useState<BusinessDriverRow[]>([]);
-  const [behind, setBehind] = useState<BusinessBehindTargetResponse | null>(null);
-  const [recommendations, setRecommendations] = useState<BusinessRecommendationsResponse | null>(null);
+  const [behind, setBehind] = useState<BusinessBehindTargetResponse | null>(
+    null,
+  );
+  const [recommendations, setRecommendations] =
+    useState<BusinessRecommendationsResponse | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -92,7 +102,11 @@ export function BusinessPerformanceTab() {
       setBehind(b);
       setRecommendations(r);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load business performance");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to load business performance",
+      );
     } finally {
       setLoading(false);
     }
@@ -103,12 +117,16 @@ export function BusinessPerformanceTab() {
   }, [refresh]);
 
   if (error && !performance && !loading) {
-    return <ErrorState title="Could not load business performance" message={error} />;
+    return (
+      <ErrorState title="Could not load business performance" message={error} />
+    );
   }
 
-  const atRiskTargets = targets.filter((t) => ["at_risk", "slipped", "missed"].includes(t.status)).length;
+  const atRiskTargets = targets.filter((t) =>
+    ["at_risk", "slipped", "missed"].includes(t.status),
+  ).length;
   const concerningDims = (performance?.health.dimensions ?? []).filter((d) =>
-    ["concerned", "at_risk"].includes(d.state)
+    ["concerned", "at_risk"].includes(d.state),
   ).length;
 
   return (
@@ -116,13 +134,29 @@ export function BusinessPerformanceTab() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <StatCard
           label="Health score"
-          value={loading ? "…" : performance?.health.score ?? "—"}
+          value={loading ? "…" : (performance?.health.score ?? "—")}
           icon={HeartPulse}
         />
-        <StatCard label="Metrics tracked" value={loading ? "…" : metrics?.total ?? 0} icon={Activity} />
-        <StatCard label="Targets at risk" value={loading ? "…" : atRiskTargets} icon={AlertTriangle} />
-        <StatCard label="Dimensions concerned" value={loading ? "…" : concerningDims} icon={Target} />
-        <StatCard label="Active drivers" value={loading ? "…" : drivers.length} icon={Link2} />
+        <StatCard
+          label="Metrics tracked"
+          value={loading ? "…" : (metrics?.total ?? 0)}
+          icon={Activity}
+        />
+        <StatCard
+          label="Targets at risk"
+          value={loading ? "…" : atRiskTargets}
+          icon={AlertTriangle}
+        />
+        <StatCard
+          label="Dimensions concerned"
+          value={loading ? "…" : concerningDims}
+          icon={Target}
+        />
+        <StatCard
+          label="Active drivers"
+          value={loading ? "…" : drivers.length}
+          icon={Link2}
+        />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -133,7 +167,8 @@ export function BusinessPerformanceTab() {
           >
             {loading ? (
               <div className="flex items-center gap-2 py-6 text-[12px] text-faint">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading performance health
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading
+                performance health
               </div>
             ) : (performance?.health.dimensions ?? []).length === 0 ? (
               <EmptyState
@@ -144,13 +179,21 @@ export function BusinessPerformanceTab() {
             ) : (
               <ul className="space-y-3">
                 {(performance?.health.dimensions ?? []).map((dim) => (
-                  <li key={dim.key} className="rounded-lg border border-line/70 bg-elevated p-3">
+                  <li
+                    key={dim.key}
+                    className="rounded-lg border border-line/70 bg-elevated p-3"
+                  >
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge tone="brand">{dim.label}</Badge>
-                      <Badge tone={STATE_TONE[dim.state] ?? "neutral"}>{dim.state}</Badge>
-                      <span className="text-[12px] font-semibold text-ink">{dim.score}/100</span>
+                      <Badge tone={STATE_TONE[dim.state] ?? "neutral"}>
+                        {dim.state}
+                      </Badge>
+                      <span className="text-[12px] font-semibold text-ink">
+                        {dim.score}/100
+                      </span>
                       <span className="ml-auto text-[11px] text-faint">
-                        {dim.metrics_count} metric(s) · {dim.evidence_count} evidence
+                        {dim.metrics_count} metric(s) · {dim.evidence_count}{" "}
+                        evidence
                         {dim.updated_at ? ` · ${timeAgo(dim.updated_at)}` : ""}
                       </span>
                     </div>
@@ -184,7 +227,8 @@ export function BusinessPerformanceTab() {
           >
             {loading ? (
               <div className="flex items-center gap-2 py-6 text-[12px] text-faint">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading trajectories
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading
+                trajectories
               </div>
             ) : (performance?.metrics.trajectories ?? []).length === 0 ? (
               <EmptyState
@@ -195,11 +239,18 @@ export function BusinessPerformanceTab() {
             ) : (
               <ul className="space-y-2">
                 {(performance?.metrics.trajectories ?? []).map((row) => (
-                  <li key={row.metric_id} className="rounded-lg border border-line/70 bg-elevated p-3">
+                  <li
+                    key={row.metric_id}
+                    className="rounded-lg border border-line/70 bg-elevated p-3"
+                  >
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-[13px] font-medium text-ink">{row.label}</p>
+                      <p className="text-[13px] font-medium text-ink">
+                        {row.label}
+                      </p>
                       <Badge tone="neutral">{row.kind}</Badge>
-                      <Badge tone={TREND_TONE[row.trend] ?? "neutral"}>{row.trend}</Badge>
+                      <Badge tone={TREND_TONE[row.trend] ?? "neutral"}>
+                        {row.trend}
+                      </Badge>
                       <span className="ml-auto text-[12px] font-semibold text-ink">
                         {row.current ?? "—"}
                         {row.unit ? ` ${row.unit}` : ""}
@@ -213,12 +264,18 @@ export function BusinessPerformanceTab() {
                           · delta {row.delta > 0 ? "+" : ""}
                           {row.delta}
                           {row.pct_change != null && (
-                            <> ({row.pct_change > 0 ? "+" : ""}{row.pct_change}%)</>
+                            <>
+                              {" "}
+                              ({row.pct_change > 0 ? "+" : ""}
+                              {row.pct_change}%)
+                            </>
                           )}
                         </>
                       )}
-                      {row.observed_count > 0 && ` · ${row.observed_count} observation(s)`}
-                      {row.last_observed_at && ` · ${timeAgo(row.last_observed_at)}`}
+                      {row.observed_count > 0 &&
+                        ` · ${row.observed_count} observation(s)`}
+                      {row.last_observed_at &&
+                        ` · ${timeAgo(row.last_observed_at)}`}
                     </p>
                   </li>
                 ))}
@@ -236,7 +293,8 @@ export function BusinessPerformanceTab() {
           >
             {loading ? (
               <div className="flex items-center gap-2 py-6 text-[12px] text-faint">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Walking the chain
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Walking the
+                chain
               </div>
             ) : !behind ? (
               <EmptyState
@@ -247,17 +305,25 @@ export function BusinessPerformanceTab() {
             ) : (
               <div className="space-y-3">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Badge tone={STATUS_TONE[behind.target?.status ?? ""] ?? "neutral"}>
+                  <Badge
+                    tone={STATUS_TONE[behind.target?.status ?? ""] ?? "neutral"}
+                  >
                     {behind.target?.status ?? "—"}
                   </Badge>
                   <span className="text-[12px] text-muted">
                     target {behind.target?.target_value ?? "—"}
-                    {behind.target?.unit ? ` ${behind.target.unit}` : ""} · current {behind.target?.current ?? "—"}
+                    {behind.target?.unit ? ` ${behind.target.unit}` : ""} ·
+                    current {behind.target?.current ?? "—"}
                     {behind.target?.gap != null && (
-                      <span className="text-danger"> · gap {behind.target.gap}</span>
+                      <span className="text-danger">
+                        {" "}
+                        · gap {behind.target.gap}
+                      </span>
                     )}
                   </span>
-                  <span className="ml-auto text-[11px] text-faint">due {behind.target?.end_at ?? "—"}</span>
+                  <span className="ml-auto text-[11px] text-faint">
+                    due {behind.target?.end_at ?? "—"}
+                  </span>
                 </div>
                 {(behind.drivers ?? []).length > 0 && (
                   <div className="flex flex-wrap items-center gap-1.5">
@@ -270,15 +336,26 @@ export function BusinessPerformanceTab() {
                 )}
                 {(behind.what_to_do ?? []).length > 0 && (
                   <div className="space-y-1.5">
-                    <p className="text-[12px] font-semibold text-ink">What to do</p>
+                    <p className="text-[12px] font-semibold text-ink">
+                      What to do
+                    </p>
                     <ul className="space-y-1.5">
                       {(behind.what_to_do ?? []).map((item, idx) => (
-                        <li key={idx} className="rounded-lg border border-line/70 bg-surface px-3 py-2">
+                        <li
+                          key={idx}
+                          className="rounded-lg border border-line/70 bg-surface px-3 py-2"
+                        >
                           <div className="flex flex-wrap items-center gap-1.5">
                             <Badge tone="neutral">{item.kind}</Badge>
-                            <p className="text-[12px] font-medium text-ink">{item.action}</p>
+                            <p className="text-[12px] font-medium text-ink">
+                              {item.action}
+                            </p>
                           </div>
-                          {item.rationale && <p className="mt-0.5 text-[11px] text-faint">{item.rationale}</p>}
+                          {item.rationale && (
+                            <p className="mt-0.5 text-[11px] text-faint">
+                              {item.rationale}
+                            </p>
+                          )}
                         </li>
                       ))}
                     </ul>
@@ -296,7 +373,8 @@ export function BusinessPerformanceTab() {
           >
             {loading ? (
               <div className="flex items-center gap-2 py-6 text-[12px] text-faint">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Deriving recommendations
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Deriving
+                recommendations
               </div>
             ) : (recommendations?.recommendations ?? []).length === 0 ? (
               <EmptyState
@@ -307,14 +385,23 @@ export function BusinessPerformanceTab() {
             ) : (
               <ul className="space-y-2">
                 {(recommendations?.recommendations ?? []).map((row, idx) => (
-                  <li key={idx} className="rounded-lg border border-line/70 bg-elevated p-3">
+                  <li
+                    key={idx}
+                    className="rounded-lg border border-line/70 bg-elevated p-3"
+                  >
                     <div className="flex flex-wrap items-center gap-1.5">
                       <Badge tone="brand">{row.kind}</Badge>
-                      <p className="text-[12px] font-medium text-ink">{row.title}</p>
+                      <p className="text-[12px] font-medium text-ink">
+                        {row.title}
+                      </p>
                     </div>
-                    {row.why && <p className="mt-0.5 text-[11px] text-faint">{row.why}</p>}
+                    {row.why && (
+                      <p className="mt-0.5 text-[11px] text-faint">{row.why}</p>
+                    )}
                     {row.evidence_count > 0 && (
-                      <p className="mt-0.5 text-[11px] text-muted">{row.evidence_count} evidence item(s)</p>
+                      <p className="mt-0.5 text-[11px] text-muted">
+                        {row.evidence_count} evidence item(s)
+                      </p>
                     )}
                   </li>
                 ))}
@@ -339,16 +426,29 @@ export function BusinessPerformanceTab() {
             ) : (
               <ul className="space-y-2">
                 {targets.map((row) => (
-                  <li key={row.target_id} className="rounded-lg border border-line/70 bg-elevated p-3">
+                  <li
+                    key={row.target_id}
+                    className="rounded-lg border border-line/70 bg-elevated p-3"
+                  >
                     <div className="flex flex-wrap items-center gap-2">
-                      <Badge tone={STATUS_TONE[row.status] ?? "neutral"}>{row.status}</Badge>
-                      <p className="text-[12px] font-medium text-ink">{row.metric_label}</p>
+                      <Badge tone={STATUS_TONE[row.status] ?? "neutral"}>
+                        {row.status}
+                      </Badge>
+                      <p className="text-[12px] font-medium text-ink">
+                        {row.metric_label}
+                      </p>
                     </div>
                     <p className="mt-1 text-[11px] text-faint">
-                      {row.period_label || "current period"} · target {row.target_value}
-                      {row.unit ? ` ${row.unit}` : ""} · current {row.current ?? "—"}
+                      {row.period_label || "current period"} · target{" "}
+                      {row.target_value}
+                      {row.unit ? ` ${row.unit}` : ""} · current{" "}
+                      {row.current ?? "—"}
                       {row.gap != null && (
-                        <span className={row.gap > 0 ? "text-danger" : "text-success"}>
+                        <span
+                          className={
+                            row.gap > 0 ? "text-danger" : "text-success"
+                          }
+                        >
                           {" "}
                           · gap {row.gap}
                         </span>
@@ -368,7 +468,8 @@ export function BusinessPerformanceTab() {
           >
             {loading ? (
               <div className="flex items-center gap-2 py-6 text-[12px] text-faint">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading forecasts
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading
+                forecasts
               </div>
             ) : forecasts.length === 0 ? (
               <EmptyState
@@ -379,18 +480,29 @@ export function BusinessPerformanceTab() {
             ) : (
               <ul className="space-y-2">
                 {forecasts.map((row) => (
-                  <li key={row.forecast_id} className="rounded-lg border border-line/70 bg-elevated p-3">
+                  <li
+                    key={row.forecast_id}
+                    className="rounded-lg border border-line/70 bg-elevated p-3"
+                  >
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge tone="brand">{row.forecast_type}</Badge>
-                      <p className="text-[12px] font-medium text-ink">{row.metric_label}</p>
+                      <p className="text-[12px] font-medium text-ink">
+                        {row.metric_label}
+                      </p>
                       <Badge tone="neutral">projected</Badge>
                     </div>
                     <p className="mt-1 text-[11px] text-faint">
-                      {row.low ?? "—"} → {row.midpoint ?? "—"} → {row.high ?? "—"}
-                      {row.confidence != null && ` · ${Math.round(row.confidence * 100)}% confidence`}
+                      {row.low ?? "—"} → {row.midpoint ?? "—"} →{" "}
+                      {row.high ?? "—"}
+                      {row.confidence != null &&
+                        ` · ${Math.round(row.confidence * 100)}% confidence`}
                       {row.horizon_label ? ` · ${row.horizon_label}` : ""}
                     </p>
-                    {row.basis && <p className="mt-0.5 text-[11px] text-muted">{row.basis}</p>}
+                    {row.basis && (
+                      <p className="mt-0.5 text-[11px] text-muted">
+                        {row.basis}
+                      </p>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -414,21 +526,33 @@ export function BusinessPerformanceTab() {
             ) : (
               <ul className="space-y-2">
                 {drivers.map((row) => (
-                  <li key={row.driver_key} className="rounded-lg border border-line/70 bg-elevated p-3">
+                  <li
+                    key={row.driver_key}
+                    className="rounded-lg border border-line/70 bg-elevated p-3"
+                  >
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-[12px] font-medium text-ink">{row.title}</p>
-                      <Badge tone={STATE_TONE[row.strength] ?? "neutral"}>{row.strength}</Badge>
+                      <p className="text-[12px] font-medium text-ink">
+                        {row.title}
+                      </p>
+                      <Badge tone={STATE_TONE[row.strength] ?? "neutral"}>
+                        {row.strength}
+                      </Badge>
                     </div>
                     <p className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-faint">
                       {row.metric_keys.map((key) => (
-                        <span key={key} className="rounded bg-surface px-1.5 py-0.5">
+                        <span
+                          key={key}
+                          className="rounded bg-surface px-1.5 py-0.5"
+                        >
                           {key}
                         </span>
                       ))}
                       <span className="text-muted">{row.kind_label}</span>
                     </p>
                     {row.relation_summary && (
-                      <p className="mt-0.5 text-[11px] text-muted">{row.relation_summary}</p>
+                      <p className="mt-0.5 text-[11px] text-muted">
+                        {row.relation_summary}
+                      </p>
                     )}
                   </li>
                 ))}
@@ -436,17 +560,23 @@ export function BusinessPerformanceTab() {
             )}
           </Card>
 
-          <Card title="Advisory only" subtitle="The assessment never rewrites the business.">
+          <Card
+            title="Advisory only"
+            subtitle="The assessment never rewrites the business."
+          >
             <div className="flex items-center gap-2 text-[12px] text-muted">
               <CircleDashed className="h-3.5 w-3.5 shrink-0 text-faint" />
-              Every score explains itself; people own targets, forecasts and decisions.
+              Every score explains itself; people own targets, forecasts and
+              decisions.
             </div>
           </Card>
         </div>
       </div>
 
       {error && (
-        <p className="rounded-lg border border-danger/30 bg-danger/10 p-2 text-[11px] text-danger">{error}</p>
+        <p className="rounded-lg border border-danger/30 bg-danger/10 p-2 text-[11px] text-danger">
+          {error}
+        </p>
       )}
     </div>
   );

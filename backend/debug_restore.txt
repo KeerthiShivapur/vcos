@@ -1,0 +1,19 @@
+=================
+        logger.info("=== PHASE 11: RESTORE FROM BACKUP ===")
+        
+        measurement_service.record_phase(RecoveryPhase.RESTORE_STARTED)
+        
+        restore_result = await restore_service.restore_from_backup(
+            db=db_session,
+            backup_id=backup_id,
+            organization_id=org.id,
+            initiated_by="dr_test",
+            target_time=None,  # Full restore to backup point
+        )
+        
+        assert restore_result["success"], f"Restore failed: {restore_result}"
+        restore_id = restore_result["restore_id"]
+        
+        measurement_service.record_phase(RecoveryPhase.RESTORE_COMPLETED)
+        
+        logger.info(f"✅ Restor

@@ -27,7 +27,16 @@ import { Badge } from "@/components/ui/Badge";
 import { Avatar } from "@/components/ui/Avatar";
 import { timeAgo, titleCase } from "@/lib/utils";
 
-const STATUSES = ["submitted", "in_discussion", "voting", "in_review", "approved", "in_progress", "implemented", "rejected"];
+const STATUSES = [
+  "submitted",
+  "in_discussion",
+  "voting",
+  "in_review",
+  "approved",
+  "in_progress",
+  "implemented",
+  "rejected",
+];
 
 export default function InnovationPage() {
   return (
@@ -41,7 +50,10 @@ function InnovationContent() {
   const { user } = useAuth();
   const canManage = roleCan(user?.role, PERMISSIONS.COMMUNICATION_MANAGE);
   const [ideas, setIdeas] = useState<Idea[]>([]);
-  const [stats, setStats] = useState<{ total: number; by_status: { status: string; count: number }[] } | null>(null);
+  const [stats, setStats] = useState<{
+    total: number;
+    by_status: { status: string; count: number }[];
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState("");
@@ -53,7 +65,11 @@ function InnovationContent() {
     setError(null);
     try {
       const [list, statsData] = await Promise.all([
-        listIdeas({ status: status || undefined, search: search || undefined, limit: 200 }),
+        listIdeas({
+          status: status || undefined,
+          search: search || undefined,
+          limit: 200,
+        }),
         getInnovationStats(),
       ]);
       setIdeas(list);
@@ -73,7 +89,13 @@ function InnovationContent() {
   async function upvote(idea: Idea) {
     try {
       const result = await voteIdea(idea.id);
-      setIdeas((prev) => prev.map((i) => (i.id === idea.id ? { ...i, voted: result.voted, vote_count: result.vote_count } : i)));
+      setIdeas((prev) =>
+        prev.map((i) =>
+          i.id === idea.id
+            ? { ...i, voted: result.voted, vote_count: result.vote_count }
+            : i,
+        ),
+      );
     } catch {
       /* ignore */
     }
@@ -113,7 +135,9 @@ function InnovationContent() {
         <div className="flex flex-wrap gap-2">
           <Badge tone="brand">{stats.total} ideas</Badge>
           {stats.by_status.slice(0, 4).map((s) => (
-            <Badge key={s.status} tone="neutral">{titleCase(s.status)}: {s.count}</Badge>
+            <Badge key={s.status} tone="neutral">
+              {titleCase(s.status)}: {s.count}
+            </Badge>
           ))}
         </div>
       )}
@@ -134,57 +158,110 @@ function InnovationContent() {
           options={STATUSES.map((s) => ({ value: s, label: titleCase(s) }))}
           className="w-44"
         />
-        <Button variant="secondary" size="sm" onClick={load}>Search</Button>
+        <Button variant="secondary" size="sm" onClick={load}>
+          Search
+        </Button>
       </div>
 
       {error ? (
-        <ErrorState title="Could not load ideas" message={error} onRetry={load} />
+        <ErrorState
+          title="Could not load ideas"
+          message={error}
+          onRetry={load}
+        />
       ) : loading ? (
-        <div className="flex justify-center py-24"><Spinner label="Loading ideas" /></div>
+        <div className="flex justify-center py-24">
+          <Spinner label="Loading ideas" />
+        </div>
       ) : ideas.length === 0 ? (
         <EmptyState
           icon={Lightbulb}
           title="No ideas yet"
           description="Share your first idea with the organization."
-          action={<Button size="sm" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" /> New idea</Button>}
+          action={
+            <Button size="sm" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-4 w-4" /> New idea
+            </Button>
+          }
         />
       ) : (
         <div className="space-y-2">
           {ideas.map((idea) => (
-            <div key={idea.id} className="rounded-lg border border-line bg-surface p-4">
+            <div
+              key={idea.id}
+              className="rounded-lg border border-line bg-surface p-4"
+            >
               <div className="flex items-start gap-4">
                 <div className="flex w-12 shrink-0 flex-col items-center rounded-md bg-brand-soft/50 py-2">
-                  <ArrowBigUp className={`h-4 w-4 ${idea.voted ? "fill-brand text-brand" : "text-brand"}`} />
-                  <span className="text-sm font-bold text-brand">{idea.vote_count}</span>
-                  <Button variant="ghost" size="sm" className="-m-1 p-1" onClick={() => upvote(idea)}>
+                  <ArrowBigUp
+                    className={`h-4 w-4 ${idea.voted ? "fill-brand text-brand" : "text-brand"}`}
+                  />
+                  <span className="text-sm font-bold text-brand">
+                    {idea.vote_count}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="-m-1 p-1"
+                    onClick={() => upvote(idea)}
+                  >
                     {idea.voted ? "Voted" : "Vote"}
                   </Button>
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-[15px] font-semibold text-ink">{idea.title}</p>
+                    <p className="text-[15px] font-semibold text-ink">
+                      {idea.title}
+                    </p>
                     <Badge tone="brand">{titleCase(idea.status)}</Badge>
-                    {idea.project_name && <Badge tone="success"><Rocket className="h-3 w-3" /> {idea.project_name}</Badge>}
+                    {idea.project_name && (
+                      <Badge tone="success">
+                        <Rocket className="h-3 w-3" /> {idea.project_name}
+                      </Badge>
+                    )}
                   </div>
-                  {idea.description && <p className="mt-1 line-clamp-2 text-[13px] text-muted">{idea.description}</p>}
+                  {idea.description && (
+                    <p className="mt-1 line-clamp-2 text-[13px] text-muted">
+                      {idea.description}
+                    </p>
+                  )}
                   <div className="mt-2 flex flex-wrap items-center gap-3 text-[12px] text-faint">
-                    <span className="flex items-center gap-1.5"><Avatar name={idea.author_name} size="xs" /> {idea.author_name}</span>
+                    <span className="flex items-center gap-1.5">
+                      <Avatar name={idea.author_name} size="xs" />{" "}
+                      {idea.author_name}
+                    </span>
                     <span>· {timeAgo(idea.created_at)}</span>
                     {idea.tags.slice(0, 3).map((tag) => (
-                      <span key={tag} className="rounded bg-surface-muted px-1.5 py-0.5 text-[11px]">#{tag}</span>
+                      <span
+                        key={tag}
+                        className="rounded bg-surface-muted px-1.5 py-0.5 text-[11px]"
+                      >
+                        #{tag}
+                      </span>
                     ))}
-                    {idea.ai_insight && <span className="text-brand">✨ AI insight available</span>}
+                    {idea.ai_insight && (
+                      <span className="text-brand">
+                        ✨ AI insight available
+                      </span>
+                    )}
                   </div>
                   {canManage && (
                     <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
                       <Select
                         value={idea.status}
                         onChange={(e) => changeStatus(idea, e.target.value)}
-                        options={STATUSES.map((s) => ({ value: s, label: titleCase(s) }))}
+                        options={STATUSES.map((s) => ({
+                          value: s,
+                          label: titleCase(s),
+                        }))}
                         className="w-40"
                       />
                       {!idea.project_id && (
-                        <Button variant="secondary" size="sm" onClick={() => promote(idea)}>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => promote(idea)}
+                        >
                           <Rocket className="h-4 w-4" /> Promote to project
                         </Button>
                       )}
@@ -247,7 +324,10 @@ function CreateIdeaModal({
         problem: problem.trim() || undefined,
         solution: solution.trim() || undefined,
         impact: impact.trim() || undefined,
-        tags: tags.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean),
+        tags: tags
+          .split(",")
+          .map((t) => t.trim().toLowerCase())
+          .filter(Boolean),
       });
       setTitle("");
       setDescription("");
@@ -268,18 +348,54 @@ function CreateIdeaModal({
       description="Share an idea worth exploring."
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
           <Button onClick={submit}>Submit idea</Button>
         </>
       }
     >
       <div className="space-y-4">
-        <Input label="Title" placeholder="e.g. Automate weekly reports" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <Textarea label="Description" placeholder="What is the idea about?" value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
-        <Textarea label="Problem" placeholder="What problem does it solve?" value={problem} onChange={(e) => setProblem(e.target.value)} rows={2} />
-        <Textarea label="Solution" placeholder="How would it work?" value={solution} onChange={(e) => setSolution(e.target.value)} rows={2} />
-        <Textarea label="Impact" placeholder="What impact would it have?" value={impact} onChange={(e) => setImpact(e.target.value)} rows={2} />
-        <Input label="Tags (comma-separated)" placeholder="automation, reports" value={tags} onChange={(e) => setTags(e.target.value)} />
+        <Input
+          label="Title"
+          placeholder="e.g. Automate weekly reports"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+        />
+        <Textarea
+          label="Description"
+          placeholder="What is the idea about?"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={2}
+        />
+        <Textarea
+          label="Problem"
+          placeholder="What problem does it solve?"
+          value={problem}
+          onChange={(e) => setProblem(e.target.value)}
+          rows={2}
+        />
+        <Textarea
+          label="Solution"
+          placeholder="How would it work?"
+          value={solution}
+          onChange={(e) => setSolution(e.target.value)}
+          rows={2}
+        />
+        <Textarea
+          label="Impact"
+          placeholder="What impact would it have?"
+          value={impact}
+          onChange={(e) => setImpact(e.target.value)}
+          rows={2}
+        />
+        <Input
+          label="Tags (comma-separated)"
+          placeholder="automation, reports"
+          value={tags}
+          onChange={(e) => setTags(e.target.value)}
+        />
         {error && <p className="text-[13px] text-danger">{error}</p>}
       </div>
     </Modal>

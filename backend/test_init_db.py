@@ -1,0 +1,184 @@
+import asyncio
+import os
+
+# Delete database file FIRST - before ANY imports that create the engine
+db_path = os.path.join(os.path.dirname(__file__), "vcos.db")
+if os.path.exists(db_path):
+    os.remove(db_path)
+    print("Deleted existing database file")
+
+async def main():
+    print("Testing init_db logic...")
+    
+    # Import all models to register them with SQLAlchemy metadata
+    # This is copied from init_db - do imports HERE after file deletion
+    from app.models import (  # noqa: F401
+        organization,
+        user,
+        role,
+        notification,
+        workspace,
+        ai,
+        invitation,
+        employee,
+        department,
+        team,
+        skill,
+        project,
+        task,
+        goal,
+        meeting,
+        calendar,
+        collaboration,
+        approval,
+        governance,
+        workload,
+        knowledge,
+        communication,
+        executive,
+        autonomy,
+        continuous_twin,
+        canonical_reliability,
+        observability,
+        workflow,
+        enterprise,
+        feature_flags,
+        infrastructure,
+        deployment_completeness,
+        backup_manifest,
+        release,
+        industry,
+        industry_module,
+        industry_template,
+        industry_policy,
+        industry_configuration,
+        digital_twin,
+        developer,
+        company_state,
+        autonomous_plan,
+        briefing,
+        company_memory,
+        decision_history,
+        innovation,
+        learning_cycle,
+        optimization,
+        organization_edge,
+        organization_health,
+        organization_node,
+        prediction,
+        recommendation,
+        simulation,
+        strategy_report,
+        executive_intelligence,
+        ai_governance,
+        resilience_plan,
+        brain,
+        company_actions,
+        organizational_learning,
+        people_intelligence,
+        skills_intelligence,
+        ownership_intelligence,
+        collaboration_intelligence,
+        org_capability_intelligence,
+        people_decision,
+        execution_intelligence,
+        execution_coordination,
+        execution_strategy,
+        resource_allocation_intelligence,
+        customer_intelligence,
+        business_commercial,
+        business_performance,
+        financial_resource_procurement,
+        canonical_resource_asset,
+        canonical_procurement_vendor,
+        canonical_economic_intelligence,
+        canonical_business_process,
+        canonical_knowledge,
+        canonical_communication_collaboration,
+        canonical_business_intelligence,
+        canonical_workforce,
+        canonical_integration,
+        company_operating,
+        company_intent,
+        canonical_company_continuity,
+        longitudinal,
+        learning_profile,
+        course,
+        learning_path,
+        skill_gap,
+        certification,
+        assessment,
+        academy,
+        mentorship,
+        career,
+        onboarding,
+        learning_recommendation,
+        hr,
+        customer,
+        lead,
+        contract,
+        ticket,
+        partner,
+        portal,
+        finance,
+        adaptive_operating_profile,
+        company_experience,
+        company_actions,
+        company_intent,
+        canonical_company_continuity,
+        longitudinal,
+        learning_profile,
+        course,
+        learning_path,
+        skill_gap,
+        certification,
+        assessment,
+        academy,
+        mentorship,
+        career,
+        onboarding,
+        learning_recommendation,
+        hr,
+        customer,
+        lead,
+        contract,
+        ticket,
+        partner,
+        portal,
+        finance,
+    )
+    
+    # Import database AFTER models are registered
+    from app.db.database import engine, Base
+    from sqlalchemy import inspect
+    
+    print(f"Tables in metadata before create_all: {len(Base.metadata.tables)}")
+    if "roles" in Base.metadata.tables:
+        print("roles IN metadata")
+    else:
+        print("roles MISSING from metadata!")
+    
+    if "user_roles" in Base.metadata.tables:
+        print("user_roles IN metadata")
+    else:
+        print("user_roles MISSING from metadata!")
+    
+    if "workspaces" in Base.metadata.tables:
+        print("workspaces IN metadata")
+    else:
+        print("workspaces MISSING from metadata!")
+    
+    # Create all tables
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+        print("All tables created")
+    
+    # Check what tables exist
+    def get_tables(sync_conn):
+        return inspect(sync_conn).get_table_names()
+    tables = await engine.run_sync(get_tables)
+    print("\nTables in database:")
+    for t in sorted(tables):
+        print(f"  {t}")
+
+asyncio.run(main())
