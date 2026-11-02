@@ -35,10 +35,10 @@ prophet>=1.5.0
 statsmodels>=0.14.0
 ruptures>=1.1.0
 
-# ML Platform - Causal Inference
-dowhy>=0.11.1,<0.12
-econml>=0.16.0
-causalgraphicalmodels>=0.0.4
+# ML Platform - Causal Inference (optional - install if needed)
+# dowhy>=0.11.1,<0.12
+# econml>=0.16.0
+# causalgraphicalmodels>=0.0.4
 
 # ML Platform - Anomaly Detection & Insights
 scipy>=1.10.0
