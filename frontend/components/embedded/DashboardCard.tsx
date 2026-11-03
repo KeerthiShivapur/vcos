@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, Edit, Trash2, Eye, Copy, ExternalLink, Settings } from "lucide-react";
+import { Box, Edit, Trash2, Eye, Copy, ExternalLink, Settings, Copy as CopyIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -71,7 +71,7 @@ export function DashboardCard({ dashboard, onEdit, onViewEmbedCode, onPreview, o
                     <MenuItem label="Edit" onClick={() => { onEdit(); close(); }} />
                     <MenuItem label="Embed Code" icon={ExternalLink} onClick={() => { onViewEmbedCode(); close(); }} />
                     <MenuItem label="Preview" icon={Eye} onClick={() => { onPreview(); close(); }} />
-                    <MenuItem label="Copy ID" icon={CopyIcon} onClick={() => { onCopyId(); close(); }} />
+                    <MenuItem label="Copy ID" icon={Copy} onClick={() => { onCopyId(); close(); }} />
                     <MenuItem label="Delete" icon={Trash2} danger onClick={() => { onDelete(); close(); }} />
                   </>
                 )}
