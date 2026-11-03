@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/DropdownMenu";
 import { Modal } from "@/components/ui/Modal";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs";
 import { Textarea } from "@/components/ui/Textarea";
@@ -52,7 +51,7 @@ export function CreateDashboardModal({ isOpen, onClose, onSubmit, loading, initi
   if (!isOpen) return null;
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={initialData ? "Edit Dashboard" : "Create Dashboard"}>
+    <Modal open={isOpen} onClose={onClose} title={initialData ? "Edit Dashboard" : "Create Dashboard"}>
       <form onSubmit={async (e) => {
         e.preventDefault();
         await onSubmit(formData);
@@ -72,22 +71,30 @@ export function CreateDashboardModal({ isOpen, onClose, onSubmit, loading, initi
         <div className="flex gap-4">
           <div className="flex-1">
             <Label htmlFor="embedding_mode">Embedding Mode</Label>
-            <Select value={formData.embedding_mode || "iframe"} onValueChange={v => setFormData({...formData, embedding_mode: v as any})}>
-              <option value="iframe">Iframe</option>
-              <option value="web_component">Web Component</option>
-              <option value="javascript_sdk">JavaScript SDK</option>
-            </Select>
+            <Select
+              value={formData.embedding_mode || "iframe"}
+              onChange={e => setFormData({...formData, embedding_mode: e.target.value as any})}
+              options={[
+                { value: "iframe", label: "Iframe" },
+                { value: "web_component", label: "Web Component" },
+                { value: "javascript_sdk", label: "JavaScript SDK" },
+              ]}
+            />
           </div>
           <div className="flex-1">
             <Label htmlFor="theme">Theme</Label>
-            <Select value={formData.theme || "light"} onValueChange={v => setFormData({...formData, theme: v})}>
-              <option value="light">Light</option>
-              <option value="dark">Dark</option>
-            </Select>
+            <Select
+              value={formData.theme || "light"}
+              onChange={e => setFormData({...formData, theme: e.target.value})}
+              options={[
+                { value: "light", label: "Light" },
+                { value: "dark", label: "Dark" },
+              ]}
+            />
           </div>
         </div>
         <div className="flex justify-end gap-2 pt-4">
-          <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={loading}>{loading ? "Saving..." : initialData ? "Update" : "Create"}</Button>
         </div>
       </form>

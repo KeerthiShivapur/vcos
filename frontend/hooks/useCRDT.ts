@@ -28,7 +28,7 @@ interface CRDTDocumentState {
   lastModifiedBy: string;
 }
 
-interface CRDTOperation {
+export interface CRDTOperation {
   id: string;
   type: "insert" | "delete" | "update" | "retain";
   position: number;

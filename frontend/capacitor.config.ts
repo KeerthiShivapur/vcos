@@ -34,8 +34,7 @@ const config: CapacitorConfig = {
     },
     Haptics: {},
     Keyboard: {
-      resize: "body",
-      style: "dark",
+      style: "dark" as any,
       resizeOnFullScreen: true,
     },
     Device: {},

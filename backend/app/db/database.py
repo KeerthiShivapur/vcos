@@ -80,6 +80,36 @@ def _create_engine():
         def set_search_path(dbapi_connection, connection_record):
             if hasattr(dbapi_connection, "execute"):
                 dbapi_connection.execute("SET search_path TO public")
+    elif url.startswith("sqlite"):
+        # SQLite-specific configuration for Windows to prevent locking issues
+        connect_args = {
+            "check_same_thread": False,
+            "timeout": 30,
+        }
+        eng = create_async_engine(
+            url, 
+            **kwargs,
+            connect_args=connect_args,
+            poolclass=None,  # No pooling for SQLite
+        )
+        
+        # Enable WAL mode and other SQLite optimizations for Windows
+        @event.listens_for(eng.sync_engine, "connect")
+        def set_sqlite_pragma(dbapi_connection, connection_record):
+            cursor = dbapi_connection.cursor()
+            # Enable WAL mode for better concurrency
+            cursor.execute("PRAGMA journal_mode=WAL;")
+            # Enable foreign keys
+            cursor.execute("PRAGMA foreign_keys=ON;")
+            # Increase cache size
+            cursor.execute("PRAGMA cache_size=-32768;")  # 32MB
+            # Synchronous mode NORMAL is faster than FULL
+            cursor.execute("PRAGMA synchronous=NORMAL;")
+            # Busy timeout
+            cursor.execute("PRAGMA busy_timeout=30000;")  # 30 seconds
+            # Temp store in memory
+            cursor.execute("PRAGMA temp_store=MEMORY;")
+            cursor.close()
     else:
         eng = create_async_engine(url, **kwargs)
 

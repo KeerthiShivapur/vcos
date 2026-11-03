@@ -10,7 +10,6 @@ import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { Spinner } from "@/components/ui/Spinner";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/DropdownMenu";
 import { Modal } from "@/components/ui/Modal";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs";
 import { Textarea } from "@/components/ui/Textarea";
@@ -87,7 +86,7 @@ export function CreateDashboardModal({ isOpen, onClose, onSubmit, loading, initi
   if (!isOpen) return null;
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={initialData ? "Edit Dashboard" : "Create Dashboard"}>
+    <Modal open={isOpen} onClose={onClose} title={initialData ? "Edit Dashboard" : "Create Dashboard"}>
       <form onSubmit={async (e) => {
         e.preventDefault();
         await onSubmit(formData);
@@ -107,22 +106,30 @@ export function CreateDashboardModal({ isOpen, onClose, onSubmit, loading, initi
         <div className="flex gap-4">
           <div className="flex-1">
             <Label htmlFor="embedding_mode">Embedding Mode</Label>
-            <Select value={formData.embedding_mode || "iframe"} onValueChange={v => setFormData({...formData, embedding_mode: v as any})}>
-              <option value="iframe">Iframe</option>
-              <option value="web_component">Web Component</option>
-              <option value="javascript_sdk">JavaScript SDK</option>
-            </Select>
+            <Select
+              value={formData.embedding_mode || "iframe"}
+              onChange={e => setFormData({...formData, embedding_mode: e.target.value as any})}
+              options={[
+                { value: "iframe", label: "Iframe" },
+                { value: "web_component", label: "Web Component" },
+                { value: "javascript_sdk", label: "JavaScript SDK" },
+              ]}
+            />
           </div>
           <div className="flex-1">
             <Label htmlFor="theme">Theme</Label>
-            <Select value={formData.theme || "light"} onValueChange={v => setFormData({...formData, theme: v})}>
-              <option value="light">Light</option>
-              <option value="dark">Dark</option>
-            </Select>
+            <Select
+              value={formData.theme || "light"}
+              onChange={e => setFormData({...formData, theme: e.target.value})}
+              options={[
+                { value: "light", label: "Light" },
+                { value: "dark", label: "Dark" },
+              ]}
+            />
           </div>
         </div>
         <div className="flex justify-end gap-2 pt-4">
-          <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={loading}>{loading ? "Saving..." : initialData ? "Update" : "Create"}</Button>
         </div>
       </form>
@@ -134,14 +141,14 @@ export function AccessDenied() {
   return <ErrorState
     title="Access Denied"
     message="You don't have permission to view embedded analytics dashboards."
-    action={{ label: "Go Home", onClick: () => window.location.href = "/app" }}
+    onRetry={() => window.location.href = "/app"}
   />;
 }
 
 export function LoadingState() {
   return (
     <div className="flex items-center justify-center h-64">
-      <Spinner className="h-8 w-8" />
+      <Spinner />
     </div>
   );
 }
@@ -151,7 +158,7 @@ export function ErrorStateComponent({ error, onRetry }: { error: string; onRetry
     <ErrorState
       title="Failed to load dashboards"
       message={error}
-      action={{ label: "Retry", onClick: onRetry }}
+      onRetry={onRetry}
     />
   );
 }
@@ -159,14 +166,14 @@ export function ErrorStateComponent({ error, onRetry }: { error: string; onRetry
 export function EmptyStateComponent({ onCreate, disabled }: { onCreate: () => void; disabled: boolean }) {
   return (
     <EmptyState
-      icon={<Box className="h-12 w-12 text-muted" />}
+      icon={Box}
       title="No dashboards yet"
       description="Create your first embedded dashboard to get started"
-      action={{
-        label: "Create Dashboard",
-        onClick: onCreate,
-        disabled,
-      }}
+      action={
+        <Button onClick={onCreate} disabled={disabled}>
+          Create Dashboard
+        </Button>
+      }
     />
   );
 }

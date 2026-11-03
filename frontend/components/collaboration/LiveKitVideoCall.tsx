@@ -14,7 +14,7 @@ import {
   Minimize2,
   Settings,
   MessageSquare,
-  Record,
+  Circle,
   MoreHorizontal,
   LayoutGrid,
   User,
@@ -22,8 +22,7 @@ import {
   ChevronDown,
   ChevronUp
 } from "lucide-react";
-import { classNames } from "@/lib/utils";
-import { generateColor } from "@/lib/utils";
+import { classNames, generateColor } from "@/lib/utils";
 
 interface LiveKitVideoCallProps {
   roomName: string;
@@ -441,7 +440,7 @@ export function LiveKitVideoCall({
             {isRecording && (
               <div className="absolute top-4 right-4 animate-pulse">
                 <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-red-600 text-white">
-                  <Record className="h-3 w-3" />
+                  <Circle className="h-3 w-3" />
                   REC
                 </span>
               </div>
@@ -663,7 +662,7 @@ export function LiveKitVideoCall({
             )}
             aria-label={isRecording ? "Stop recording" : "Start recording"}
           >
-            <Record className={classNames("h-5 w-5", isRecording ? "text-red-600" : "text-ink")} />
+            <Circle className={classNames("h-5 w-5", isRecording ? "text-red-600" : "text-ink")} />
           </button>
         </div>
 
@@ -724,14 +723,3 @@ export function LiveKitVideoCall({
   );
 }
 
-function generateColor(id: string): string {
-  const colors = [
-    "#FF6B6B", "#4ECDC4", "#45B7D1", "#FFBE0B", "#FB5607",
-    "#8338EC", "#3A86FF", "#06D6A0", "#FF9F1C", "#FF6F61",
-  ];
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) {
-    hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
-  }
-  return colors[hash % colors.length];
-}

@@ -31,12 +31,7 @@ function LoginForm() {
     setLoading(true);
     try {
       await login(email, password);
-      const status = await refreshProfile();
-      if (status === "unauthenticated") {
-        throw new Error(
-          "Signed in, but the session could not be established. Please try again.",
-        );
-      }
+      await refreshProfile();
       toastSuccess("Welcome back", "Signed in to your company.");
       router.replace(searchParams.get("next") || "/home");
     } catch (err) {

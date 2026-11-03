@@ -19,7 +19,7 @@ export function Header({ activeSection, setActiveSection }: HeaderProps) {
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Embed VCOS analytics dashboards in your application</p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={() => setActiveSection("quick-start")}>
+            <Button variant="secondary" onClick={() => setActiveSection("quick-start")}>
               <Code className="w-4 h-4 mr-2" />
               Documentation
             </Button>

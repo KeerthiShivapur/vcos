@@ -4,7 +4,6 @@
  */
 
 export { CollaborativeEditorV2 } from "./CollaborativeEditorV2";
-export { LiveKitVideoCall } from "./LiveKitVideoCall";
 export { CommentThreadView } from "./CommentThread";
 export {
   ScreenSharePreview,

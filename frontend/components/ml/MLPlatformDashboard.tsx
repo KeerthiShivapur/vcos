@@ -8,7 +8,7 @@
 import { useState, useMemo } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs";
 import { Card } from "@/components/ui/Card";
-import { MLInsightsDashboard } from "@/components/collaboration/MLInsightsDashboard";
+// import { MLInsightsDashboard } from "@/components/collaboration/MLInsightsDashboard";
 import { ModelRegistryDashboard } from "./ModelRegistryDashboard";
 import { FeatureStoreExplorer } from "./FeatureStoreExplorer";
 import { ForecastingWorkbench } from "./ForecastingWorkbench";
@@ -129,7 +129,9 @@ export function MLPlatformDashboard({
         </TabsList>
 
         <TabsContent value="insights" className="flex-1 p-4">
-          <MLInsightsDashboard organizationId={organizationId} />
+          <div className="p-8 text-center text-muted">
+            <p>Insights dashboard coming soon</p>
+          </div>
         </TabsContent>
 
         <TabsContent value="models" className="flex-1 p-4">

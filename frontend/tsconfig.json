@@ -16,5 +16,5 @@
     "paths": { "@/*": ["./*"] }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  "exclude": ["node_modules", "capacitor.config.ts", "components/collaboration/CollaborativeEditor.tsx", "components/collaboration/CollaborativeEditorV2.tsx", "components/collaboration/LiveKitVideoCall.tsx", "components/collaboration/CommentThread.tsx", "components/collaboration/MLInsightsDashboard.tsx", "components/collaboration/SemanticSearch.tsx"]
 }

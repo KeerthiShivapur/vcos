@@ -19,7 +19,8 @@ import {
   Star,
   StarOff,
   AlertCircle,
-  Info
+  Info,
+  X
 } from "lucide-react";
 import { classNames } from "@/lib/utils";
 
@@ -295,6 +296,7 @@ export function SemanticSearch({ organizationId, onResultSelect, className }: Se
                 )}
               </button>
             </div>
+          </div>
           </form>
 
           {/* Filters */}
@@ -397,8 +399,7 @@ export function SemanticSearch({ organizationId, onResultSelect, className }: Se
         </div>
       </div>
 
-      {/* AI Answer Panel */}
-      {showRag && ragAnswer && (
+      {showRag && ragAnswer ? (
         <div className="p-4 border-b border-line bg-brand/5 animate-slide-down">
           <div className="flex items-start justify-between gap-4 mb-4">
             <div className="flex items-center gap-2">
@@ -495,7 +496,7 @@ export function SemanticSearch({ organizationId, onResultSelect, className }: Se
             </div>
           )}
         </div>
-      )}
+      : null)}
 
       {/* Search Results */}
       <div className="flex-1 overflow-y-auto p-4">

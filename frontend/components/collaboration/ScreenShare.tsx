@@ -21,6 +21,7 @@ interface ScreenSharePreviewProps {
   onStop: () => void;
   onMinimize?: () => void;
   onMaximize?: () => void;
+  isMinimized?: boolean;
   className?: string;
 }
 
@@ -128,6 +129,7 @@ export function ScreenSharePreview({
   return (
     <ScreenSharePreviewContent
       stream={stream}
+      isSharing={true}
       isMinimized={isMinimized}
       onStop={onStop}
       onMinimize={onMinimize}
@@ -168,7 +170,6 @@ export function ScreenShareButton({
       )}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      disabled={disabled}
       aria-label={isSharing ? "Stop screen sharing" : "Start screen sharing"}
     >
       <Share2 className={classNames("h-4 w-4", isHovered && "animate-pulse")} />
@@ -251,7 +252,7 @@ export function ScreenShareSelector({ isOpen, onClose, onSelect }: ScreenShareSe
           })
         );
         
-        setSources(sourceData.filter(Boolean) as typeof sourceData);
+        setSources(sourceData.filter(Boolean) as Array<{ id: string; name: string; thumbnail: string; displaySurface: string }>);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load screen sources');
       } finally {

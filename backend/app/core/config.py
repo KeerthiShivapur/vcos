@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
 
     # Database
-    DATABASE_URL: str = "sqlite+aiosqlite:///./vcos.db"
+    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/vcos4"
     DATABASE_ECHO: bool = False
 
     # Security

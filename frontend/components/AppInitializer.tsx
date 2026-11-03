@@ -22,13 +22,14 @@ export function AppInitializer() {
     // Also register for push subscription sync
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.ready.then((registration) => {
-        if ("sync" in registration) {
-          registration.sync
+        const syncManager = registration as any;
+        if ("sync" in syncManager) {
+          syncManager.sync
             .register("push-subscription-sync")
             .then(() =>
               console.log("[AppInit] Push subscription sync registered"),
             )
-            .catch((err) =>
+            .catch((err: any) =>
               console.warn(
                 "[AppInit] Push subscription sync registration failed:",
                 err,

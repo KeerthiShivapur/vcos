@@ -22,7 +22,6 @@ import {
 import { classNames } from "@/lib/utils";
 import { CollaborativeEditorV2 } from "@/components/collaboration/CollaborativeEditorV2";
 import { CommentThreadView } from "@/components/collaboration/CommentThread";
-import { LiveKitVideoCall } from "@/components/collaboration/LiveKitVideoCall";
 import { ScreenSharePreview, ScreenShareButton } from "@/components/collaboration/ScreenShare";
 import { useAuth } from "@/hooks/useAuth";
 import { useComments } from "@/hooks/useComments";
@@ -444,8 +443,8 @@ export default function CollaborationDocumentPage() {
               <div className="flex flex-col h-full p-4">
                 <h3 className="font-medium mb-4">Call Controls</h3>
                 <ScreenShareButton
-                  onStart={startScreenShare}
-                  onStop={stopScreenShare}
+                  onStart={async () => { await startScreenShare(); }}
+                  onStop={async () => { stopScreenShare(); }}
                   isSharing={isSharing}
                 />
                 {isSharing && stream && (
