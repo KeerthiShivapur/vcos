@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, Edit, Trash2, Eye, Copy, ExternalLink, Settings, Copy as CopyIcon } from "lucide-react";
+import { Box, Edit, Trash2, Eye, Copy, ExternalLink, Settings } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
