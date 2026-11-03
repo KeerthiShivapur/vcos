@@ -2,6 +2,7 @@
 
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from typing import Any, Callable, Dict, Optional
 
@@ -9,7 +10,6 @@ from fastapi import FastAPI, Request, Response
 from opentelemetry import metrics, trace
 from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-from opentelemetry.exporter.prometheus import PrometheusMetricReader
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
 from opentelemetry.instrumentation.redis import RedisInstrumentor
@@ -32,6 +32,15 @@ settings = get_settings()
 # Global metrics
 _meter = None
 _tracer = None
+
+# Try to import PrometheusMetricReader, fallback gracefully if not available
+try:
+    from opentelemetry.exporter.prometheus import PrometheusMetricReader
+    PROMETHEUS_AVAILABLE = True
+except ImportError:
+    PROMETHEUS_AVAILABLE = False
+    logger.warning("opentelemetry-exporter-prometheus not available, Prometheus metrics will be disabled")
+    PrometheusMetricReader = None  # type: ignore
 
 
 def init_observability(app: FastAPI) -> None:
@@ -65,9 +74,14 @@ def init_observability(app: FastAPI) -> None:
     # Setup metrics
     metric_readers = []
     
-    # Prometheus exporter
-    prometheus_reader = PrometheusMetricReader()
-    metric_readers.append(prometheus_reader)
+    # Prometheus exporter (if available)
+    if PROMETHEUS_AVAILABLE and PrometheusMetricReader:
+        try:
+            prometheus_reader = PrometheusMetricReader()
+            metric_readers.append(prometheus_reader)
+            logger.info("Prometheus metrics enabled")
+        except Exception as e:
+            logger.warning(f"Failed to initialize Prometheus metrics: {e}")
     
     # OTLP metric exporter if configured
     if otlp_endpoint:
@@ -76,6 +90,11 @@ def init_observability(app: FastAPI) -> None:
     else:
         # Console exporter for development
         metric_readers.append(PeriodicExportingMetricReader(ConsoleMetricExporter()))
+    
+    # Ensure at least one metric reader is available
+    if not metric_readers:
+        metric_readers.append(PeriodicExportingMetricReader(ConsoleMetricExporter()))
+        logger.info("Using console metric exporter as fallback")
     
     meter_provider = MeterProvider(
         resource=resource,
